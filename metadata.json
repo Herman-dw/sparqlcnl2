@@ -1,0 +1,5 @@
+{
+  "name": "CompetentNL SPARQL Agent",
+  "description": "Een intelligente NL-naar-SPARQL agent voor het bevragen van CompetentNL en ESCO data met RAG-ondersteuning, SPARQL validatie en Excel export functionaliteit.",
+  "requestFramePermissions": []
+}

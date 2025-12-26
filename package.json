@@ -1,0 +1,23 @@
+
+{
+  "name": "competentnl-sparql-agent",
+  "version": "1.0.0",
+  "description": "NL-naar-SPARQL agent",
+  "main": "server.js",
+  "scripts": {
+    "start-backend": "node server.js",
+    "start-frontend": "vite",
+    "dev": "npm run start-backend & npm run start-frontend"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "node-fetch": "^2.6.9"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}
