@@ -1,73 +1,87 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { EXAMPLES, PREFIXES, WHITELIST_PREDICATES, GRAPH_OPTIONS } from "../constants";
 
-// We initialiseren de client binnen de functies of zorgen dat process.env.API_KEY beschikbaar is
-const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-
-const retrieveRelevantContext = (userQuery: string) => {
-  const keywords = userQuery.toLowerCase().split(/\s+/).filter(k => k.length > 3);
-  const relevantExamples = EXAMPLES.filter(ex => 
-    keywords.some(kw => ex.vraag.toLowerCase().includes(kw))
-  );
-  const examplesToUse = relevantExamples.length > 0 ? relevantExamples : EXAMPLES;
-
-  return {
-    examples: examplesToUse.slice(0, 20),
-    prefixes: PREFIXES,
-    predicates: WHITELIST_PREDICATES,
-    graphs: GRAPH_OPTIONS.map(g => `<${g.uri}>`)
-  };
-};
+// De API sleutel wordt door de omgeving geïnjecteerd in process.env.API_KEY
+// We initialiseren de client direct binnen de functies om altijd de actuele sleutel te hebben
+const MODEL_NAME = 'gemini-3-pro-preview';
+const SUMMARY_MODEL = 'gemini-3-flash-preview';
 
 export const generateSparql = async (userQuery: string, filters: { graphs: string[], type: string, status: string }) => {
-  const context = retrieveRelevantContext(userQuery);
-  const ai = getAiClient();
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  const systemPrompt = `
-    Je bent een SPARQL expert voor CompetentNL.
-    Genereer UITSLUITEND de SPARQL SELECT query.
+  const systemInstruction = `
+    Je bent een wereldklasse SPARQL expert gespecialiseerd in CompetentNL en ESCO data.
     
-    RICHTLIJNEN:
-    1. Gebruik prefixes: ${context.prefixes}
-    2. Gebruik FROM clauses voor: ${filters.graphs.map(g => `<${g}>`).join(', ')}
-    3. Forceer LIMIT 50.
-    4. Alleen SELECT queries.
+    DOEL:
+    Vertaal de vraag van de gebruiker naar een geldige SPARQL SELECT of ASK query.
     
-    VOORBEELDEN:
-    ${context.examples.map(ex => `Vraag: ${ex.vraag}\nQuery: ${ex.query}`).join('\n\n')}
+    CONTEXT:
+    Prefixes: ${PREFIXES}
+    Beschikbare Graphs: ${filters.graphs.map(g => `<${g}>`).join(', ')}
+    Toegestane Predicates: ${WHITELIST_PREDICATES.join(', ')}
+    
+    STRIKTE REGELS:
+    1. Retourneer de SPARQL query ZONDER markdown blocks of extra tekst.
+    2. Gebruik ALTIJD de juiste FROM <graph> clauses gebaseerd op de filters.
+    3. Voeg ALTIJD een LIMIT 50 toe aan SELECT queries (tenzij expliciet anders gevraagd).
+    4. Gebruik alleen de prefixes die nodig zijn.
+    5. Houd de query performant en specifiek.
 
-    ANTWOORD MET ALLEEN DE QUERY.
+    VOORBEELDEN:
+    ${EXAMPLES.map(ex => `Vraag: ${ex.vraag}\nQuery: ${ex.query}`).join('\n\n')}
   `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-pro-preview",
-    contents: userQuery,
-    config: {
-      systemInstruction: systemPrompt,
-      temperature: 0,
-    },
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: userQuery,
+      config: {
+        systemInstruction: systemInstruction,
+        temperature: 0.1,
+      },
+    });
 
-  let rawQuery = response.text?.trim() || '';
-  rawQuery = rawQuery.replace(/```sparql/g, '').replace(/```/g, '').trim();
-  return rawQuery;
+    let sparql = response.text || '';
+    // Opschonen van eventuele markdown code blocks
+    sparql = sparql.replace(/```sparql/g, '').replace(/```/g, '').trim();
+    
+    return sparql;
+  } catch (error: any) {
+    console.error("Gemini SPARQL Generation Error:", error);
+    throw new Error(`AI kon geen SPARQL genereren: ${error.message}`);
+  }
 };
 
 export const summarizeResults = async (question: string, results: any[]) => {
-  if (results.length === 0) return "Ik kon geen resultaten vinden voor deze vraag in de geselecteerde graphs.";
-  
-  const ai = getAiClient();
-  const resultsSample = JSON.stringify(results.slice(0, 3));
-  const prompt = `Vraag: ${question}\nData: ${resultsSample}\nTotaal: ${results.length}\nSamenvatting in NL:`;
+  if (!results || results.length === 0) {
+    return "Ik heb de database bevraagd, maar er zijn geen resultaten gevonden die voldoen aan je criteria.";
+  }
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: {
-      systemInstruction: "Vat de SPARQL resultaten kort samen voor de gebruiker.",
-      temperature: 0.5,
-    },
-  });
-  return response.text;
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const dataSnippet = JSON.stringify(results.slice(0, 5));
+  
+  const prompt = `
+    Vraag van gebruiker: "${question}"
+    Aantal resultaten gevonden: ${results.length}
+    Data voorbeeld (eerste 5 rijen): ${dataSnippet}
+    
+    Geef een vriendelijke, professionele samenvatting in het Nederlands van wat er gevonden is. 
+    Verwijs naar specifieke labels of namen uit de data. 
+    Als er veel resultaten zijn, meld dan dat de volledige lijst in de tabel hieronder staat en geëxporteerd kan worden naar Excel.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: SUMMARY_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.7,
+      },
+    });
+
+    return response.text || "Hier zijn de resultaten van je zoekopdracht.";
+  } catch (error) {
+    return `Gevonden resultaten: ${results.length} rijen. Zie de tabel hieronder voor details.`;
+  }
 };
