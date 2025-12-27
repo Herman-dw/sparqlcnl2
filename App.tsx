@@ -1,30 +1,25 @@
+/**
+ * CompetentNL SPARQL Agent - v2.0.0
+ * Met concept disambiguatie
+ */
 
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Send, 
-  Database, 
-  Download, 
-  Filter, 
-  Info, 
-  Trash2, 
-  Loader2,
-  Settings,
-  Save,
-  Wifi,
-  WifiOff,
-  RefreshCcw,
-  ShieldAlert,
-  Server
+  Send, Database, Download, Filter, Info, Trash2, Loader2,
+  Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
+  HelpCircle, CheckCircle
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS, EXAMPLES } from './constants';
-import { generateSparql, summarizeResults } from './services/geminiService';
+import { 
+  generateSparqlWithDisambiguation, 
+  summarizeResults,
+  DisambiguationData
+} from './services/geminiService';
 import { executeSparql, validateSparqlQuery, ProxyType } from './services/sparqlService';
 import { downloadAsExcel } from './services/excelService';
 
-// Gebruik poort 3000 voor de frontend zoals ingesteld in vite.config.mts
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
-const DEFAULT_KEY = '';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
 
 const App: React.FC = () => {
@@ -36,13 +31,14 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   const [sparqlEndpoint, setSparqlEndpoint] = useState(() => localStorage.getItem('sparql_url') || DEFAULT_URL);
-  const [authHeader, setAuthHeader] = useState(() => localStorage.getItem('sparql_auth') || DEFAULT_KEY);
+  const [authHeader, setAuthHeader] = useState(() => localStorage.getItem('sparql_auth') || '');
   const [proxyMode, setProxyMode] = useState<ProxyType>(() => (localStorage.getItem('proxy_mode') as ProxyType) || 'local');
   const [localBackendUrl, setLocalBackendUrl] = useState(() => localStorage.getItem('local_backend_url') || DEFAULT_LOCAL_BACKEND);
   const [showSettings, setShowSettings] = useState(false);
-  
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const [lastError, setLastError] = useState<string | null>(null);
+  
+  // Disambiguation state
+  const [pendingDisambiguation, setPendingDisambiguation] = useState<DisambiguationData | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -52,19 +48,15 @@ const App: React.FC = () => {
 
   const checkConnectivity = async () => {
     setApiStatus('checking');
-    setLastError(null);
     try {
       await executeSparql("ASK { ?s ?p ?o }", sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
       setApiStatus('online');
-    } catch (e: any) {
+    } catch (e) {
       setApiStatus('offline');
-      setLastError(e.message);
     }
   };
 
-  useEffect(() => {
-    checkConnectivity();
-  }, []);
+  useEffect(() => { checkConnectivity(); }, []);
 
   const saveSettings = () => {
     localStorage.setItem('sparql_url', sparqlEndpoint);
@@ -75,33 +67,89 @@ const App: React.FC = () => {
     checkConnectivity();
   };
 
+  // Build chat history for context
+  const getChatHistory = () => {
+    return messages.slice(-6).map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.text,
+      sparql: m.sparql
+    }));
+  };
+
   const handleSend = async (text: string = inputText) => {
     if (!text.trim()) return;
 
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', text, timestamp: new Date(), status: 'success' };
+    const userMsg: Message = { 
+      id: Date.now().toString(), 
+      role: 'user', 
+      text, 
+      timestamp: new Date(), 
+      status: 'success' 
+    };
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
     setIsLoading(true);
 
     try {
-      const sparql = await generateSparql(text, { graphs: selectedGraphs, type: resourceType, status: 'Current' });
-      const validation = validateSparqlQuery(sparql, selectedGraphs);
-      if (!validation.valid) throw new Error(validation.error);
+      // Generate SPARQL with disambiguation support
+      const result = await generateSparqlWithDisambiguation(
+        text, 
+        { graphs: selectedGraphs, type: resourceType, status: 'Current' },
+        getChatHistory(),
+        pendingDisambiguation || undefined
+      );
 
-      const results = await executeSparql(sparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
-      const summary = await summarizeResults(text, results);
+      // Check if disambiguation is needed
+      if (result.needsDisambiguation && result.disambiguationData) {
+        setPendingDisambiguation(result.disambiguationData);
+        
+        const disambigMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          text: result.response,
+          timestamp: new Date(),
+          status: 'success',
+          metadata: { isDisambiguation: true }
+        };
+        setMessages(prev => [...prev, disambigMsg]);
+        setIsLoading(false);
+        return;
+      }
 
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        text: summary,
-        sparql: sparql,
-        results: results,
-        timestamp: new Date(),
-        status: 'success'
-      };
-      setMessages(prev => [...prev, assistantMsg]);
+      // Clear disambiguation state
+      setPendingDisambiguation(null);
+
+      // We have SPARQL - execute it
+      if (result.sparql) {
+        const validation = validateSparqlQuery(result.sparql, selectedGraphs);
+        if (!validation.valid) throw new Error(validation.error);
+
+        const results = await executeSparql(result.sparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+        
+        // Add resolved concepts info to summary
+        let resolvedInfo = '';
+        if (result.resolvedConcepts.length > 0) {
+          resolvedInfo = result.resolvedConcepts
+            .map(c => `_"${c.term}" → "${c.resolved}"_`)
+            .join(', ') + '\n\n';
+        }
+        
+        const summary = await summarizeResults(text, results);
+
+        const assistantMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          text: resolvedInfo + summary,
+          sparql: result.sparql,
+          results: results,
+          timestamp: new Date(),
+          status: 'success'
+        };
+        setMessages(prev => [...prev, assistantMsg]);
+      }
+      
     } catch (error: any) {
+      setPendingDisambiguation(null);
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -114,8 +162,16 @@ const App: React.FC = () => {
     }
   };
 
+  // Quick selection buttons for disambiguation
+  const handleQuickSelect = (index: number) => {
+    if (pendingDisambiguation) {
+      handleSend((index + 1).toString());
+    }
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
+      {/* Sidebar */}
       <aside className="w-80 bg-white border-r border-slate-200 flex flex-col shadow-xl z-20">
         <div className="p-6 bg-indigo-700 text-white">
           <div className="flex items-center justify-between mb-2">
@@ -128,13 +184,13 @@ const App: React.FC = () => {
             </button>
           </div>
           <div className="text-[10px] font-bold opacity-80 uppercase tracking-widest flex items-center gap-1">
-            <Server className="w-3 h-3" /> Status: {proxyMode === 'local' ? 'Lokale Backend' : 'Proxy'}
+            <Server className="w-3 h-3" /> v2.0 met Disambiguatie
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           {showSettings && (
-            <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl space-y-3 animate-in fade-in zoom-in-95">
+            <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl space-y-3">
               <h4 className="text-[10px] font-bold text-indigo-700 uppercase tracking-widest">Connectie</h4>
               <div className="space-y-2">
                 <div>
@@ -193,7 +249,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
-          <button onClick={() => setMessages([])} className="text-[10px] text-slate-400 font-bold hover:text-rose-500 flex items-center gap-1 uppercase">
+          <button onClick={() => { setMessages([]); setPendingDisambiguation(null); }} className="text-[10px] text-slate-400 font-bold hover:text-rose-500 flex items-center gap-1 uppercase">
             <Trash2 className="w-3 h-3" /> Wis Chat
           </button>
           <div onClick={checkConnectivity} className={`flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 rounded-full cursor-pointer shadow-sm ${
@@ -207,6 +263,7 @@ const App: React.FC = () => {
         </div>
       </aside>
 
+      {/* Main Content */}
       <main className="flex-1 flex flex-col relative bg-slate-50">
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 pb-32">
           {messages.length === 0 && (
@@ -215,22 +272,17 @@ const App: React.FC = () => {
                 <div className="w-24 h-24 bg-indigo-600 rounded-[2rem] flex items-center justify-center rotate-6 shadow-2xl relative z-10">
                   <Database className="w-12 h-12 text-white" />
                 </div>
-                <div className="absolute inset-0 bg-indigo-200 rounded-[2rem] -rotate-3 blur-sm"></div>
               </div>
               <div className="space-y-4">
-                <h2 className="text-4xl font-black text-slate-900 tracking-tight leading-tight">CompetentNL AI Agent</h2>
+                <h2 className="text-4xl font-black text-slate-900 tracking-tight">CompetentNL AI Agent</h2>
                 <p className="text-slate-500 text-base leading-relaxed">
-                  Stel vragen in natuurlijk Nederlands over beroepen en vaardigheden.
+                  Stel vragen in natuurlijk Nederlands. Bij onduidelijkheid vraag ik door welk concept je precies bedoelt.
                 </p>
                 {apiStatus === 'offline' && (
                   <div className="mt-8 p-6 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-sm space-y-4">
                     <div className="flex items-center gap-2 font-black uppercase tracking-widest text-xs text-rose-600">
                       <ShieldAlert className="w-5 h-5" /> Verbindingsfout
                     </div>
-                    <p className="opacity-90 font-mono text-[10px] bg-white/60 p-3 rounded-lg text-left overflow-x-auto">
-                      De site op poort 3000 kan niet praten met de backend op 3001. 
-                      Voer 'npm start' uit in je terminal.
-                    </p>
                     <button onClick={checkConnectivity} className="w-full py-2.5 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 flex items-center justify-center gap-2">
                       <RefreshCcw className="w-4 h-4" /> Opnieuw Proberen
                     </button>
@@ -241,17 +293,69 @@ const App: React.FC = () => {
           )}
 
           {messages.map((msg) => (
-            <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2`}>
+            <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[90%] p-6 rounded-3xl shadow-lg border ${
                 msg.role === 'user' ? 'bg-indigo-600 text-white border-transparent' : 
-                msg.status === 'error' ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-white border-slate-200 text-slate-800'
+                msg.status === 'error' ? 'bg-rose-50 border-rose-200 text-rose-900' : 
+                msg.metadata?.isDisambiguation ? 'bg-amber-50 border-amber-200 text-slate-800' :
+                'bg-white border-slate-200 text-slate-800'
               }`}>
-                <div className="text-[15px] leading-relaxed whitespace-pre-wrap">{msg.text}</div>
+                {/* Disambiguation indicator */}
+                {msg.metadata?.isDisambiguation && (
+                  <div className="flex items-center gap-2 mb-3 text-amber-600 text-sm font-bold">
+                    <HelpCircle className="w-4 h-4" />
+                    <span>Verduidelijking nodig</span>
+                  </div>
+                )}
                 
+                {/* Message text with markdown-like formatting */}
+                <div className="text-[15px] leading-relaxed whitespace-pre-wrap">
+                  {msg.text.split('\n').map((line, i) => {
+                    // Bold text
+                    if (line.startsWith('**') && line.includes('**')) {
+                      const parts = line.split('**');
+                      return (
+                        <div key={i} className="my-1">
+                          {parts.map((part, j) => 
+                            j % 2 === 1 ? <strong key={j}>{part}</strong> : part
+                          )}
+                        </div>
+                      );
+                    }
+                    // Italic text
+                    if (line.startsWith('_') || line.includes('_(')) {
+                      return <div key={i} className="my-1 text-slate-500 text-sm">{line.replace(/_/g, '')}</div>;
+                    }
+                    return <div key={i}>{line}</div>;
+                  })}
+                </div>
+
+                {/* Quick selection buttons for disambiguation */}
+                {msg.metadata?.isDisambiguation && pendingDisambiguation && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {pendingDisambiguation.options.slice(0, 5).map((option, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleQuickSelect(idx)}
+                        className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                      >
+                        <span className="w-5 h-5 bg-amber-200 rounded-full flex items-center justify-center text-[10px]">
+                          {idx + 1}
+                        </span>
+                        {option.prefLabel.length > 25 ? option.prefLabel.substring(0, 25) + '...' : option.prefLabel}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Results table */}
                 {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
                   <div className="mt-8 space-y-4 pt-6 border-t border-slate-100">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resultaten ({msg.results.length})</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                        <CheckCircle className="w-3 h-3 text-emerald-500" />
+                        Resultaten ({msg.results.length})
+                      </span>
                       <button onClick={() => downloadAsExcel(msg.results || [], { vraag: msg.text, sparql: msg.sparql, timestamp: msg.timestamp, endpoint: sparqlEndpoint })} className="flex items-center gap-2 text-[10px] font-black text-indigo-600 bg-indigo-50 border border-indigo-100 px-4 py-2 rounded-xl hover:bg-indigo-600 hover:text-white transition-all">
                         <Download className="w-4 h-4" /> EXCEL EXPORT
                       </button>
@@ -265,7 +369,7 @@ const App: React.FC = () => {
                           {msg.results.slice(0, 10).map((row, i) => (
                             <tr key={i} className="hover:bg-white transition-colors">
                               {Object.values(row).map((val: any, j) => (
-                                <td key={j} className="px-5 py-3 truncate max-w-[200px] text-slate-500" title={val}>{val.toString()}</td>
+                                <td key={j} className="px-5 py-3 truncate max-w-[200px] text-slate-500" title={val}>{String(val)}</td>
                               ))}
                             </tr>
                           ))}
@@ -275,6 +379,7 @@ const App: React.FC = () => {
                   </div>
                 )}
 
+                {/* SPARQL query */}
                 {msg.role === 'assistant' && msg.sparql && (
                   <div className="mt-6 pt-6 border-t border-slate-100">
                     <button onClick={() => setShowSparql(!showSparql)} className="text-[10px] font-black text-slate-400 hover:text-indigo-600 uppercase tracking-widest flex items-center gap-2">
@@ -288,7 +393,9 @@ const App: React.FC = () => {
                   </div>
                 )}
               </div>
-              <span className="mt-2 px-3 text-[10px] font-bold text-slate-300 uppercase tracking-widest">{msg.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+              <span className="mt-2 px-3 text-[10px] font-bold text-slate-300 uppercase tracking-widest">
+                {msg.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+              </span>
             </div>
           ))}
 
@@ -305,13 +412,22 @@ const App: React.FC = () => {
           )}
         </div>
 
+        {/* Input area */}
         <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent">
+          {/* Disambiguation hint */}
+          {pendingDisambiguation && (
+            <div className="max-w-4xl mx-auto mb-3 px-4 py-2 bg-amber-100 text-amber-800 text-xs font-bold rounded-xl flex items-center gap-2">
+              <HelpCircle className="w-4 h-4" />
+              Typ een nummer of naam om je keuze te bevestigen
+            </div>
+          )}
+          
           <div className="max-w-4xl mx-auto relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-[2rem] blur opacity-20 group-focus-within:opacity-40 transition duration-1000"></div>
             <div className="relative flex items-end gap-3 bg-white border border-slate-200 rounded-[2rem] p-3 shadow-2xl">
               <textarea
                 className="flex-1 p-4 text-base bg-transparent outline-none resize-none max-h-40 min-h-[56px] text-slate-800"
-                placeholder={apiStatus === 'offline' ? "Wacht op verbinding..." : "Stel een vraag..."}
+                placeholder={pendingDisambiguation ? "Typ je keuze (nummer of naam)..." : apiStatus === 'offline' ? "Wacht op verbinding..." : "Stel een vraag..."}
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}

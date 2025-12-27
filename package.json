@@ -1,28 +1,38 @@
-
 {
   "name": "competentnl-sparql-agent",
-  "version": "1.0.0",
-  "description": "NL-naar-SPARQL agent",
+  "version": "1.2.0",
+  "description": "NL-naar-SPARQL agent met RAG ondersteuning",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start-backend": "node server.js",
     "start-frontend": "vite",
     "start": "concurrently \"npm run start-backend\" \"npm run start-frontend\"",
-    "dev": "npm start"
+    "dev": "npm start",
+    "seed-db": "npx ts-node database/seed-embeddings.ts",
+    "db-setup": "mysql -u root -p < database/schema.sql"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "@google/genai": "^1.34.0",
+    "@xenova/transformers": "^2.17.2",
+    "concurrently": "^8.2.2",
     "cors": "^2.8.5",
-    "node-fetch": "^2.6.9",
     "dotenv": "^16.4.5",
-    "concurrently": "^8.2.2"
+    "express": "^4.18.2",
+    "lucide-react": "^0.562.0",
+    "mysql2": "^3.16.0",
+    "node-fetch": "^2.7.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "vite": "^5.0.0",
-    "@vitejs/plugin-react": "^4.2.1",
+    "@types/node": "^20.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "typescript": "^5.3.0"
+    "@vitejs/plugin-react": "^4.2.1",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0"
   }
 }

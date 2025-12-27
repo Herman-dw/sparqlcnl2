@@ -1,5 +1,53 @@
+############################
+# Node.js / package managers
+############################
+
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Package manager locks (NIET negeren!)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+
+############################
+# Build / output
+############################
+
+dist/
+dist-ssr/
+build/
+out/
+coverage/
+
+
+############################
+# Vite / tooling cache
+############################
+
+.vite/
+.cache/
+.tmp/
+
+
+############################
+# Environment variables
+############################
+
+.env
+.env.local
+.env.*.local
+*.local
+
+
+############################
 # Logs
-logs
+############################
+
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,18 +55,64 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
 
-# Editor directories and files
+############################
+# OS specifieke bestanden
+############################
+
+.DS_Store
+Thumbs.db
+
+
+############################
+# Editor / IDE bestanden
+############################
+
+# VS Code
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+
+# IntelliJ / WebStorm
+.idea/
+
+# Visual Studio
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
+
+# Overig
 *.sw?
+
+
+############################
+# Runtime / tijdelijke files
+############################
+
+*.pid
+*.seed
+*.pid.lock
+
+
+############################
+# Test / debug output
+############################
+
+*.lcov
+.nyc_output/
+
+
+############################
+# Optional: lokale scripts / secrets
+############################
+
+# Windows / Unix start scripts logs
+*.bat.log
+*.sh.log
+
+# Exploration output
+exploration-results.json
+exploration-summary.txt
+
+# lokaal_kan weg
+structuur.txt
