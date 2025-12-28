@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { TEST_SCENARIOS as BACKEND_SCENARIOS, TestScenario as RunnerTestScenario } from '../tests/testScenarios';
 
 // ============================================================
 // TYPES
@@ -58,11 +59,15 @@ interface TestPageProps {
 // TEST SCENARIOS - Echte API calls
 // ============================================================
 
-const TEST_SCENARIOS: TestScenario[] = [
-  {
-    id: '1',
-    name: 'Disambiguatie: Architect',
-    description: 'Bij "architect" moet het systeem vragen welke architect bedoeld wordt',
+type ScenarioConfig = {
+  endpoint: string;
+  method: string;
+  payload?: any;
+  validations: ValidationCheck[];
+};
+
+const API_SCENARIO_CONFIG: Record<string, ScenarioConfig> = {
+  'disambiguation-architect': {
     endpoint: '/concept/resolve',
     method: 'POST',
     payload: { searchTerm: 'architect', conceptType: 'occupation' },
@@ -72,10 +77,7 @@ const TEST_SCENARIOS: TestScenario[] = [
       { type: 'contains', field: 'disambiguationQuestion', value: 'welke', caseInsensitive: true, description: 'Vraag moet "welke" bevatten' }
     ]
   },
-  {
-    id: '1a',
-    name: 'Feedback endpoint',
-    description: 'Feedback moet opgeslagen kunnen worden',
+  'disambiguation-feedback': {
     endpoint: '/feedback',
     method: 'POST',
     payload: { rating: 5, feedbackType: 'helpful', comment: 'Test feedback', sessionId: 'test-session' },
@@ -83,37 +85,27 @@ const TEST_SCENARIOS: TestScenario[] = [
       { type: 'exact', field: 'success', expected: true, description: 'Feedback moet succesvol opgeslagen worden' }
     ]
   },
-  {
-    id: '2',
-    name: 'Domein-detectie: MBO Kwalificaties',
-    description: 'Vraag over MBO moet domein "education" detecteren',
+  'domain-detection-education': {
     endpoint: '/orchestrator/classify',
     method: 'POST',
-    payload: { question: 'Toon alle MBO kwalificaties' },
     validations: [
       { type: 'exact', field: 'primary.domainKey', expected: 'education', description: 'Domein moet "education" zijn' },
       { type: 'greater_than', field: 'primary.confidence', value: 0.5, description: 'Confidence moet > 0.5 zijn' }
     ]
   },
-  {
-    id: '2a',
-    name: 'SPARQL generatie: MBO query',
-    description: 'MBO vraag moet SPARQL met MboKwalificatie genereren',
+  'count-handling-large-results': {
     endpoint: '/generate',
     method: 'POST',
     payload: { question: 'Toon alle MBO kwalificaties', filters: { graphs: [], type: 'All', status: 'Current' } },
     validations: [
-      { type: 'contains', field: 'sparql', value: 'MboKwalificatie', description: 'SPARQL moet MboKwalificatie bevatten' },
-      { type: 'contains', field: 'sparql', value: 'SELECT', description: 'SPARQL moet SELECT bevatten' }
+      { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL moet COUNT bevatten' },
+      { type: 'regex', field: 'response', pattern: '\\d+|kwalificaties', description: 'Response moet aantallen of kwalificaties bevatten' }
     ]
   },
-  {
-    id: '3',
-    name: 'Vervolgvraag met context',
-    description: '"Hoeveel zijn er?" moet context van vorige vraag gebruiken',
+  'follow-up-context': {
     endpoint: '/generate',
     method: 'POST',
-    payload: { 
+    payload: {
       question: 'Hoeveel zijn er?',
       filters: { graphs: [], type: 'All', status: 'Current' },
       chatHistory: [
@@ -126,10 +118,7 @@ const TEST_SCENARIOS: TestScenario[] = [
       { type: 'exact', field: 'contextUsed', expected: true, description: 'Context moet gebruikt zijn' }
     ]
   },
-  {
-    id: '4',
-    name: 'Concept resolver: Loodgieter',
-    description: '"Loodgieter" moet resolved worden naar officiële naam',
+  'concept-resolver-loodgieter': {
     endpoint: '/concept/resolve',
     method: 'POST',
     payload: { searchTerm: 'loodgieter', conceptType: 'occupation' },
@@ -139,31 +128,55 @@ const TEST_SCENARIOS: TestScenario[] = [
       { type: 'exists', field: 'resolvedLabel', description: 'Moet een resolvedLabel hebben' }
     ]
   },
-  {
-    id: '5',
-    name: 'Opleiding: Vaardigheden + Kennisgebieden',
-    description: 'Vraag over opleiding moet zowel skills als knowledge retourneren',
+  'education-skills-knowledge': {
     endpoint: '/generate',
     method: 'POST',
-    payload: { question: 'Wat leer je bij de opleiding werkvoorbereider installaties?', filters: { graphs: [], type: 'All', status: 'Current' } },
     validations: [
       { type: 'contains', field: 'sparql', value: 'prescribesHATEssential', description: 'SPARQL moet vaardigheden bevatten' },
       { type: 'contains', field: 'sparql', value: 'prescribesKnowledge', description: 'SPARQL moet kennisgebieden bevatten' }
     ]
   },
-  {
-    id: '6',
-    name: 'RIASEC Hollandcode',
-    description: 'Vraag over RIASEC R moet hasRIASEC predikaat gebruiken',
+  'riasec-hollandcode-R': {
     endpoint: '/generate',
     method: 'POST',
-    payload: { question: 'Geef alle vaardigheden die een relatie hebben met R (RIASEC)', filters: { graphs: [], type: 'All', status: 'Current' } },
     validations: [
       { type: 'contains', field: 'sparql', value: 'hasRIASEC', description: 'SPARQL moet hasRIASEC bevatten' },
-      { type: 'regex', field: 'sparql', pattern: '["\']R["\']', description: 'SPARQL moet "R" als waarde hebben' }
+      { type: 'regex', field: 'sparql', pattern: "[\\\"']R[\\\"']", description: 'SPARQL moet \"R\" als waarde hebben' }
+    ]
+  },
+  'relation-counts': {
+    endpoint: '/generate',
+    method: 'POST',
+    validations: [
+      { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL moet COUNT bevatten' },
+      { type: 'regex', field: 'sparql', pattern: 'requiresHAT|GROUP BY', description: 'SPARQL moet HAT relaties of GROUP BY bevatten' }
     ]
   }
-];
+};
+
+const TEST_SCENARIOS: TestScenario[] = BACKEND_SCENARIOS
+  .map((scenario: RunnerTestScenario): TestScenario | null => {
+    const config = API_SCENARIO_CONFIG[scenario.id];
+
+    if (!config) {
+      return null;
+    }
+
+    const defaultPayload = config.endpoint === '/orchestrator/classify'
+      ? { question: scenario.question }
+      : { question: scenario.question, filters: { graphs: [], type: 'All', status: 'Current' } };
+
+    return {
+      id: scenario.id,
+      name: scenario.name,
+      description: scenario.description,
+      endpoint: config.endpoint,
+      method: config.method,
+      payload: config.payload ?? defaultPayload,
+      validations: config.validations
+    };
+  })
+  .filter((scenario): scenario is TestScenario => Boolean(scenario));
 
 // ============================================================
 // HELPER FUNCTIONS
@@ -232,18 +245,18 @@ function validateField(data: any, validation: ValidationCheck): ValidationResult
 }
 
 function generateSuggestion(scenario: TestScenario, failedValidations: ValidationResult[]): string {
-  if (scenario.id === '1') {
+  if (scenario.id === 'disambiguation-architect') {
     if (failedValidations.some(v => v.check.field === 'needsDisambiguation' || v.check.field === 'matches')) {
       return 'Database mist architect data. Voer database-setup-complete.sql opnieuw uit.';
     }
   }
-  if (scenario.id === '2' && failedValidations.some(v => v.check.field?.includes('domainKey'))) {
+  if (scenario.id === 'domain-detection-education' && failedValidations.some(v => v.check.field?.includes('domainKey'))) {
     return 'Check classification_keywords tabel voor "mbo" en "kwalificatie" met domain_id=3 (education).';
   }
-  if (scenario.id === '3' && failedValidations.some(v => v.check.field === 'contextUsed')) {
+  if (scenario.id === 'follow-up-context' && failedValidations.some(v => v.check.field === 'contextUsed')) {
     return 'Follow-up detectie werkt niet. Check chatHistory verwerking in /generate endpoint.';
   }
-  if (scenario.id === '4' && failedValidations.some(v => v.check.field === 'found')) {
+  if (scenario.id === 'concept-resolver-loodgieter' && failedValidations.some(v => v.check.field === 'found')) {
     return 'Loodgieter niet in database. Voer database-setup-complete.sql uit.';
   }
   return `Check ${scenario.endpoint} endpoint in server.js`;

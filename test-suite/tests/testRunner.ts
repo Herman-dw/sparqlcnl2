@@ -11,7 +11,7 @@ import {
   TestResult, 
   TestSuiteResult, 
   ValidationCheck 
-} from './testScenarios.improved';
+} from './testScenarios';
 
 // ============================================================
 // TYPES
