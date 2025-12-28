@@ -18,6 +18,7 @@ import {
 } from './services/geminiService';
 import { executeSparql, validateSparqlQuery, ProxyType } from './services/sparqlService';
 import { downloadAsExcel } from './services/excelService';
+import TestPage from './test-suite/components/TestPage';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
@@ -39,6 +40,9 @@ const App: React.FC = () => {
   
   // Disambiguation state
   const [pendingDisambiguation, setPendingDisambiguation] = useState<DisambiguationData | null>(null);
+
+  // Test Dashboard state
+  const [showTests, setShowTests] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -168,6 +172,11 @@ const App: React.FC = () => {
       handleSend((index + 1).toString());
     }
   };
+
+  // Show Test Dashboard if enabled
+  if (showTests) {
+    return <TestPage onClose={() => setShowTests(false)} backendUrl={localBackendUrl} />;
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
@@ -444,6 +453,14 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Test Dashboard Button */}
+        <button
+          onClick={() => setShowTests(true)}
+          className="fixed bottom-6 right-6 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg transition-all flex items-center gap-2 font-bold text-sm z-50"
+        >
+          🧪 Tests
+        </button>
       </main>
     </div>
   );
