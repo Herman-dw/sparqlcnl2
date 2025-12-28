@@ -10,6 +10,7 @@
 
 import mysql from 'mysql2/promise';
 import { pipeline } from '@xenova/transformers';
+import { QUESTION_BANK, QUESTION_BANK_COUNT } from './question-bank';
 
 // Database configuratie
 const DB_CONFIG = {
@@ -116,149 +117,52 @@ async function seedEmbeddings() {
 }
 
 // Extra voorbeeldvragen toevoegen
-async function addMoreExamples() {
+async function syncQuestionBank() {
   const connection = await mysql.createConnection(DB_CONFIG);
-  
-  const examples = [
-    {
-      question: 'Zoek beroepen met software in de naam',
-      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?occupation ?label
-WHERE {
-  ?occupation a cnlo:Occupation ;
-              skos:prefLabel ?label .
-  FILTER(CONTAINS(LCASE(?label), "software"))
-}
-LIMIT 50`,
-      category: 'occupation'
-    },
-    {
-      question: 'Wat zijn de essentiële en belangrijke vaardigheden voor een leraar?',
-      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?occupation ?occLabel ?importance ?capability ?capLabel
-WHERE {
-  ?occupation a cnlo:Occupation ;
-              skos:prefLabel ?occLabel .
-  FILTER(CONTAINS(LCASE(?occLabel), "leraar") || CONTAINS(LCASE(?occLabel), "docent"))
-  {
-    ?occupation cnlo:requiresHATEssential ?capability .
-    BIND("Essentieel" AS ?importance)
-  }
-  UNION
-  {
-    ?occupation cnlo:requiresHATImportant ?capability .
-    BIND("Belangrijk" AS ?importance)
-  }
-  ?capability skos:prefLabel ?capLabel .
-}
-LIMIT 50`,
-      category: 'capability'
-    },
-    {
-      question: 'Welke opleidingen zijn er voor verpleegkundige?',
-      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?education ?eduLabel
-WHERE {
-  ?education a cnlo:EducationalNorm ;
-             skos:prefLabel ?eduLabel .
-  FILTER(CONTAINS(LCASE(?eduLabel), "verpleeg"))
-}
-LIMIT 50`,
-      category: 'education'
-    },
-    {
-      question: 'Geef me de ESCO matches voor vaardigheden',
-      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?capability ?capLabel ?escoSkill ?escoLabel
-WHERE {
-  ?capability a cnlo:HumanCapability ;
-              skos:prefLabel ?capLabel ;
-              cnlo:closeMatchESCO ?escoSkill .
-  ?escoSkill skos:prefLabel ?escoLabel .
-  FILTER(LANG(?escoLabel) = "nl")
-}
-LIMIT 50`,
-      category: 'capability'
-    },
-    {
-      question: 'Hoeveel kennisgebieden zijn er?',
-      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-SELECT (COUNT(DISTINCT ?area) AS ?aantal)
-WHERE {
-  ?area a cnlo:KnowledgeArea .
-}`,
-      category: 'count'
-    },
-    {
-      question: 'Skills voor ICT beroepen',
-      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?occupation ?occLabel ?capability ?capLabel
-WHERE {
-  ?occupation a cnlo:Occupation ;
-              skos:prefLabel ?occLabel ;
-              cnlo:requiresHATEssential ?capability .
-  ?capability skos:prefLabel ?capLabel .
-  FILTER(CONTAINS(LCASE(?occLabel), "ict") || CONTAINS(LCASE(?occLabel), "software") || CONTAINS(LCASE(?occLabel), "developer"))
-}
-LIMIT 50`,
-      category: 'capability'
-    },
-    {
-      question: 'Wat moet een timmerman kunnen?',
-      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?occupation ?occLabel ?capability ?capLabel
-WHERE {
-  ?occupation a cnlo:Occupation ;
-              skos:prefLabel ?occLabel ;
-              cnlo:requiresHATEssential ?capability .
-  ?capability skos:prefLabel ?capLabel .
-  FILTER(CONTAINS(LCASE(?occLabel), "timmerman"))
-}
-LIMIT 50`,
-      category: 'capability'
-    },
-    {
-      question: 'Beroepen in de zorg',
-      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT DISTINCT ?occupation ?label
-WHERE {
-  ?occupation a cnlo:Occupation ;
-              skos:prefLabel ?label .
-  FILTER(CONTAINS(LCASE(?label), "zorg") || CONTAINS(LCASE(?label), "verpleeg") || CONTAINS(LCASE(?label), "arts"))
-}
-LIMIT 50`,
-      category: 'occupation'
-    }
-  ];
-  
-  console.log('\n➕ Adding more example questions...\n');
-  
-  for (const ex of examples) {
-    try {
-      await connection.execute(`
-        INSERT IGNORE INTO question_embeddings (question, sparql_query, category, embedding)
+  let inserted = 0;
+  let updated = 0;
+
+  console.log(`\n➕ Synchronizing ${QUESTION_BANK_COUNT} voorbeeldvragen...\n`);
+
+  for (const entry of QUESTION_BANK) {
+    const [existing] = await connection.execute(
+      'SELECT id FROM question_embeddings WHERE question = ?',
+      [entry.question]
+    );
+
+    if ((existing as any[]).length > 0) {
+      await connection.execute(
+        `
+        UPDATE question_embeddings
+        SET sparql_query = ?, category = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+        [entry.sparql, entry.category, (existing as any[])[0].id]
+      );
+      updated++;
+    } else {
+      await connection.execute(
+        `
+        INSERT INTO question_embeddings (question, sparql_query, category, embedding)
         VALUES (?, ?, ?, '[]')
-      `, [ex.question, ex.sparql, ex.category]);
-      console.log(`  Added: "${ex.question.substring(0, 40)}..."`);
-    } catch (e) {
-      // Ignore duplicates
+      `,
+        [entry.question, entry.sparql, entry.category]
+      );
+      inserted++;
     }
   }
-  
+
+  console.log(
+    `✅ Question bank sync complete. Inserted: ${inserted}, Updated: ${updated}`
+  );
+
   await connection.end();
 }
 
 // Main
 async function main() {
   try {
-    await addMoreExamples();
+    await syncQuestionBank();
     await seedEmbeddings();
   } catch (error) {
     console.error('❌ Error:', error);
