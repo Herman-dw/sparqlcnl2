@@ -1,21 +1,19 @@
 /**
- * Gemini Service v3.0.0 - Frontend Compatible
- * ============================================
+ * Gemini Service v3.0.0 - Unified
+ * ================================
  * Combineert:
- * 1. Multi-Prompt Orchestrator (via backend API)
- * 2. Concept Resolver (via backend API)
- * 3. Chat History (lokaal)
- * 4. RAG Examples (via backend API)
- * 
- * BELANGRIJK: Alle database calls gaan via de backend server!
+ * 1. Multi-Prompt Orchestrator (domein-detectie, dynamische prompts)
+ * 2. Concept Resolver (disambiguatie van beroepen/synoniemen)
+ * 3. Chat History (vervolgvragen)
+ * 4. RAG Examples (voorbeeldqueries)
  */
 
 import { GoogleGenAI } from "@google/genai";
-import { SCHEMA_DOCUMENTATION } from "../schema";
+import { PromptOrchestrator, createPromptOrchestrator, AssembledPrompt, DomainMatch } from './promptOrchestrator';
 
 const MODEL_NAME = 'gemini-2.0-flash';
 const SUMMARY_MODEL = 'gemini-2.0-flash';
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+const BACKEND_URL = process.env.RAG_BACKEND_URL || 'http://localhost:3001';
 
 // ============================================================
 // TYPES
@@ -66,16 +64,33 @@ export interface GenerateResult {
   domain?: string;
 }
 
-interface OrchestratorClassification {
-  primary: { domainKey: string; domainName: string; confidence: number; keywords: string[] };
-  secondary: { domainKey: string; domainName: string; confidence: number; keywords: string[] } | null;
-}
+// ============================================================
+// SINGLETON ORCHESTRATOR
+// ============================================================
 
-interface OrchestratorExample {
-  question_nl: string;
-  sparql_query: string;
-  query_pattern: string;
-  domain_key: string;
+let orchestrator: PromptOrchestrator | null = null;
+let orchestratorInitPromise: Promise<PromptOrchestrator> | null = null;
+
+async function getOrchestrator(): Promise<PromptOrchestrator | null> {
+  if (orchestrator) return orchestrator;
+  
+  if (orchestratorInitPromise) return orchestratorInitPromise;
+  
+  orchestratorInitPromise = (async () => {
+    try {
+      console.log('[Orchestrator] Initialiseren...');
+      orchestrator = await createPromptOrchestrator({
+        database: 'competentnl_prompts' // Aparte database voor prompts
+      });
+      console.log('[Orchestrator] Klaar!');
+      return orchestrator;
+    } catch (error) {
+      console.warn('[Orchestrator] Init mislukt, fallback naar legacy mode:', error);
+      return null;
+    }
+  })();
+  
+  return orchestratorInitPromise;
 }
 
 // ============================================================
@@ -90,6 +105,25 @@ const CONCEPT_PATTERNS = {
       /(?:voor|bij|van)\s+(?:een\s+)?([a-zA-Zéëïöüáàâäèêîôûç\-]+?)(?:\s|$|\?)/i,
     ],
     suffixes: ['er', 'eur', 'ist', 'ant', 'ent', 'aar', 'man', 'vrouw', 'meester', 'arts', 'kundige', 'loog', 'tect']
+  },
+  education: {
+    patterns: [
+      /(?:opleiding|studie|cursus|diploma|certificaat|kwalificatie)\s+(?:voor\s+|tot\s+|in\s+)?([a-zA-Zéëïöüáàâäèêîôûç\-\s]+)/i,
+      /(?:mbo|hbo|wo|vmbo|bachelor|master)\s+([a-zA-Zéëïöüáàâäèêîôûç\-\s]+)/i,
+    ],
+    keywords: ['opleiding', 'studie', 'diploma', 'certificaat', 'kwalificatie', 'mbo', 'hbo', 'wo']
+  },
+  capability: {
+    patterns: [
+      /(?:vaardigheid|skill|competentie)\s+(?:van\s+|voor\s+)?([a-zA-Zéëïöüáàâäèêîôûç\-\s]+)/i,
+    ],
+    keywords: ['vaardigheid', 'vaardigheden', 'skill', 'skills', 'competentie', 'competenties']
+  },
+  knowledge: {
+    patterns: [
+      /(?:kennis|kennisgebied|vakgebied)\s+(?:van\s+|over\s+)?([a-zA-Zéëïöüáàâäèêîôûç\-\s]+)/i,
+    ],
+    keywords: ['kennis', 'kennisgebied', 'vakgebied', 'domein']
   }
 };
 
@@ -98,41 +132,8 @@ const STOP_WORDS = ['een', 'het', 'de', 'alle', 'welke', 'wat', 'zijn', 'voor', 
                     'toon', 'geef', 'laat', 'zien', 'hoeveel', 'veel'];
 
 // ============================================================
-// BACKEND API CALLS
+// CONCEPT RESOLVER FUNCTIONS
 // ============================================================
-
-/**
- * Classify question via backend orchestrator
- */
-async function classifyQuestion(question: string): Promise<OrchestratorClassification | null> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/orchestrator/classify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question })
-    });
-    
-    if (!response.ok) return null;
-    return await response.json();
-  } catch (error) {
-    console.warn('[Orchestrator] Classification failed:', error);
-    return null;
-  }
-}
-
-/**
- * Get examples for a domain via backend
- */
-async function getOrchestratorExamples(domain: string, limit: number = 3): Promise<OrchestratorExample[]> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/orchestrator/examples?domain=${domain}&limit=${limit}`);
-    if (!response.ok) return [];
-    return await response.json();
-  } catch (error) {
-    console.warn('[Orchestrator] Examples fetch failed:', error);
-    return [];
-  }
-}
 
 /**
  * Resolve a concept via backend
@@ -223,38 +224,6 @@ export async function parseDisambiguationAnswer(
 }
 
 /**
- * Fetch RAG examples from backend
- */
-async function fetchRAGExamples(question: string, topK: number = 3): Promise<any[]> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/rag/examples?limit=${topK * 2}`);
-    if (!response.ok) return [];
-    
-    const examples = await response.json();
-    const questionLower = question.toLowerCase();
-    const keywords = questionLower.split(/\s+/).filter(w => w.length > 3);
-    
-    const scored = examples.map((ex: any) => {
-      const exLower = ex.question.toLowerCase();
-      let matchScore = 0;
-      keywords.forEach(kw => {
-        if (exLower.includes(kw)) matchScore += 1;
-      });
-      matchScore += (ex.feedback_score + 1) * 0.5;
-      return { ...ex, similarity: matchScore };
-    });
-    
-    return scored.sort((a: any, b: any) => b.similarity - a.similarity).slice(0, topK);
-  } catch (error) {
-    return [];
-  }
-}
-
-// ============================================================
-// HELPER FUNCTIONS
-// ============================================================
-
-/**
  * Extract potential concept terms from a question
  */
 function extractConceptTerms(question: string): { term: string; type: string }[] {
@@ -307,6 +276,10 @@ function extractConceptTerms(question: string): { term: string; type: string }[]
   return terms;
 }
 
+// ============================================================
+// CHAT HISTORY
+// ============================================================
+
 /**
  * Build chat context from history
  */
@@ -328,6 +301,42 @@ function buildChatContext(history: ChatMessage[], maxMessages: number = 6): stri
   
   return `\n## EERDERE CONVERSATIE\n${contextParts.join('\n\n')}\n\n## HUIDIGE VRAAG\n`;
 }
+
+// ============================================================
+// RAG EXAMPLES (from legacy database)
+// ============================================================
+
+/**
+ * Fetch RAG examples from legacy database
+ */
+async function fetchRAGExamples(question: string, topK: number = 3): Promise<any[]> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/rag/examples?limit=${topK * 2}`);
+    if (!response.ok) return [];
+    
+    const examples = await response.json();
+    const questionLower = question.toLowerCase();
+    const keywords = questionLower.split(/\s+/).filter(w => w.length > 3);
+    
+    const scored = examples.map((ex: any) => {
+      const exLower = ex.question.toLowerCase();
+      let matchScore = 0;
+      keywords.forEach(kw => {
+        if (exLower.includes(kw)) matchScore += 1;
+      });
+      matchScore += (ex.feedback_score + 1) * 0.5;
+      return { ...ex, similarity: matchScore };
+    });
+    
+    return scored.sort((a: any, b: any) => b.similarity - a.similarity).slice(0, topK);
+  } catch (error) {
+    return [];
+  }
+}
+
+// ============================================================
+// SPARQL HELPERS
+// ============================================================
 
 /**
  * Fix SPARQL query
@@ -443,6 +452,7 @@ export async function generateSparqlWithDisambiguation(
     const selectedOption = await parseDisambiguationAnswer(userQuery, pendingDisambiguation.options);
     
     if (selectedOption) {
+      // User selected an option - confirm and continue with original question
       await confirmConceptSelection(
         pendingDisambiguation.searchTerm,
         selectedOption.uri,
@@ -452,6 +462,7 @@ export async function generateSparqlWithDisambiguation(
       
       console.log(`[Disambiguation] User selected: ${selectedOption.prefLabel}`);
       
+      // Now generate SPARQL with the resolved concept
       const conceptContext = `
 ### OPGELOSTE ${pendingDisambiguation.conceptType.toUpperCase()}
 - Zoekterm: "${pendingDisambiguation.searchTerm}"
@@ -481,6 +492,7 @@ FILTER(CONTAINS(LCASE(?label), "${selectedOption.prefLabel.toLowerCase()}"))
         }]
       };
     } else {
+      // User didn't select a valid option
       return {
         sparql: null,
         response: `Ik herkende je keuze niet. Typ een nummer (1-${pendingDisambiguation.options.length}) of een (deel van de) naam.\n\n${generateOptionsText(pendingDisambiguation.options)}`,
@@ -503,6 +515,7 @@ FILTER(CONTAINS(LCASE(?label), "${selectedOption.prefLabel.toLowerCase()}"))
     
     if (result) {
       if (result.needsDisambiguation && result.matches.length > 0) {
+        // Multiple matches - need to ask user
         console.log(`[Disambiguation] Needed for "${term}" - ${result.matches.length} options`);
         
         return {
@@ -546,9 +559,15 @@ FILTER(CONTAINS(LCASE(?label), "${bestMatch.prefLabel.toLowerCase()}"))
   // ========================================
   const sparql = await generateSparqlInternal(userQuery, filters, chatHistory, conceptContext, sessionId);
   
-  // Get domain info
-  const classification = await classifyQuestion(userQuery);
-  const domain = classification?.primary?.domainKey || 'occupation';
+  // Get domain info for response
+  const orch = await getOrchestrator();
+  let domain = 'occupation';
+  if (orch) {
+    try {
+      const domains = await orch.classifyQuestion(userQuery);
+      domain = domains[0]?.domainKey || 'occupation';
+    } catch (e) { /* ignore */ }
+  }
   
   return {
     sparql,
@@ -570,22 +589,31 @@ async function generateSparqlInternal(
   conceptContext: string,
   sessionId: string
 ): Promise<string> {
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   
   // ========================================
-  // Get domain classification and examples from orchestrator
+  // Try to use Orchestrator for dynamic prompts
   // ========================================
-  const classification = await classifyQuestion(userQuery);
-  const domain = classification?.primary?.domainKey || 'occupation';
-  console.log(`[Orchestrator] Domein: ${domain} (${(classification?.primary?.confidence || 0) * 100}%)`);
+  let orchestratorPrompt: AssembledPrompt | null = null;
+  const orch = await getOrchestrator();
   
-  // Get domain-specific examples
-  const orchestratorExamples = await getOrchestratorExamples(domain, 3);
-  let orchestratorExamplesText = '';
-  if (orchestratorExamples.length > 0) {
-    orchestratorExamplesText = '\n## DOMEIN-SPECIFIEKE VOORBEELDEN\n' + orchestratorExamples.map((ex, i) => 
-      `### Voorbeeld ${i + 1} (${ex.query_pattern})\nVraag: ${ex.question_nl}\nQuery:\n\`\`\`sparql\n${ex.sparql_query}\n\`\`\``
-    ).join('\n\n');
+  if (orch) {
+    try {
+      const isFollowUp = chatHistory.length > 0;
+      let previousContext = '';
+      
+      if (isFollowUp) {
+        const lastUserMsg = chatHistory.filter(m => m.role === 'user').pop();
+        const lastSparql = chatHistory.filter(m => m.sparql).pop();
+        if (lastUserMsg) previousContext = `Vorige vraag: ${lastUserMsg.content}`;
+        if (lastSparql?.sparql) previousContext += `\nVorige query: ${lastSparql.sparql.substring(0, 200)}`;
+      }
+      
+      orchestratorPrompt = await orch.orchestrate(userQuery, isFollowUp, previousContext);
+      console.log(`[Orchestrator] Domein: ${orchestratorPrompt.metadata.primaryDomain}, Examples: ${orchestratorPrompt.metadata.exampleCount}`);
+    } catch (error) {
+      console.warn('[Orchestrator] Error, falling back to legacy:', error);
+    }
   }
   
   // ========================================
@@ -607,18 +635,39 @@ async function generateSparqlInternal(
   // ========================================
   // Assemble final prompt
   // ========================================
-  const systemInstruction = `
-Je bent een expert SPARQL query generator voor de CompetentNL knowledge graph.
+  let systemInstruction: string;
+  
+  if (orchestratorPrompt) {
+    // Use orchestrator's assembled prompt + concept context + legacy examples
+    systemInstruction = `
+${orchestratorPrompt.systemPrompt}
 
-${SCHEMA_DOCUMENTATION}
+${orchestratorPrompt.contextPrompt}
 
 ## OPGELOSTE CONCEPTEN
 ${conceptContext || 'Geen specifieke concepten gedetecteerd.'}
 
-## GEDETECTEERD DOMEIN: ${domain.toUpperCase()}
-${classification?.primary?.keywords?.length ? `Gevonden keywords: ${classification.primary.keywords.join(', ')}` : ''}
+${orchestratorPrompt.examplePrompts}
 
-${orchestratorExamplesText}
+${legacyExamplesText}
+
+${orchestratorPrompt.rulesPrompt ? `## REGELS\n${orchestratorPrompt.rulesPrompt}` : ''}
+
+## KRITIEKE REGELS
+1. ALS EEN CONCEPT HIERBOVEN IS OPGELOST: gebruik EXACT de "Officiële naam" in je FILTER
+2. Gebruik CONTAINS(LCASE(?label), "naam in lowercase") voor flexibele matching
+3. Retourneer ALLEEN de SPARQL query, geen uitleg
+4. Gebruik NOOIT "FROM <graph>" clauses
+5. Voeg ALTIJD "LIMIT 50" toe (behalve bij COUNT)
+6. Begin direct met PREFIX
+`;
+  } else {
+    // Fallback: legacy prompt (import SCHEMA_DOCUMENTATION if needed)
+    systemInstruction = `
+Je bent een expert SPARQL query generator voor de CompetentNL knowledge graph.
+
+## OPGELOSTE CONCEPTEN
+${conceptContext || 'Geen specifieke concepten gedetecteerd.'}
 
 ${legacyExamplesText}
 
@@ -629,7 +678,14 @@ ${legacyExamplesText}
 4. Gebruik NOOIT "FROM <graph>" clauses
 5. Voeg ALTIJD "LIMIT 50" toe (behalve bij COUNT)
 6. Begin direct met PREFIX
+
+## BESCHIKBARE PREFIXES
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX cnluwv: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
 `;
+  }
 
   const fullPrompt = chatContext + userQuery;
 
@@ -660,6 +716,18 @@ ${legacyExamplesText}
         })
       });
     } catch (e) { /* ignore */ }
+    
+    // Log to orchestrator if available
+    if (orch && orchestratorPrompt) {
+      try {
+        await orch.logQuery({
+          sessionId,
+          question: userQuery,
+          domains: orchestratorPrompt.domains,
+          sparqlQuery: sparql
+        });
+      } catch (e) { /* ignore */ }
+    }
     
     return sparql;
     
@@ -697,7 +765,7 @@ export async function summarizeResults(
     return "Geen resultaten gevonden. Dit kan komen doordat het concept niet precies zo in de database staat. Probeer een andere schrijfwijze.";
   }
 
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   
   const sampleSize = Math.min(15, results.length);
   const dataSnippet = JSON.stringify(results.slice(0, sampleSize), null, 2);
@@ -727,6 +795,31 @@ Geef een beknopte Nederlandse samenvatting (3-5 zinnen):
     ).filter(Boolean).join(", ");
     
     return `Gevonden: ${results.length} resultaten. Voorbeelden: ${examples}.`;
+  }
+}
+
+// ============================================================
+// UTILITY EXPORTS
+// ============================================================
+
+/**
+ * Get orchestrator stats (for debugging/admin)
+ */
+export async function getOrchestratorStats(): Promise<any> {
+  const orch = await getOrchestrator();
+  if (orch) {
+    return orch.getStats();
+  }
+  return { error: 'Orchestrator not available' };
+}
+
+/**
+ * Clear orchestrator cache
+ */
+export async function clearOrchestratorCache(): Promise<void> {
+  const orch = await getOrchestrator();
+  if (orch) {
+    orch.clearCache();
   }
 }
 
