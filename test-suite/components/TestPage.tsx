@@ -1,23 +1,6 @@
 /**
- * TestPage.tsx - Standalone Test Dashboard pagina
- * ================================================
- * 
- * Voeg deze pagina toe aan je React app voor een volledig werkend test dashboard.
- * 
- * INTEGRATIE:
- * 
- * 1. In je App.tsx, voeg een route of state toe:
- * 
- *    import TestPage from './test-suite/components/TestPage';
- *    
- *    // Als aparte pagina met routing:
- *    <Route path="/tests" element={<TestPage />} />
- *    
- *    // Of als toggle in je bestaande app:
- *    {showTestDashboard && <TestPage onClose={() => setShowTestDashboard(false)} />}
- * 
- * 2. Voeg een knop toe om het dashboard te openen:
- *    <button onClick={() => setShowTestDashboard(true)}>🧪 Tests</button>
+ * TestPage.tsx v4.1.0 - Met echte API calls en download knoppen
+ * ==============================================================
  */
 
 import React, { useState, useCallback } from 'react';
@@ -26,25 +9,33 @@ import React, { useState, useCallback } from 'react';
 // TYPES
 // ============================================================
 
+interface ValidationCheck {
+  type: string;
+  field?: string;
+  expected?: any;
+  value?: any;
+  check?: string;
+  minLength?: number;
+  pattern?: string;
+  caseInsensitive?: boolean;
+  description: string;
+}
+
+interface ValidationResult {
+  check: ValidationCheck;
+  passed: boolean;
+  actual?: any;
+  reason?: string;
+}
+
 interface TestScenario {
   id: string;
   name: string;
   description: string;
-  type: 'disambiguation' | 'domain' | 'context' | 'concept' | 'riasec' | 'count' | 'negative';
-  question: string;
-  previousContext?: string[];
+  endpoint: string;
+  method: string;
+  payload: any;
   validations: ValidationCheck[];
-  expectedBehavior: string;
-  priority: 1 | 2 | 3;
-  tags: string[];
-}
-
-interface ValidationCheck {
-  type: 'response_contains' | 'sparql_contains' | 'sparql_pattern' | 'domain_equals' | 
-        'needs_disambiguation' | 'concept_resolved' | 'count_triggered' | 'context_used' |
-        'console_contains' | 'feedback_available' | 'response_not_contains';
-  value?: string | boolean;
-  description: string;
 }
 
 interface TestResult {
@@ -52,11 +43,10 @@ interface TestResult {
   scenarioName: string;
   passed: boolean;
   duration: number;
-  validationResults: { check: ValidationCheck; passed: boolean; actual?: string }[];
-  consoleOutput: string[];
-  sparqlGenerated?: string;
-  responseText?: string;
+  validationResults: ValidationResult[];
+  apiResponse: any;
   error?: string;
+  suggestion?: string;
 }
 
 interface TestPageProps {
@@ -65,815 +55,655 @@ interface TestPageProps {
 }
 
 // ============================================================
-// TEST SCENARIOS
+// TEST SCENARIOS - Echte API calls
 // ============================================================
 
 const TEST_SCENARIOS: TestScenario[] = [
   {
-    id: 'disambiguatie-architect',
+    id: '1',
     name: 'Disambiguatie: Architect',
-    description: 'Test of het systeem vraagt welke architect bedoeld wordt bij een ambigue term',
-    type: 'disambiguation',
-    question: 'Welke vaardigheden heeft een architect?',
+    description: 'Bij "architect" moet het systeem vragen welke architect bedoeld wordt',
+    endpoint: '/concept/resolve',
+    method: 'POST',
+    payload: { searchTerm: 'architect', conceptType: 'occupation' },
     validations: [
-      { type: 'needs_disambiguation', value: true, description: 'Moet disambiguatie triggeren' },
-      { type: 'response_contains', value: 'welke.*architect|bedoel|keuze|optie', description: 'Vraagt om verduidelijking' }
-    ],
-    expectedBehavior: 'Systeem moet vragen: "Welke architect bedoel je?" met opties zoals IT-architect, Bouwkundig architect, etc.',
-    priority: 1,
-    tags: ['disambiguatie', 'concept-resolver', 'kritiek']
+      { type: 'exact', field: 'needsDisambiguation', expected: true, description: 'Moet disambiguatie triggeren' },
+      { type: 'array_min', field: 'matches', minLength: 2, description: 'Moet meerdere matches retourneren' },
+      { type: 'contains', field: 'disambiguationQuestion', value: 'welke', caseInsensitive: true, description: 'Vraag moet "welke" bevatten' }
+    ]
   },
   {
-    id: 'domein-detectie-mbo',
+    id: '1a',
+    name: 'Feedback endpoint',
+    description: 'Feedback moet opgeslagen kunnen worden',
+    endpoint: '/feedback',
+    method: 'POST',
+    payload: { rating: 5, feedbackType: 'helpful', comment: 'Test feedback', sessionId: 'test-session' },
+    validations: [
+      { type: 'exact', field: 'success', expected: true, description: 'Feedback moet succesvol opgeslagen worden' }
+    ]
+  },
+  {
+    id: '2',
     name: 'Domein-detectie: MBO Kwalificaties',
-    description: 'Test of het systeem correct het education domein detecteert',
-    type: 'domain',
-    question: 'Toon alle MBO kwalificaties',
+    description: 'Vraag over MBO moet domein "education" detecteren',
+    endpoint: '/orchestrator/classify',
+    method: 'POST',
+    payload: { question: 'Toon alle MBO kwalificaties' },
     validations: [
-      { type: 'domain_equals', value: 'education', description: 'Domein moet "education" zijn' },
-      { type: 'console_contains', value: 'education', description: 'Console toont domein detectie' },
-      { type: 'sparql_contains', value: 'Kwalificatie', description: 'SPARQL bevat Kwalificatie' }
-    ],
-    expectedBehavior: 'Console moet tonen: [Orchestrator] Domein: education',
-    priority: 1,
-    tags: ['domein-detectie', 'orchestrator', 'education']
+      { type: 'exact', field: 'primary.domainKey', expected: 'education', description: 'Domein moet "education" zijn' },
+      { type: 'greater_than', field: 'primary.confidence', value: 0.5, description: 'Confidence moet > 0.5 zijn' }
+    ]
   },
   {
-    id: 'count-query-trigger',
-    name: 'Count Query: Grote resultaten',
-    description: 'Test of bij >49 resultaten een COUNT query wordt getriggerd',
-    type: 'count',
-    question: 'Toon alle MBO kwalificaties',
+    id: '2a',
+    name: 'SPARQL generatie: MBO query',
+    description: 'MBO vraag moet SPARQL met MboKwalificatie genereren',
+    endpoint: '/generate',
+    method: 'POST',
+    payload: { question: 'Toon alle MBO kwalificaties', filters: { graphs: [], type: 'All', status: 'Current' } },
     validations: [
-      { type: 'count_triggered', value: true, description: 'COUNT query moet getriggerd worden' },
-      { type: 'response_contains', value: '\\d+.*kwalificaties|totaal|gevonden', description: 'Toont aantal resultaten' }
-    ],
-    expectedBehavior: 'Bij grote resultaten: eerst COUNT tonen, dan optie om alles op te halen',
-    priority: 2,
-    tags: ['count', 'performance', 'ux']
+      { type: 'contains', field: 'sparql', value: 'MboKwalificatie', description: 'SPARQL moet MboKwalificatie bevatten' },
+      { type: 'contains', field: 'sparql', value: 'SELECT', description: 'SPARQL moet SELECT bevatten' }
+    ]
   },
   {
-    id: 'vervolgvraag-context',
-    name: 'Vervolgvraag: Context behoud',
-    description: 'Test of vervolgvragen de context van eerdere vragen gebruiken',
-    type: 'context',
-    question: 'Hoeveel zijn er?',
-    previousContext: ['Toon alle MBO kwalificaties'],
+    id: '3',
+    name: 'Vervolgvraag met context',
+    description: '"Hoeveel zijn er?" moet context van vorige vraag gebruiken',
+    endpoint: '/generate',
+    method: 'POST',
+    payload: { 
+      question: 'Hoeveel zijn er?',
+      filters: { graphs: [], type: 'All', status: 'Current' },
+      chatHistory: [
+        { role: 'user', content: 'Toon alle MBO kwalificaties' },
+        { role: 'assistant', content: 'Hier zijn de MBO kwalificaties', sparql: 'SELECT ?k WHERE { ?k a ksmo:MboKwalificatie }' }
+      ]
+    },
     validations: [
-      { type: 'context_used', value: true, description: 'Chat history moet gebruikt worden' },
-      { type: 'sparql_contains', value: 'COUNT|Kwalificatie', description: 'SPARQL verwijst naar eerdere context' }
-    ],
-    expectedBehavior: 'Systeem moet begrijpen dat "er" verwijst naar MBO kwalificaties uit vorige vraag',
-    priority: 1,
-    tags: ['context', 'chat-history', 'vervolgvraag']
+      { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL moet COUNT bevatten' },
+      { type: 'exact', field: 'contextUsed', expected: true, description: 'Context moet gebruikt zijn' }
+    ]
   },
   {
-    id: 'concept-resolver-loodgieter',
-    name: 'Concept Resolver: Loodgieter',
-    description: 'Test of colloquiale term "loodgieter" correct wordt gematcht',
-    type: 'concept',
-    question: 'Welke vaardigheden heeft een loodgieter?',
+    id: '4',
+    name: 'Concept resolver: Loodgieter',
+    description: '"Loodgieter" moet resolved worden naar officiële naam',
+    endpoint: '/concept/resolve',
+    method: 'POST',
+    payload: { searchTerm: 'loodgieter', conceptType: 'occupation' },
     validations: [
-      { type: 'concept_resolved', value: 'loodgieter', description: 'Loodgieter moet resolved worden' },
-      { type: 'response_not_contains', value: 'niet gevonden|onbekend', description: 'Geen "niet gevonden" melding' },
-      { type: 'sparql_contains', value: 'requiresSkill|hasSkill', description: 'SPARQL vraagt vaardigheden op' }
-    ],
-    expectedBehavior: 'Moet matchen met "Installatiemonteur sanitair" of vergelijkbaar beroep',
-    priority: 1,
-    tags: ['concept-resolver', 'synoniemen', 'beroepen']
+      { type: 'exact', field: 'found', expected: true, description: 'Moet gevonden worden' },
+      { type: 'exact', field: 'needsDisambiguation', expected: false, description: 'Geen disambiguatie nodig' },
+      { type: 'exists', field: 'resolvedLabel', description: 'Moet een resolvedLabel hebben' }
+    ]
   },
   {
-    id: 'education-skills-knowledge',
-    name: 'Opleiding: Vaardigheden én Kennisgebieden',
-    description: 'Test of bij opleidingsvraag zowel skills als knowledge worden geretourneerd',
-    type: 'domain',
-    question: 'Wat leer je bij de opleiding werkvoorbereider installaties?',
+    id: '5',
+    name: 'Opleiding: Vaardigheden + Kennisgebieden',
+    description: 'Vraag over opleiding moet zowel skills als knowledge retourneren',
+    endpoint: '/generate',
+    method: 'POST',
+    payload: { question: 'Wat leer je bij de opleiding werkvoorbereider installaties?', filters: { graphs: [], type: 'All', status: 'Current' } },
     validations: [
-      { type: 'domain_equals', value: 'education', description: 'Domein moet "education" zijn' },
-      { type: 'sparql_contains', value: 'Skill|skill', description: 'SPARQL bevat skills query' },
-      { type: 'sparql_contains', value: 'Knowledge|knowledge|Kennisgebied', description: 'SPARQL bevat knowledge query' }
-    ],
-    expectedBehavior: 'Resultaat moet beide bevatten: vaardigheden EN kennisgebieden',
-    priority: 2,
-    tags: ['education', 'skills', 'knowledge', 'combined']
+      { type: 'contains', field: 'sparql', value: 'prescribesHATEssential', description: 'SPARQL moet vaardigheden bevatten' },
+      { type: 'contains', field: 'sparql', value: 'prescribesKnowledge', description: 'SPARQL moet kennisgebieden bevatten' }
+    ]
   },
   {
-    id: 'riasec-hollandcode',
-    name: 'RIASEC: Hollandcode R',
-    description: 'Test of RIASEC/Hollandcode queries correct werken',
-    type: 'riasec',
-    question: 'Geef alle vaardigheden die een relatie hebben met Hollandcode R',
+    id: '6',
+    name: 'RIASEC Hollandcode',
+    description: 'Vraag over RIASEC R moet hasRIASEC predikaat gebruiken',
+    endpoint: '/generate',
+    method: 'POST',
+    payload: { question: 'Geef alle vaardigheden die een relatie hebben met R (RIASEC)', filters: { graphs: [], type: 'All', status: 'Current' } },
     validations: [
-      { type: 'sparql_contains', value: 'hasRIASEC', description: 'SPARQL gebruikt hasRIASEC property' },
-      { type: 'sparql_pattern', value: '"R"|\'R\'|Realistic', description: 'SPARQL filtert op R (Realistic)' }
-    ],
-    expectedBehavior: 'Moet vaardigheden retourneren gekoppeld aan Hollandcode R (Realistic)',
-    priority: 2,
-    tags: ['riasec', 'hollandcode', 'taxonomy']
-  },
-  {
-    id: 'negative-unique-occupation',
-    name: 'Negatief: Uniek beroep geen disambiguatie',
-    description: 'Test dat unieke beroepen GEEN disambiguatie triggeren',
-    type: 'negative',
-    question: 'Welke vaardigheden heeft een tandarts?',
-    validations: [
-      { type: 'needs_disambiguation', value: false, description: 'Mag GEEN disambiguatie triggeren' },
-      { type: 'sparql_contains', value: 'Tandarts|tandarts', description: 'Direct SPARQL genereren' }
-    ],
-    expectedBehavior: 'Tandarts is uniek - direct SPARQL genereren zonder te vragen',
-    priority: 1,
-    tags: ['negative-test', 'disambiguatie', 'uniek-beroep']
+      { type: 'contains', field: 'sparql', value: 'hasRIASEC', description: 'SPARQL moet hasRIASEC bevatten' },
+      { type: 'regex', field: 'sparql', pattern: '["\']R["\']', description: 'SPARQL moet "R" als waarde hebben' }
+    ]
   }
 ];
 
 // ============================================================
-// TEST RUNNER (Simulated for UI demo)
+// HELPER FUNCTIONS
 // ============================================================
 
-class UITestRunner {
-  private backendUrl: string;
+function getNestedValue(obj: any, path: string): any {
+  return path.split('.').reduce((current, key) => current?.[key], obj);
+}
+
+function validateField(data: any, validation: ValidationCheck): ValidationResult {
+  const value = getNestedValue(data, validation.field || '');
   
-  constructor(backendUrl: string = 'http://localhost:3001') {
-    this.backendUrl = backendUrl;
-  }
-
-  async runTest(scenario: TestScenario): Promise<TestResult> {
-    const startTime = Date.now();
-    const consoleOutput: string[] = [];
-    let sparqlGenerated = '';
-    let responseText = '';
-    let needsDisambiguation = false;
-    let domainDetected = '';
-    let countTriggered = false;
-    let contextUsed = false;
-    const conceptsResolved = new Map<string, string>();
-
-    try {
-      // Step 1: Classify the question
-      consoleOutput.push(`[Test] Starting: ${scenario.name}`);
-      consoleOutput.push(`[Test] Question: ${scenario.question}`);
-
-      try {
-        const classifyResponse = await fetch(`${this.backendUrl}/orchestrator/classify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: scenario.question })
-        });
-        
-        if (classifyResponse.ok) {
-          const classifyData = await classifyResponse.json();
-          domainDetected = classifyData.domain || '';
-          consoleOutput.push(`[Orchestrator] Domein: ${domainDetected}`);
-        }
-      } catch (e) {
-        consoleOutput.push(`[Orchestrator] Classification skipped (backend not available)`);
-        // Simulate domain detection based on keywords
-        if (scenario.question.toLowerCase().includes('mbo') || 
-            scenario.question.toLowerCase().includes('opleiding') ||
-            scenario.question.toLowerCase().includes('kwalificatie')) {
-          domainDetected = 'education';
-        } else if (scenario.question.toLowerCase().includes('vaardighe')) {
-          domainDetected = 'skill';
-        } else {
-          domainDetected = 'occupation';
-        }
-        consoleOutput.push(`[Orchestrator] Simulated domain: ${domainDetected}`);
-      }
-
-      // Step 2: Check for concept resolution / disambiguation
-      const occupationTerms = ['architect', 'loodgieter', 'tandarts', 'monteur', 'ontwikkelaar'];
-      const foundTerm = occupationTerms.find(term => 
-        scenario.question.toLowerCase().includes(term)
-      );
-
-      if (foundTerm) {
-        try {
-          const resolveResponse = await fetch(`${this.backendUrl}/concept/resolve`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              term: foundTerm, 
-              type: 'occupation',
-              question: scenario.question 
-            })
-          });
-          
-          if (resolveResponse.ok) {
-            const resolveData = await resolveResponse.json();
-            if (resolveData.needsDisambiguation) {
-              needsDisambiguation = true;
-              responseText = `Welke ${foundTerm} bedoel je?\n\n` + 
-                (resolveData.options || []).map((o: any, i: number) => `${i + 1}. ${o.name}`).join('\n');
-              consoleOutput.push(`[Concept] Disambiguation needed for: ${foundTerm}`);
-            } else if (resolveData.resolved) {
-              conceptsResolved.set(foundTerm, resolveData.resolved);
-              consoleOutput.push(`[Concept] Resolved: ${foundTerm} → ${resolveData.resolved}`);
-            }
-          }
-        } catch (e) {
-          // Simulate disambiguation logic
-          if (foundTerm === 'architect') {
-            needsDisambiguation = true;
-            responseText = 'Welke architect bedoel je?\n\n1. IT-architect\n2. Bouwkundig architect\n3. Software architect\n4. Enterprise architect';
-            consoleOutput.push(`[Concept] Simulated disambiguation for: ${foundTerm}`);
-          } else if (foundTerm === 'loodgieter') {
-            conceptsResolved.set(foundTerm, 'Installatiemonteur sanitair');
-            consoleOutput.push(`[Concept] Simulated resolve: ${foundTerm} → Installatiemonteur sanitair`);
-          } else if (foundTerm === 'tandarts') {
-            conceptsResolved.set(foundTerm, 'Tandarts');
-            consoleOutput.push(`[Concept] Simulated resolve: ${foundTerm} → Tandarts (unique match)`);
-          }
-        }
-      }
-
-      // Step 3: Check context usage for follow-up questions
-      if (scenario.previousContext && scenario.previousContext.length > 0) {
-        contextUsed = true;
-        consoleOutput.push(`[Context] Using chat history: ${scenario.previousContext.length} previous messages`);
-      }
-
-      // Step 4: Generate SPARQL (if not disambiguation)
-      if (!needsDisambiguation) {
-        sparqlGenerated = this.generateSimulatedSparql(scenario, domainDetected, conceptsResolved);
-        consoleOutput.push(`[SPARQL] Generated query (${sparqlGenerated.length} chars)`);
-        
-        // Simulate count trigger for large result sets
-        if (scenario.question.toLowerCase().includes('alle') && 
-            scenario.question.toLowerCase().includes('kwalificatie')) {
-          countTriggered = true;
-          responseText = 'Er zijn 127 MBO kwalificaties gevonden. Wil je ze allemaal zien of filteren?';
-          consoleOutput.push(`[Query] COUNT triggered - large result set expected`);
-        } else if (!responseText) {
-          responseText = `Hier zijn de resultaten voor: "${scenario.question}"`;
-        }
-      }
-
-      // Step 5: Validate all checks
-      const validationResults = scenario.validations.map(check => {
-        const result = this.validateCheck(check, {
-          responseText,
-          sparqlGenerated,
-          domainDetected,
-          needsDisambiguation,
-          countTriggered,
-          contextUsed,
-          conceptsResolved,
-          consoleOutput
-        });
-        return { check, ...result };
-      });
-
-      const allPassed = validationResults.every(r => r.passed);
+  const result: ValidationResult = {
+    check: validation,
+    passed: false,
+    actual: value,
+    reason: ''
+  };
+  
+  switch (validation.type) {
+    case 'exact':
+      result.passed = value === validation.expected;
+      result.reason = result.passed 
+        ? 'Match' 
+        : `Verwacht: ${JSON.stringify(validation.expected)}, Kreeg: ${JSON.stringify(value)}`;
+      break;
       
-      return {
-        scenarioId: scenario.id,
-        scenarioName: scenario.name,
-        passed: allPassed,
-        duration: Date.now() - startTime,
-        validationResults,
-        consoleOutput,
-        sparqlGenerated,
-        responseText
-      };
+    case 'array_min':
+      result.passed = Array.isArray(value) && value.length >= (validation.minLength || 0);
+      result.reason = result.passed
+        ? `Array heeft ${value?.length} items`
+        : `Array te kort: ${value?.length || 0} items (min: ${validation.minLength})`;
+      break;
+      
+    case 'contains':
+      const searchVal = validation.caseInsensitive ? validation.value?.toLowerCase() : validation.value;
+      const actualVal = validation.caseInsensitive ? String(value || '').toLowerCase() : String(value || '');
+      result.passed = actualVal.includes(searchVal || '');
+      result.reason = result.passed
+        ? `Bevat "${validation.value}"`
+        : `Bevat NIET "${validation.value}"`;
+      break;
+      
+    case 'regex':
+      const regex = new RegExp(validation.pattern || '');
+      result.passed = regex.test(String(value || ''));
+      result.reason = result.passed
+        ? `Matcht regex`
+        : `Matcht NIET regex: ${validation.pattern}`;
+      break;
+      
+    case 'exists':
+      result.passed = value !== undefined && value !== null;
+      result.reason = result.passed ? 'Waarde bestaat' : 'Waarde is undefined/null';
+      break;
+      
+    case 'greater_than':
+      result.passed = typeof value === 'number' && value > (validation.value || 0);
+      result.reason = result.passed
+        ? `${value} > ${validation.value}`
+        : `${value} is NIET > ${validation.value}`;
+      break;
+  }
+  
+  return result;
+}
 
-    } catch (error) {
-      return {
-        scenarioId: scenario.id,
-        scenarioName: scenario.name,
-        passed: false,
-        duration: Date.now() - startTime,
-        validationResults: [],
-        consoleOutput: [...consoleOutput, `[Error] ${error}`],
-        error: String(error)
-      };
+function generateSuggestion(scenario: TestScenario, failedValidations: ValidationResult[]): string {
+  if (scenario.id === '1') {
+    if (failedValidations.some(v => v.check.field === 'needsDisambiguation' || v.check.field === 'matches')) {
+      return 'Database mist architect data. Voer database-setup-complete.sql opnieuw uit.';
     }
   }
-
-  private generateSimulatedSparql(
-    scenario: TestScenario, 
-    domain: string,
-    resolved: Map<string, string>
-  ): string {
-    const prefixes = `PREFIX comp: <https://competentnl.nl/ontology/>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-`;
-
-    if (scenario.type === 'riasec') {
-      return prefixes + `SELECT ?skill ?skillLabel WHERE {
-  ?skill a comp:Skill ;
-         skos:prefLabel ?skillLabel ;
-         comp:hasRIASEC "R" .
-}`;
-    }
-
-    if (domain === 'education' || scenario.question.includes('kwalificatie')) {
-      if (scenario.question.includes('leer')) {
-        return prefixes + `SELECT ?skill ?skillLabel ?knowledge ?knowledgeLabel WHERE {
-  ?edu a comp:Kwalificatie ;
-       skos:prefLabel ?eduLabel ;
-       comp:requiresSkill ?skill ;
-       comp:requiresKnowledge ?knowledge .
-  ?skill skos:prefLabel ?skillLabel .
-  ?knowledge skos:prefLabel ?knowledgeLabel .
-  FILTER(CONTAINS(LCASE(?eduLabel), "werkvoorbereider"))
-}`;
-      }
-      return prefixes + `SELECT ?kwalificatie ?label WHERE {
-  ?kwalificatie a comp:Kwalificatie ;
-                skos:prefLabel ?label .
-  FILTER(CONTAINS(LCASE(?label), "mbo"))
-}`;
-    }
-
-    // Default: occupation skills query
-    const occupation = resolved.values().next().value || 'beroep';
-    return prefixes + `SELECT ?skill ?skillLabel WHERE {
-  ?occupation a comp:Occupation ;
-              skos:prefLabel ?occLabel ;
-              comp:requiresSkill ?skill .
-  ?skill skos:prefLabel ?skillLabel .
-  FILTER(CONTAINS(LCASE(?occLabel), "${occupation.toLowerCase()}"))
-}`;
+  if (scenario.id === '2' && failedValidations.some(v => v.check.field?.includes('domainKey'))) {
+    return 'Check classification_keywords tabel voor "mbo" en "kwalificatie" met domain_id=3 (education).';
   }
-
-  private validateCheck(
-    check: ValidationCheck,
-    context: {
-      responseText: string;
-      sparqlGenerated: string;
-      domainDetected: string;
-      needsDisambiguation: boolean;
-      countTriggered: boolean;
-      contextUsed: boolean;
-      conceptsResolved: Map<string, string>;
-      consoleOutput: string[];
-    }
-  ): { passed: boolean; actual?: string } {
-    switch (check.type) {
-      case 'response_contains': {
-        const regex = new RegExp(check.value as string, 'i');
-        const passed = regex.test(context.responseText);
-        return { passed, actual: context.responseText.substring(0, 100) };
-      }
-      
-      case 'response_not_contains': {
-        const regex = new RegExp(check.value as string, 'i');
-        const passed = !regex.test(context.responseText);
-        return { passed, actual: context.responseText.substring(0, 100) };
-      }
-      
-      case 'sparql_contains': {
-        const passed = context.sparqlGenerated.toLowerCase().includes((check.value as string).toLowerCase());
-        return { passed, actual: context.sparqlGenerated.substring(0, 100) };
-      }
-      
-      case 'sparql_pattern': {
-        const regex = new RegExp(check.value as string, 'i');
-        const passed = regex.test(context.sparqlGenerated);
-        return { passed, actual: context.sparqlGenerated.substring(0, 100) };
-      }
-      
-      case 'domain_equals': {
-        const passed = context.domainDetected === check.value;
-        return { passed, actual: context.domainDetected };
-      }
-      
-      case 'needs_disambiguation': {
-        const passed = context.needsDisambiguation === check.value;
-        return { passed, actual: String(context.needsDisambiguation) };
-      }
-      
-      case 'count_triggered': {
-        const passed = context.countTriggered === check.value;
-        return { passed, actual: String(context.countTriggered) };
-      }
-      
-      case 'context_used': {
-        const passed = context.contextUsed === check.value;
-        return { passed, actual: String(context.contextUsed) };
-      }
-      
-      case 'concept_resolved': {
-        const passed = context.conceptsResolved.has(check.value as string);
-        return { passed, actual: context.conceptsResolved.get(check.value as string) || 'not resolved' };
-      }
-      
-      case 'console_contains': {
-        const consoleText = context.consoleOutput.join('\n');
-        const passed = consoleText.toLowerCase().includes((check.value as string).toLowerCase());
-        return { passed, actual: consoleText.substring(0, 100) };
-      }
-      
-      case 'feedback_available':
-        return { passed: true, actual: 'UI feature' };
-      
-      default:
-        return { passed: false, actual: 'Unknown check type' };
-    }
+  if (scenario.id === '3' && failedValidations.some(v => v.check.field === 'contextUsed')) {
+    return 'Follow-up detectie werkt niet. Check chatHistory verwerking in /generate endpoint.';
   }
+  if (scenario.id === '4' && failedValidations.some(v => v.check.field === 'found')) {
+    return 'Loodgieter niet in database. Voer database-setup-complete.sql uit.';
+  }
+  return `Check ${scenario.endpoint} endpoint in server.js`;
 }
 
 // ============================================================
-// REACT COMPONENT
+// TEST PAGE COMPONENT
 // ============================================================
 
 const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://localhost:3001' }) => {
   const [results, setResults] = useState<TestResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [currentTest, setCurrentTest] = useState<string>('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [logs, setLogs] = useState<string[]>([]);
 
-  const runner = new UITestRunner(backendUrl);
+  // Check backend status
+  React.useEffect(() => {
+    checkBackend();
+  }, [backendUrl]);
 
-  const filteredScenarios = selectedTags.length > 0
-    ? TEST_SCENARIOS.filter(s => s.tags.some(t => selectedTags.includes(t)))
-    : TEST_SCENARIOS;
+  const checkBackend = async () => {
+    setBackendStatus('checking');
+    try {
+      const response = await fetch(`${backendUrl}/health`);
+      setBackendStatus(response.ok ? 'online' : 'offline');
+    } catch {
+      setBackendStatus('offline');
+    }
+  };
 
-  const allTags = [...new Set(TEST_SCENARIOS.flatMap(s => s.tags))].sort();
+  const addLog = (message: string) => {
+    const timestamp = new Date().toISOString();
+    setLogs(prev => [...prev, `[${timestamp}] ${message}`]);
+  };
 
-  const runAllTests = useCallback(async () => {
+  const runTest = async (scenario: TestScenario): Promise<TestResult> => {
+    const startTime = Date.now();
+    addLog(`Starting test ${scenario.id}: ${scenario.name}`);
+    addLog(`  Endpoint: ${scenario.method} ${backendUrl}${scenario.endpoint}`);
+    addLog(`  Payload: ${JSON.stringify(scenario.payload)}`);
+    
+    try {
+      const response = await fetch(`${backendUrl}${scenario.endpoint}`, {
+        method: scenario.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(scenario.payload)
+      });
+      
+      const data = await response.json();
+      const duration = Date.now() - startTime;
+      
+      addLog(`  Response (${duration}ms): ${JSON.stringify(data).substring(0, 500)}`);
+      
+      const validationResults = scenario.validations.map(v => validateField(data, v));
+      const allPassed = validationResults.every(v => v.passed);
+      const failedValidations = validationResults.filter(v => !v.passed);
+      
+      validationResults.forEach(vr => {
+        addLog(`  ${vr.passed ? '✅' : '❌'} ${vr.check.description}: ${vr.reason}`);
+      });
+      
+      const suggestion = allPassed ? '' : generateSuggestion(scenario, failedValidations);
+      if (suggestion) addLog(`  💡 Suggestie: ${suggestion}`);
+      
+      return {
+        scenarioId: scenario.id,
+        scenarioName: scenario.name,
+        passed: allPassed,
+        duration,
+        validationResults,
+        apiResponse: data,
+        suggestion
+      };
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      addLog(`  ❌ Error: ${error.message}`);
+      
+      return {
+        scenarioId: scenario.id,
+        scenarioName: scenario.name,
+        passed: false,
+        duration,
+        validationResults: [],
+        apiResponse: null,
+        error: error.message,
+        suggestion: `API call failed: ${error.message}`
+      };
+    }
+  };
+
+  const runAllTests = async () => {
     setIsRunning(true);
     setResults([]);
+    setLogs([]);
+    addLog('='.repeat(60));
+    addLog('CompetentNL Test Suite v4.1.0 - Starting');
+    addLog(`Backend: ${backendUrl}`);
+    addLog('='.repeat(60));
     
-    for (const scenario of filteredScenarios) {
-      setCurrentTest(scenario.name);
-      const result = await runner.runTest(scenario);
-      setResults(prev => [...prev, result]);
-      await new Promise(resolve => setTimeout(resolve, 100));
+    const newResults: TestResult[] = [];
+    
+    for (const scenario of TEST_SCENARIOS) {
+      setCurrentTest(scenario.id);
+      const result = await runTest(scenario);
+      newResults.push(result);
+      setResults([...newResults]);
     }
+    
+    const passed = newResults.filter(r => r.passed).length;
+    addLog('='.repeat(60));
+    addLog(`RESULTAAT: ${passed}/${newResults.length} tests geslaagd`);
+    addLog('='.repeat(60));
     
     setCurrentTest('');
     setIsRunning(false);
-  }, [filteredScenarios]);
+  };
 
-  const runSingleTest = useCallback(async (scenario: TestScenario) => {
-    setIsRunning(true);
-    setCurrentTest(scenario.name);
+  const runSingleTest = async (scenarioId: string) => {
+    const scenario = TEST_SCENARIOS.find(s => s.id === scenarioId);
+    if (!scenario) return;
     
-    const result = await runner.runTest(scenario);
+    setIsRunning(true);
+    setCurrentTest(scenarioId);
+    addLog(`\n--- Running single test: ${scenario.name} ---`);
+    
+    const result = await runTest(scenario);
+    
     setResults(prev => {
-      const existing = prev.findIndex(r => r.scenarioId === scenario.id);
-      if (existing >= 0) {
-        const newResults = [...prev];
-        newResults[existing] = result;
-        return newResults;
-      }
-      return [...prev, result];
+      const filtered = prev.filter(r => r.scenarioId !== scenarioId);
+      return [...filtered, result].sort((a, b) => a.scenarioId.localeCompare(b.scenarioId));
     });
     
     setCurrentTest('');
     setIsRunning(false);
-  }, []);
-
-  const getResultForScenario = (id: string) => results.find(r => r.scenarioId === id);
-
-  const stats = {
-    total: results.length,
-    passed: results.filter(r => r.passed).length,
-    failed: results.filter(r => !r.passed).length,
-    successRate: results.length > 0 ? (results.filter(r => r.passed).length / results.length * 100) : 0
   };
 
-  // Styles
-  const containerStyle: React.CSSProperties = {
-    minHeight: '100vh',
-    backgroundColor: '#0f0f1a',
-    color: '#e0e0e0',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+  // Download functions
+  const downloadJSON = () => {
+    const data = {
+      timestamp: new Date().toISOString(),
+      backendUrl,
+      summary: {
+        total: results.length,
+        passed: results.filter(r => r.passed).length,
+        failed: results.filter(r => !r.passed).length
+      },
+      results: results.map(r => ({
+        id: r.scenarioId,
+        name: r.scenarioName,
+        passed: r.passed,
+        duration: r.duration,
+        validationResults: r.validationResults.map(vr => ({
+          description: vr.check.description,
+          passed: vr.passed,
+          actual: vr.actual,
+          reason: vr.reason
+        })),
+        suggestion: r.suggestion,
+        apiResponse: r.apiResponse
+      }))
+    };
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `test-results-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const headerStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '16px 24px',
-    backgroundColor: '#1a1a2e',
-    borderBottom: '1px solid #2a2a4a'
+  const downloadTXT = () => {
+    const content = logs.join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `test-results-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.log`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const buttonStyle = (primary: boolean, disabled: boolean = false): React.CSSProperties => ({
-    padding: '10px 20px',
-    backgroundColor: disabled ? '#444' : (primary ? '#4CAF50' : '#2a2a4a'),
-    color: disabled ? '#888' : '#fff',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    fontWeight: 500,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px'
-  });
-
-  const statsBarStyle: React.CSSProperties = {
-    display: 'flex',
-    gap: '24px',
-    padding: '12px 24px',
-    backgroundColor: '#16162a',
-    borderBottom: '1px solid #2a2a4a'
-  };
-
-  const statStyle: React.CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center'
-  };
+  const passed = results.filter(r => r.passed).length;
+  const failed = results.filter(r => !r.passed).length;
 
   return (
-    <div style={containerStyle}>
+    <div style={{ 
+      minHeight: '100vh', 
+      backgroundColor: '#0f172a', 
+      color: '#e2e8f0',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
       {/* Header */}
-      <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '24px' }}>🧪</span>
-          <h1 style={{ margin: 0, fontSize: '20px' }}>CompetentNL Test Dashboard</h1>
+      <div style={{ 
+        background: 'linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%)',
+        padding: '24px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>
+            🧪 CompetentNL Test Suite v4.1.0
+          </h1>
+          <p style={{ margin: '8px 0 0', opacity: 0.8, fontSize: '14px' }}>
+            Met echte API calls en download functie
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button 
-            style={buttonStyle(true, isRunning)}
-            onClick={runAllTests}
-            disabled={isRunning}
-          >
-            {isRunning ? '⏳ Running...' : '▶ Run All Tests'}
-          </button>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <span style={{
+            padding: '6px 12px',
+            borderRadius: '9999px',
+            fontSize: '12px',
+            fontWeight: '500',
+            backgroundColor: backendStatus === 'online' ? '#22c55e' : 
+                           backendStatus === 'offline' ? '#ef4444' : '#eab308'
+          }}>
+            {backendStatus === 'online' ? '🟢 Backend Online' : 
+             backendStatus === 'offline' ? '🔴 Backend Offline' : '🟡 Checking...'}
+          </span>
           {onClose && (
-            <button style={buttonStyle(false)} onClick={onClose}>
-              ✕ Close
+            <button 
+              onClick={onClose}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                border: 'none',
+                borderRadius: '8px',
+                color: 'white',
+                cursor: 'pointer'
+              }}
+            >
+              ✕ Sluiten
             </button>
           )}
         </div>
-      </header>
-
-      {/* Stats Bar */}
-      {results.length > 0 && (
-        <div style={statsBarStyle}>
-          <div style={statStyle}>
-            <span style={{ fontSize: '24px', fontWeight: 600, color: '#4CAF50' }}>{stats.passed}</span>
-            <span style={{ fontSize: '12px', color: '#888' }}>Passed</span>
-          </div>
-          <div style={statStyle}>
-            <span style={{ fontSize: '24px', fontWeight: 600, color: '#f44336' }}>{stats.failed}</span>
-            <span style={{ fontSize: '12px', color: '#888' }}>Failed</span>
-          </div>
-          <div style={statStyle}>
-            <span style={{ fontSize: '24px', fontWeight: 600 }}>{stats.total}</span>
-            <span style={{ fontSize: '12px', color: '#888' }}>Total</span>
-          </div>
-          <div style={statStyle}>
-            <span style={{ 
-              fontSize: '24px', 
-              fontWeight: 600, 
-              color: stats.successRate >= 80 ? '#4CAF50' : stats.successRate >= 50 ? '#FF9800' : '#f44336' 
-            }}>
-              {stats.successRate.toFixed(0)}%
-            </span>
-            <span style={{ fontSize: '12px', color: '#888' }}>Success Rate</span>
-          </div>
-        </div>
-      )}
-
-      {/* Progress */}
-      {isRunning && currentTest && (
-        <div style={{ padding: '12px 24px', backgroundColor: '#1e1e3a', borderBottom: '1px solid #2a2a4a' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div className="spinner" style={{
-              width: '16px',
-              height: '16px',
-              border: '2px solid #4CAF50',
-              borderTopColor: 'transparent',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite'
-            }} />
-            <span>Running: {currentTest}</span>
-          </div>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
-
-      {/* Tags Filter */}
-      <div style={{ padding: '12px 24px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        {allTags.map(tag => (
-          <button
-            key={tag}
-            onClick={() => setSelectedTags(prev => 
-              prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
-            )}
-            style={{
-              padding: '4px 12px',
-              backgroundColor: selectedTags.includes(tag) ? '#4CAF50' : '#2a2a4a',
-              color: selectedTags.includes(tag) ? '#fff' : '#888',
-              border: 'none',
-              borderRadius: '12px',
-              cursor: 'pointer',
-              fontSize: '12px'
-            }}
-          >
-            {tag}
-          </button>
-        ))}
-        {selectedTags.length > 0 && (
-          <button
-            onClick={() => setSelectedTags([])}
-            style={{
-              padding: '4px 12px',
-              backgroundColor: 'transparent',
-              color: '#f44336',
-              border: '1px solid #f44336',
-              borderRadius: '12px',
-              cursor: 'pointer',
-              fontSize: '12px'
-            }}
-          >
-            Clear filters
-          </button>
-        )}
       </div>
 
-      {/* Test List */}
-      <div style={{ padding: '0 24px 24px' }}>
-        {filteredScenarios.map(scenario => {
-          const result = getResultForScenario(scenario.id);
-          const isExpanded = expandedId === scenario.id;
+      {/* Controls */}
+      <div style={{ padding: '16px 24px', backgroundColor: '#1e293b', borderBottom: '1px solid #334155' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={runAllTests}
+            disabled={isRunning || backendStatus !== 'online'}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: isRunning ? '#475569' : '#22c55e',
+              border: 'none',
+              borderRadius: '8px',
+              color: 'white',
+              fontWeight: '600',
+              cursor: isRunning ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            {isRunning ? '⏳ Running...' : '▶️ Run Alle Tests'}
+          </button>
           
-          return (
-            <div
-              key={scenario.id}
-              style={{
-                marginBottom: '12px',
-                backgroundColor: '#1a1a2e',
-                borderRadius: '8px',
-                border: `1px solid ${result ? (result.passed ? '#4CAF50' : '#f44336') : '#2a2a4a'}`,
-                overflow: 'hidden'
-              }}
-            >
-              {/* Scenario Header */}
-              <div
+          <button
+            onClick={checkBackend}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: '#3b82f6',
+              border: 'none',
+              borderRadius: '8px',
+              color: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            🔄 Check Backend
+          </button>
+
+          {results.length > 0 && (
+            <>
+              <div style={{ height: '32px', width: '1px', backgroundColor: '#475569' }} />
+              
+              <button
+                onClick={downloadJSON}
                 style={{
+                  padding: '12px 24px',
+                  backgroundColor: '#8b5cf6',
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: 'white',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '16px',
-                  cursor: 'pointer'
+                  gap: '8px'
                 }}
-                onClick={() => setExpandedId(isExpanded ? null : scenario.id)}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '18px' }}>
-                    {result ? (result.passed ? '✅' : '❌') : '⚪'}
-                  </span>
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{scenario.name}</div>
-                    <div style={{ fontSize: '12px', color: '#888' }}>{scenario.description}</div>
+                📥 Download JSON
+              </button>
+              
+              <button
+                onClick={downloadTXT}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: '#6366f1',
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                📄 Download Log (TXT)
+              </button>
+            </>
+          )}
+          
+          {results.length > 0 && (
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '16px', fontSize: '14px' }}>
+              <span style={{ color: '#22c55e' }}>✅ {passed} geslaagd</span>
+              <span style={{ color: '#ef4444' }}>❌ {failed} gefaald</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', padding: '24px' }}>
+        {/* Left: Test Results */}
+        <div>
+          <h2 style={{ marginTop: 0, marginBottom: '16px', fontSize: '18px' }}>Test Resultaten</h2>
+          
+          {TEST_SCENARIOS.map(scenario => {
+            const result = results.find(r => r.scenarioId === scenario.id);
+            const isCurrentTest = currentTest === scenario.id;
+            
+            return (
+              <div
+                key={scenario.id}
+                style={{
+                  backgroundColor: '#1e293b',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '12px',
+                  border: isCurrentTest ? '2px solid #3b82f6' : '1px solid #334155'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '18px' }}>
+                        {isCurrentTest ? '⏳' : result ? (result.passed ? '✅' : '❌') : '⬜'}
+                      </span>
+                      <span style={{ fontWeight: '600' }}>Test {scenario.id}: {scenario.name}</span>
+                      {result && (
+                        <span style={{ fontSize: '12px', opacity: 0.6 }}>
+                          ({result.duration}ms)
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ margin: '8px 0 0', fontSize: '13px', opacity: 0.7 }}>
+                      {scenario.description}
+                    </p>
                   </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {result && (
-                    <span style={{ fontSize: '12px', color: '#888' }}>{result.duration}ms</span>
-                  )}
+                  
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      runSingleTest(scenario);
-                    }}
-                    disabled={isRunning}
+                    onClick={() => runSingleTest(scenario.id)}
+                    disabled={isRunning || backendStatus !== 'online'}
                     style={{
                       padding: '6px 12px',
-                      backgroundColor: '#2a2a4a',
-                      color: '#fff',
+                      backgroundColor: '#475569',
                       border: 'none',
-                      borderRadius: '4px',
-                      cursor: isRunning ? 'not-allowed' : 'pointer',
-                      fontSize: '12px'
+                      borderRadius: '6px',
+                      color: 'white',
+                      fontSize: '12px',
+                      cursor: isRunning ? 'not-allowed' : 'pointer'
                     }}
                   >
-                    ▶ Run
+                    ▶️ Run
                   </button>
-                  <span style={{ color: '#888' }}>{isExpanded ? '▲' : '▼'}</span>
                 </div>
-              </div>
-
-              {/* Expanded Details */}
-              {isExpanded && (
-                <div style={{ padding: '0 16px 16px', borderTop: '1px solid #2a2a4a' }}>
-                  {/* Question */}
-                  <div style={{ marginTop: '12px' }}>
-                    <div style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>Input Question:</div>
-                    <div style={{ 
-                      padding: '8px 12px', 
-                      backgroundColor: '#16162a', 
-                      borderRadius: '4px',
-                      fontFamily: 'monospace'
-                    }}>
-                      {scenario.question}
-                    </div>
-                  </div>
-
-                  {/* Previous Context */}
-                  {scenario.previousContext && (
-                    <div style={{ marginTop: '12px' }}>
-                      <div style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>Previous Context:</div>
+                
+                {/* Validation details */}
+                {result && (
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #334155' }}>
+                    {result.validationResults.map((vr, i) => (
+                      <div key={i} style={{ 
+                        fontSize: '13px', 
+                        padding: '4px 0',
+                        color: vr.passed ? '#86efac' : '#fca5a5'
+                      }}>
+                        {vr.passed ? '✓' : '✗'} {vr.check.description}
+                        {!vr.passed && vr.reason && (
+                          <span style={{ display: 'block', fontSize: '12px', opacity: 0.7, marginLeft: '16px' }}>
+                            {vr.reason}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {result.suggestion && (
                       <div style={{ 
+                        marginTop: '8px', 
                         padding: '8px 12px', 
-                        backgroundColor: '#16162a', 
-                        borderRadius: '4px',
-                        fontFamily: 'monospace',
-                        fontSize: '12px'
+                        backgroundColor: '#422006',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        color: '#fbbf24'
                       }}>
-                        {scenario.previousContext.join(' → ')}
+                        💡 {result.suggestion}
                       </div>
-                    </div>
-                  )}
-
-                  {/* Validations */}
-                  <div style={{ marginTop: '12px' }}>
-                    <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>Validations:</div>
-                    {scenario.validations.map((v, i) => {
-                      const vResult = result?.validationResults.find(r => r.check.description === v.description);
-                      return (
-                        <div 
-                          key={i}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: '8px',
-                            padding: '8px',
-                            backgroundColor: '#16162a',
-                            borderRadius: '4px',
-                            marginBottom: '4px',
-                            fontSize: '13px'
-                          }}
-                        >
-                          <span>{vResult ? (vResult.passed ? '✅' : '❌') : '⚪'}</span>
-                          <div style={{ flex: 1 }}>
-                            <div>{v.description}</div>
-                            {vResult && !vResult.passed && vResult.actual && (
-                              <div style={{ fontSize: '11px', color: '#f44336', marginTop: '4px' }}>
-                                Actual: {vResult.actual}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                    )}
                   </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
-                  {/* SPARQL */}
-                  {result?.sparqlGenerated && (
-                    <div style={{ marginTop: '12px' }}>
-                      <div style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>Generated SPARQL:</div>
-                      <pre style={{
-                        padding: '12px',
-                        backgroundColor: '#16162a',
-                        borderRadius: '4px',
-                        overflow: 'auto',
-                        fontSize: '11px',
-                        margin: 0
-                      }}>
-                        {result.sparqlGenerated}
-                      </pre>
-                    </div>
-                  )}
-
-                  {/* Response */}
-                  {result?.responseText && (
-                    <div style={{ marginTop: '12px' }}>
-                      <div style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>Response:</div>
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#16162a',
-                        borderRadius: '4px',
-                        whiteSpace: 'pre-wrap',
-                        fontSize: '13px'
-                      }}>
-                        {result.responseText}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Console Output */}
-                  {result?.consoleOutput && result.consoleOutput.length > 0 && (
-                    <div style={{ marginTop: '12px' }}>
-                      <div style={{ fontSize: '12px', color: '#888', marginBottom: '4px' }}>Console Output:</div>
-                      <pre style={{
-                        padding: '12px',
-                        backgroundColor: '#0a0a14',
-                        borderRadius: '4px',
-                        overflow: 'auto',
-                        fontSize: '11px',
-                        color: '#4CAF50',
-                        margin: 0
-                      }}>
-                        {result.consoleOutput.join('\n')}
-                      </pre>
-                    </div>
-                  )}
+        {/* Right: Logs */}
+        <div>
+          <h2 style={{ marginTop: 0, marginBottom: '16px', fontSize: '18px' }}>
+            Console Output
+            {logs.length > 0 && (
+              <span style={{ fontSize: '12px', opacity: 0.6, marginLeft: '8px' }}>
+                ({logs.length} regels)
+              </span>
+            )}
+          </h2>
+          
+          <div style={{
+            backgroundColor: '#0f172a',
+            border: '1px solid #334155',
+            borderRadius: '8px',
+            padding: '16px',
+            height: 'calc(100vh - 280px)',
+            overflow: 'auto',
+            fontFamily: 'monospace',
+            fontSize: '12px',
+            lineHeight: '1.6'
+          }}>
+            {logs.length === 0 ? (
+              <div style={{ opacity: 0.5 }}>
+                Klik "Run Alle Tests" om te beginnen...
+              </div>
+            ) : (
+              logs.map((log, i) => (
+                <div key={i} style={{
+                  color: log.includes('✅') || log.includes('✓') ? '#86efac' :
+                         log.includes('❌') || log.includes('✗') ? '#fca5a5' :
+                         log.includes('💡') ? '#fbbf24' :
+                         log.includes('===') ? '#94a3b8' :
+                         '#e2e8f0',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all'
+                }}>
+                  {log}
                 </div>
-              )}
-            </div>
-          );
-        })}
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

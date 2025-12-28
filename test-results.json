@@ -1,0 +1,222 @@
+{
+  "timestamp": "2025-12-28T19:23:30.876Z",
+  "backendUrl": "http://localhost:3001",
+  "summary": {
+    "total": 8,
+    "passed": 7,
+    "failed": 1
+  },
+  "results": [
+    {
+      "id": "1",
+      "name": "Disambiguatie: Architect",
+      "passed": false,
+      "duration": 29,
+      "validationResults": [
+        {
+          "validation": "Moet disambiguatie triggeren",
+          "field": "needsDisambiguation",
+          "actualValue": false,
+          "passed": false,
+          "reason": "Verwacht: true, Kreeg: false",
+          "expectedValue": true
+        },
+        {
+          "validation": "Moet meerdere matches retourneren",
+          "field": "matches",
+          "actualValue": [],
+          "passed": false,
+          "reason": "Array te kort: 0 items (min: 2)"
+        },
+        {
+          "validation": "Vraag moet \"welke\" bevatten",
+          "field": "disambiguationQuestion",
+          "passed": false,
+          "reason": "Bevat NIET \"welke\"",
+          "searchedFor": "welke"
+        }
+      ],
+      "suggestion": "De occupation_labels tabel bevat mogelijk maar één \"architect\" entry. Voeg meer architecten toe aan de database: INSERT INTO occupation_labels (occupation_uri, pref_label, label, label_type) VALUES ('uri/architect-2', 'Software architect', 'Architect', 'altLabel');",
+      "apiResponsePreview": "{\"found\":false,\"exact\":false,\"searchTerm\":\"architect\",\"conceptType\":\"occupation\",\"matches\":[],\"needsDisambiguation\":false,\"suggestion\":\"Geen beroep gevonden met de naam \\\"architect\\\". Probeer een andere zoekterm.\"}"
+    },
+    {
+      "id": "1a",
+      "name": "Feedback endpoint",
+      "passed": true,
+      "duration": 12,
+      "validationResults": [
+        {
+          "validation": "Feedback moet succesvol opgeslagen worden",
+          "field": "success",
+          "actualValue": true,
+          "passed": true,
+          "reason": "Exact match",
+          "expectedValue": true
+        }
+      ],
+      "suggestion": "",
+      "apiResponsePreview": "{\"success\":true,\"message\":\"Bedankt voor je feedback!\"}"
+    },
+    {
+      "id": "2",
+      "name": "Domein-detectie: MBO Kwalificaties",
+      "passed": true,
+      "duration": 8,
+      "validationResults": [
+        {
+          "validation": "Domein moet \"education\" zijn",
+          "field": "primary.domainKey",
+          "actualValue": "education",
+          "passed": true,
+          "reason": "Exact match",
+          "expectedValue": "education"
+        },
+        {
+          "validation": "Confidence moet > 0.5 zijn",
+          "field": "primary.confidence",
+          "actualValue": 1,
+          "passed": true,
+          "reason": "1 > 0.5"
+        }
+      ],
+      "suggestion": "",
+      "apiResponsePreview": "{\"primary\":{\"domainKey\":\"education\",\"domainName\":\"Opleidingen\",\"confidence\":1,\"keywords\":[\"mbo kwalificatie\"]},\"secondary\":null}"
+    },
+    {
+      "id": "2a",
+      "name": "SPARQL generatie: MBO query",
+      "passed": true,
+      "duration": 8,
+      "validationResults": [
+        {
+          "validation": "SPARQL moet MboKwalificatie bevatten",
+          "field": "sparql",
+          "actualValue": "PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\n\nSELECT ?kwalificatie ?naam WHERE {\n  ?kwalificatie a ksmo:MboKwalificatie .\n  ?kwalificatie skos:prefLabel ?naam .\n}\nORDER BY ?naam\nLIMIT 50",
+          "passed": true,
+          "reason": "Bevat \"MboKwalificatie\"",
+          "searchedFor": "MboKwalificatie"
+        },
+        {
+          "validation": "SPARQL moet SELECT bevatten",
+          "field": "sparql",
+          "actualValue": "PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\n\nSELECT ?kwalificatie ?naam WHERE {\n  ?kwalificatie a ksmo:MboKwalificatie .\n  ?kwalificatie skos:prefLabel ?naam .\n}\nORDER BY ?naam\nLIMIT 50",
+          "passed": true,
+          "reason": "Bevat \"SELECT\"",
+          "searchedFor": "SELECT"
+        }
+      ],
+      "suggestion": "",
+      "apiResponsePreview": "{\"sparql\":\"PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>\\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\\n\\nSELECT ?kwalificatie ?naam WHERE {\\n  ?kwalificatie a ksmo:MboKwalificatie .\\n  ?kwalificatie skos:prefLabel ?naam .\\n}\\nORDER BY ?naam\\nLIMIT 50\",\"response\":\"Hier zijn de MBO kwalificaties (eerste 50 van 447):\",\"needsCount\":true,\"domain\":\"education\",\"contextUsed\":false,\"isFollowUp\":false}"
+    },
+    {
+      "id": "3",
+      "name": "Vervolgvraag met context",
+      "passed": true,
+      "duration": 6,
+      "validationResults": [
+        {
+          "validation": "SPARQL moet COUNT bevatten voor \"hoeveel\"",
+          "field": "sparql",
+          "actualValue": "SELECT (COUNT(*) as ?aantal) WHERE {\n  ?s ?p ?o .\n}",
+          "passed": true,
+          "reason": "Bevat \"COUNT\"",
+          "searchedFor": "COUNT"
+        },
+        {
+          "validation": "Context moet gebruikt zijn",
+          "field": "contextUsed",
+          "actualValue": true,
+          "passed": true,
+          "reason": "Exact match",
+          "expectedValue": true
+        }
+      ],
+      "suggestion": "",
+      "apiResponsePreview": "{\"sparql\":\"SELECT (COUNT(*) as ?aantal) WHERE {\\n  ?s ?p ?o .\\n}\",\"response\":\"Ik tel de resultaten van je vorige vraag...\",\"needsCount\":false,\"contextUsed\":true,\"isFollowUp\":true}"
+    },
+    {
+      "id": "4",
+      "name": "Concept resolver: Loodgieter",
+      "passed": true,
+      "duration": 20,
+      "validationResults": [
+        {
+          "validation": "Moet gevonden worden",
+          "field": "found",
+          "actualValue": true,
+          "passed": true,
+          "reason": "Exact match",
+          "expectedValue": true
+        },
+        {
+          "validation": "Geen disambiguatie nodig (unieke match)",
+          "field": "needsDisambiguation",
+          "actualValue": false,
+          "passed": true,
+          "reason": "Exact match",
+          "expectedValue": false
+        },
+        {
+          "validation": "Moet een resolvedLabel hebben",
+          "field": "resolvedLabel",
+          "actualValue": "Installatiemonteur dakwerk, sanitair, verwarming, gas- en waterleiding",
+          "passed": true,
+          "reason": "Waarde bestaat"
+        }
+      ],
+      "suggestion": "",
+      "apiResponsePreview": "{\"found\":true,\"exact\":true,\"searchTerm\":\"loodgieter\",\"conceptType\":\"occupation\",\"matches\":[{\"uri\":\"https://linkeddata.competentnl.nl/uwv/id/occupation/87E84FF2F6\",\"prefLabel\":\"Installatiemonteur dakwerk, sanitair, verwarming, gas- en waterleiding\",\"matchedLabel\":\"Loodgieter\",\"matchType\":\"altLabel\",\"confidence\":1,\"conceptType\":\"occupation\"}],\"needsDisambiguation\":false,\"resolvedUri\":\"https://linkeddata.competentnl.nl/uwv/id/occupation/87E84FF2F6\",\"resolvedLabel\":\"Installatiemonteur dakwerk, sanit"
+    },
+    {
+      "id": "5",
+      "name": "Opleiding: Vaardigheden + Kennisgebieden",
+      "passed": true,
+      "duration": 6,
+      "validationResults": [
+        {
+          "validation": "SPARQL moet prescribesHATEssential bevatten (vaardigheden)",
+          "field": "sparql",
+          "actualValue": "PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\n\nSELECT ?education ?eduLabel ?skill ?skillLabel ?knowledge ?knowledgeLabel WHERE {\n  ?education a cnlo:EducationalNorm .\n  ?education skos:prefLabel ?eduLabel .\n  FILTER(CONTAINS(LCASE(?eduLabel), \"werkvoorbereider\"))\n  \n  OPTIONAL {\n    ?education cnlo:prescribesHATEssential ?skill .\n    ?skill skos:prefLabel ?skillLabel .\n    ?skill a cnlo:HumanCapability .\n  }\n  OPTIONAL {\n    ?education cnlo:prescribesKnowledge ?knowledge .\n    ?knowledge skos:prefLabel ?knowledgeLabel .\n  }\n}\nLIMIT 100",
+          "passed": true,
+          "reason": "Bevat \"prescribesHATEssential\"",
+          "searchedFor": "prescribesHATEssential"
+        },
+        {
+          "validation": "SPARQL moet prescribesKnowledge bevatten (kennisgebieden)",
+          "field": "sparql",
+          "actualValue": "PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\n\nSELECT ?education ?eduLabel ?skill ?skillLabel ?knowledge ?knowledgeLabel WHERE {\n  ?education a cnlo:EducationalNorm .\n  ?education skos:prefLabel ?eduLabel .\n  FILTER(CONTAINS(LCASE(?eduLabel), \"werkvoorbereider\"))\n  \n  OPTIONAL {\n    ?education cnlo:prescribesHATEssential ?skill .\n    ?skill skos:prefLabel ?skillLabel .\n    ?skill a cnlo:HumanCapability .\n  }\n  OPTIONAL {\n    ?education cnlo:prescribesKnowledge ?knowledge .\n    ?knowledge skos:prefLabel ?knowledgeLabel .\n  }\n}\nLIMIT 100",
+          "passed": true,
+          "reason": "Bevat \"prescribesKnowledge\"",
+          "searchedFor": "prescribesKnowledge"
+        }
+      ],
+      "suggestion": "",
+      "apiResponsePreview": "{\"sparql\":\"PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>\\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\\n\\nSELECT ?education ?eduLabel ?skill ?skillLabel ?knowledge ?knowledgeLabel WHERE {\\n  ?education a cnlo:EducationalNorm .\\n  ?education skos:prefLabel ?eduLabel .\\n  FILTER(CONTAINS(LCASE(?eduLabel), \\\"werkvoorbereider\\\"))\\n  \\n  OPTIONAL {\\n    ?education cnlo:prescribesHATEssential ?skill .\\n    ?skill skos:prefLabel ?skillLabel .\\n    ?skill a cnlo:HumanCapabilit"
+    },
+    {
+      "id": "6",
+      "name": "RIASEC Hollandcode",
+      "passed": true,
+      "duration": 6,
+      "validationResults": [
+        {
+          "validation": "SPARQL moet hasRIASEC bevatten",
+          "field": "sparql",
+          "actualValue": "PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\n\nSELECT ?skill ?skillLabel WHERE {\n  ?skill cnlo:hasRIASEC \"R\" .\n  ?skill skos:prefLabel ?skillLabel .\n  ?skill a cnlo:HumanCapability .\n}\nORDER BY ?skillLabel",
+          "passed": true,
+          "reason": "Bevat \"hasRIASEC\"",
+          "searchedFor": "hasRIASEC"
+        },
+        {
+          "validation": "SPARQL moet \"R\" als waarde hebben",
+          "field": "sparql",
+          "actualValue": "PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\n\nSELECT ?skill ?skillLabel WHERE {\n  ?skill cnlo:hasRIASEC \"R\" .\n  ?skill skos:prefLabel ?skillLabel .\n  ?skill a cnlo:HumanCapability .\n}\nORDER BY ?skillLabel",
+          "passed": true,
+          "reason": "Matcht regex: [\"']R[\"']"
+        }
+      ],
+      "suggestion": "",
+      "apiResponsePreview": "{\"sparql\":\"PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>\\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\\n\\nSELECT ?skill ?skillLabel WHERE {\\n  ?skill cnlo:hasRIASEC \\\"R\\\" .\\n  ?skill skos:prefLabel ?skillLabel .\\n  ?skill a cnlo:HumanCapability .\\n}\\nORDER BY ?skillLabel\",\"response\":\"Vaardigheden met RIASEC code \\\"R\\\" - Realistic (Praktisch):\",\"needsCount\":false,\"domain\":\"taxonomy\",\"contextUsed\":false,\"isFollowUp\":false}"
+    }
+  ]
+}

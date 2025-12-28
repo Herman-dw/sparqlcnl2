@@ -1,82 +1,139 @@
 @echo off
-chcp 65001 >nul
-setlocal enabledelayedexpansion
+title CompetentNL SPARQL Agent - Startup
+color 0B
 
 echo.
-echo ╔════════════════════════════════════════════╗
-echo ║   CompetentNL SPARQL Agent - Opstarten     ║
-echo ╚════════════════════════════════════════════╝
+echo ╔═══════════════════════════════════════════════════════════════╗
+echo ║          CompetentNL SPARQL Agent - Quick Start               ║
+echo ║                        v4.0.0                                 ║
+echo ╚═══════════════════════════════════════════════════════════════╝
 echo.
 
-:: Check Node.js
-echo [1/4] Controleren Node.js...
-where node >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo X Node.js niet gevonden. Installeer via https://nodejs.org
-    pause
-    exit /b 1
-)
-for /f "tokens=*" %%i in ('node -v') do set NODE_VERSION=%%i
-echo √ Node.js gevonden: %NODE_VERSION%
+:: Configuratie
+set BACKEND_PORT=3001
+set FRONTEND_PORT=3000
+set MARIADB_PATH=C:\Program Files\MariaDB 11.8\bin
 
-:: Check npm
-echo [2/4] Controleren npm...
-where npm >nul 2>nul
-if %ERRORLEVEL% neq 0 (
-    echo X npm niet gevonden.
-    pause
-    exit /b 1
+:: ============================================================
+:: STAP 1: Stop bestaande Node processen
+:: ============================================================
+echo [STAP 1] Node processen stoppen...
+taskkill /F /IM node.exe >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] Node processen gestopt
+) else (
+    echo [OK] Geen Node processen actief
 )
-for /f "tokens=*" %%i in ('npm -v') do set NPM_VERSION=%%i
-echo √ npm gevonden: %NPM_VERSION%
+timeout /t 1 >nul
 
-:: Check dependencies
-echo [3/4] Controleren dependencies...
-if not exist "node_modules" (
-    echo   → node_modules niet gevonden, installeren...
+:: ============================================================
+:: STAP 2: Check MariaDB
+:: ============================================================
+echo.
+echo [STAP 2] MariaDB controleren...
+
+:: Check of MariaDB service draait
+sc query MariaDB >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] MariaDB service gevonden
+    
+    :: Check status
+    for /f "tokens=3 delims=: " %%a in ('sc query MariaDB ^| findstr "STATE"') do (
+        if "%%a"=="RUNNING" (
+            echo [OK] MariaDB draait
+        ) else (
+            echo [WARN] MariaDB starten...
+            net start MariaDB
+        )
+    )
+) else (
+    :: Probeer MySQL service
+    sc query MySQL >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo [OK] MySQL service gevonden
+        net start MySQL >nul 2>&1
+    ) else (
+        echo [WARN] Geen MariaDB/MySQL service gevonden
+        echo [INFO] Controleer of MariaDB draait
+    )
+)
+
+:: ============================================================
+:: STAP 3: Check database
+:: ============================================================
+echo.
+echo [STAP 3] Database controleren...
+
+if exist "%MARIADB_PATH%\mysql.exe" (
+    "%MARIADB_PATH%\mysql.exe" -u root -e "USE competentnl_rag; SELECT COUNT(*) FROM occupation_labels;" >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo [OK] Database competentnl_rag is klaar
+    ) else (
+        echo [WARN] Database niet gevonden of niet klaar
+        echo [INFO] Voer database-setup.sql handmatig uit
+        
+        if exist "database-setup.sql" (
+            echo.
+            set /p SETUP="Wil je database-setup.sql nu uitvoeren? (j/n): "
+            if /i "%SETUP%"=="j" (
+                echo [INFO] Database setup uitvoeren...
+                type database-setup.sql | "%MARIADB_PATH%\mysql.exe" -u root
+                echo [OK] Database setup voltooid
+            )
+        )
+    )
+) else (
+    echo [WARN] MariaDB niet gevonden op: %MARIADB_PATH%
+    echo [INFO] Pas MARIADB_PATH aan in dit script
+)
+
+:: ============================================================
+:: STAP 4: Check .env.local
+:: ============================================================
+echo.
+echo [STAP 4] Environment controleren...
+
+if exist ".env.local" (
+    echo [OK] .env.local gevonden
+) else (
+    echo [WARN] .env.local niet gevonden!
+    if exist ".env.example" (
+        copy .env.example .env.local >nul
+        echo [OK] .env.local aangemaakt van .env.example
+        echo [INFO] Pas de waarden aan in .env.local!
+    ) else (
+        echo [ERROR] Maak een .env.local bestand aan met de juiste configuratie
+    )
+)
+
+:: ============================================================
+:: STAP 5: Check node_modules
+:: ============================================================
+echo.
+echo [STAP 5] Dependencies controleren...
+
+if exist "node_modules" (
+    echo [OK] node_modules gevonden
+) else (
+    echo [INFO] npm install uitvoeren...
     call npm install
-    echo √ Dependencies geinstalleerd
-) else (
-    echo √ Dependencies aanwezig
 )
 
-:: Check .env.local
-echo [4/4] Controleren configuratie...
-if not exist ".env.local" (
-    echo   → .env.local niet gevonden, aanmaken...
-    (
-        echo # CompetentNL API Configuratie
-        echo COMPETENTNL_ENDPOINT=https://sparql.competentnl.nl
-        echo COMPETENTNL_API_KEY=
-        echo.
-        echo # Gemini API Key ^(voor AI functionaliteit^)
-        echo GEMINI_API_KEY=
-    ) > .env.local
-    echo.
-    echo   ! .env.local aangemaakt - vul je API keys in!
-    echo.
-    echo   Open .env.local en voeg toe:
-    echo     - COMPETENTNL_API_KEY ^(optioneel^)
-    echo     - GEMINI_API_KEY ^(vereist voor AI^)
-    echo.
-    pause
-) else (
-    echo √ .env.local gevonden
-)
-
+:: ============================================================
+:: STAP 6: Start applicatie
+:: ============================================================
 echo.
-echo ════════════════════════════════════════════
-echo   Alles klaar! Servers starten...
-echo ════════════════════════════════════════════
+echo [STAP 6] Applicatie starten...
 echo.
-echo   Frontend: http://localhost:3000
-echo   Backend:  http://localhost:3001
+echo ╔════════════════════════════════════════════════════════════╗
+echo ║  Backend:  http://localhost:%BACKEND_PORT%                            ║
+echo ║  Frontend: http://localhost:%FRONTEND_PORT% of http://localhost:5173  ║
+echo ╠════════════════════════════════════════════════════════════╣
+echo ║  Sluit dit venster om de servers te stoppen                ║
+echo ╚════════════════════════════════════════════════════════════╝
 echo.
-echo   Tip: Ctrl+C om te stoppen
-echo.
-
-:: Open browser na 3 seconden
-start /b cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:3000"
 
 :: Start de applicatie
-call npm start
+call npm run dev
+
+pause

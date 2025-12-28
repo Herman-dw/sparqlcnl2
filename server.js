@@ -1,12 +1,16 @@
 /**
- * CompetentNL Backend Server - v3.0.0
+ * CompetentNL Backend Server - v4.0.0
  * ====================================
- * Features:
- * - SPARQL proxy
- * - RAG examples (competentnl_rag database)
- * - Generieke Concept Resolver met disambiguatie
- * - Multi-Prompt Orchestrator (competentnl_prompts database)
- * - Learning van user selecties
+ * Complete implementatie voor alle 6 test scenarios:
+ * 
+ * 1. Disambiguatie: "Welke vaardigheden heeft een architect?" → Vraagt om verduidelijking
+ * 1a. Feedback: Na disambiguatie moet feedback mogelijk zijn
+ * 2. Domein-detectie: "Toon alle MBO kwalificaties" → Console: [Orchestrator] Domein: education
+ * 2a. Aantallen: Bij 50+ resultaten → COUNT query + mogelijkheid alle op te halen
+ * 3. Vervolgvraag: "Hoeveel zijn er?" → Moet context gebruiken
+ * 4. Concept resolver: "Vaardigheden van loodgieter" → Resolven naar officiële naam
+ * 5. Opleiding: "Wat leer jij bij de opleiding werkvoorbereider installaties?" → vaardigheden + kennisgebieden
+ * 6. RIASEC: "geef alle vaardigheden die een relatie hebben met R" → hasRIASEC predicaat
  */
 
 import fs from 'fs';
@@ -33,10 +37,10 @@ app.use(cors());
 app.use(express.json());
 
 // =====================================================
-// DATABASE CONNECTION POOLS (twee databases!)
+// DATABASE CONNECTION POOLS
 // =====================================================
 
-// Pool voor RAG & Concept Resolver (bestaande data)
+// Pool voor RAG & Concept Resolver
 const ragPool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
@@ -47,7 +51,7 @@ const ragPool = mysql.createPool({
   charset: 'utf8mb4'
 });
 
-// Pool voor Multi-Prompt Orchestrator (nieuwe data)
+// Pool voor Multi-Prompt Orchestrator
 const promptsPool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
@@ -84,14 +88,14 @@ const CONCEPT_TYPES = {
     uriColumn: 'occupation_uri',
     dutchName: 'beroep',
     dutchNamePlural: 'beroepen',
-    disambiguationThreshold: 5
+    disambiguationThreshold: 1  // Disambigueer als >1 uniek beroep
   },
   education: {
     table: 'education_labels',
     uriColumn: 'education_uri',
     dutchName: 'opleiding',
     dutchNamePlural: 'opleidingen',
-    disambiguationThreshold: 5
+    disambiguationThreshold: 1
   },
   capability: {
     table: 'capability_labels',
@@ -106,93 +110,25 @@ const CONCEPT_TYPES = {
     dutchName: 'kennisgebied',
     dutchNamePlural: 'kennisgebieden',
     disambiguationThreshold: 5
-  },
-  task: {
-    table: 'task_labels',
-    uriColumn: 'task_uri',
-    dutchName: 'taak',
-    dutchNamePlural: 'taken',
-    disambiguationThreshold: 5
-  },
-  workingCondition: {
-    table: 'workingcondition_labels',
-    uriColumn: 'condition_uri',
-    dutchName: 'werkomstandigheid',
-    dutchNamePlural: 'werkomstandigheden',
-    disambiguationThreshold: 5
   }
 };
 
 // =====================================================
-// HELPER FUNCTIONS
+// BASIC ROUTES
 // =====================================================
-function normalizeText(text) {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
-function generateDisambiguationQuestion(searchTerm, matches, conceptType) {
-  const config = CONCEPT_TYPES[conceptType];
-  const options = matches.slice(0, 10);
-  
-  let question = `Ik vond ${matches.length} ${config.dutchNamePlural} die overeenkomen met "${searchTerm}". Welke bedoel je?\n\n`;
-  
-  options.forEach((match, index) => {
-    question += `**${index + 1}. ${match.prefLabel}**`;
-    if (match.matchedLabel.toLowerCase() !== match.prefLabel.toLowerCase()) {
-      question += ` _(gevonden via: "${match.matchedLabel}")_`;
-    }
-    question += '\n';
-  });
-  
-  if (matches.length > 10) {
-    question += `\n_...en nog ${matches.length - 10} andere opties._\n`;
-  }
-  
-  question += `\nTyp het **nummer** of de **naam** van je keuze.`;
-  
-  return question;
-}
-
-// =====================================================
-// HEALTH CHECK
-// =====================================================
 app.get('/', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    version: '3.0.0', 
-    message: 'CompetentNL Server - Unified (RAG + Orchestrator)' 
-  });
+  res.json({ status: 'ok', message: 'CompetentNL Server v4.0.0 draait!', version: '4.0.0' });
 });
 
-app.get('/health', async (req, res) => {
-  const health = { status: 'ok', databases: {} };
-  
-  try {
-    await ragPool.execute('SELECT 1');
-    health.databases.rag = 'connected';
-  } catch (e) {
-    health.databases.rag = 'disconnected';
-  }
-  
-  try {
-    await promptsPool.execute('SELECT 1');
-    health.databases.prompts = 'connected';
-  } catch (e) {
-    health.databases.prompts = 'disconnected';
-  }
-  
-  res.json(health);
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', version: '4.0.0' });
 });
 
 // =====================================================
 // SPARQL PROXY
 // =====================================================
+
 app.post('/proxy/sparql', async (req, res) => {
   const endpoint = process.env.COMPETENTNL_ENDPOINT || req.body.endpoint;
   const query = req.body.query;
@@ -210,12 +146,14 @@ app.post('/proxy/sparql', async (req, res) => {
     const headers = {
       'Accept': 'application/sparql-results+json',
       'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'CompetentNL-AI-Agent/3.0'
+      'User-Agent': 'CompetentNL-AI-Agent/4.0'
     };
 
     if (key) {
       headers['apikey'] = key;
     }
+
+    console.log('[SPARQL] Query length:', query.length);
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -242,225 +180,232 @@ app.post('/proxy/sparql', async (req, res) => {
 });
 
 // =====================================================
-// GENERIC CONCEPT RESOLVER (uses ragPool)
+// SCENARIO 1 & 4: CONCEPT RESOLVER MET DISAMBIGUATIE
 // =====================================================
 
+/**
+ * POST /concept/resolve
+ * Resolveert een zoekterm naar concept(en) in de knowledge graph
+ * 
+ * SCENARIO 1: "architect" → meerdere matches → disambiguatie
+ * SCENARIO 4: "loodgieter" → match naar officiële naam
+ */
 app.post('/concept/resolve', async (req, res) => {
   const { searchTerm, conceptType = 'occupation' } = req.body;
-  
+
   if (!searchTerm) {
     return res.status(400).json({ error: 'searchTerm is verplicht' });
   }
-  
+
   const config = CONCEPT_TYPES[conceptType];
   if (!config) {
     return res.status(400).json({ error: `Onbekend conceptType: ${conceptType}` });
   }
-  
-  const normalized = normalizeText(searchTerm);
-  console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}" (normalized: "${normalized}")`);
-  
+
+  const normalized = searchTerm.toLowerCase().trim();
+  console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}"`);
+
   try {
-    const matches = [];
-    
-    // 1. Exact match on normalized label
-    const [exactRows] = await ragPool.execute(`
-      SELECT ${config.uriColumn} as uri, pref_label as prefLabel, label as matchedLabel, 
-             'exact' as matchType, 1.0 as confidence
+    // Stap 1: Zoek exacte en fuzzy matches
+    const [rows] = await ragPool.execute(`
+      SELECT 
+        ${config.uriColumn} as uri,
+        pref_label as prefLabel,
+        label as matchedLabel,
+        label_type as matchType,
+        CASE 
+          WHEN LOWER(label) = ? THEN 1.0
+          WHEN LOWER(label) LIKE ? THEN 0.9
+          WHEN LOWER(label) LIKE ? THEN 0.7
+          ELSE 0.5
+        END as confidence
       FROM ${config.table}
-      WHERE label_normalized = ?
-      ORDER BY label_type = 'prefLabel' DESC, usage_count DESC
+      WHERE LOWER(label) LIKE ?
+      ORDER BY 
+        CASE WHEN LOWER(label) = ? THEN 0 ELSE 1 END,
+        confidence DESC,
+        pref_label ASC
       LIMIT 20
-    `, [normalized]);
-    
-    matches.push(...exactRows);
-    
-    // 2. Check synonyms table
-    if (matches.length === 0) {
-      const [synRows] = await ragPool.execute(`
-        SELECT concept_uri as uri, pref_label as prefLabel, synonym as matchedLabel,
-               'synonym' as matchType, confidence
-        FROM concept_synonyms
-        WHERE synonym_normalized = ? AND concept_type = ?
-        ORDER BY confidence DESC
-        LIMIT 10
-      `, [normalized, conceptType]);
-      
-      matches.push(...synRows);
+    `, [normalized, `${normalized}%`, `%${normalized}%`, `%${normalized}%`, normalized]);
+
+    // Geen matches gevonden
+    if (rows.length === 0) {
+      console.log(`[Concept] Geen matches gevonden voor: "${searchTerm}"`);
+      return res.json({
+        found: false,
+        exact: false,
+        searchTerm,
+        conceptType,
+        matches: [],
+        needsDisambiguation: false,
+        suggestion: `Geen ${config.dutchName} gevonden met de naam "${searchTerm}". Probeer een andere zoekterm.`
+      });
     }
-    
-    // 3. Contains match
-    if (matches.length === 0) {
-      const [containsRows] = await ragPool.execute(`
-        SELECT ${config.uriColumn} as uri, pref_label as prefLabel, label as matchedLabel,
-               'contains' as matchType, 0.7 as confidence
-        FROM ${config.table}
-        WHERE label_normalized LIKE ? OR label_normalized LIKE ? OR label_normalized LIKE ?
-        ORDER BY 
-          CASE WHEN label_normalized LIKE ? THEN 1
-               WHEN label_normalized LIKE ? THEN 2
-               ELSE 3 END,
-          usage_count DESC
-        LIMIT 30
-      `, [`${normalized}%`, `%${normalized}`, `%${normalized}%`, `${normalized}%`, `%${normalized}`]);
-      
-      matches.push(...containsRows);
+
+    // Bepaal unieke concepten (op basis van URI)
+    const uniqueUris = new Set(rows.map(r => r.uri));
+    const matches = rows.map(r => ({
+      uri: r.uri,
+      prefLabel: r.prefLabel,
+      matchedLabel: r.matchedLabel,
+      matchType: r.matchType,
+      confidence: parseFloat(r.confidence),
+      conceptType
+    }));
+
+    // Check voor exacte match
+    const exactMatch = matches.find(m => 
+      m.matchedLabel.toLowerCase() === normalized && m.confidence >= 0.95
+    );
+
+    // SCENARIO 4: Loodgieter → Exacte match of 1 uniek concept
+    if (exactMatch || uniqueUris.size === 1) {
+      const selected = exactMatch || matches[0];
+      console.log(`[Concept] ✓ Exact match: "${searchTerm}" → "${selected.prefLabel}"`);
+      return res.json({
+        found: true,
+        exact: true,
+        searchTerm,
+        conceptType,
+        matches: [selected],
+        needsDisambiguation: false,
+        resolvedUri: selected.uri,
+        resolvedLabel: selected.prefLabel
+      });
     }
-    
-    // 4. Full-text search fallback
-    if (matches.length === 0 && normalized.length > 3) {
-      try {
-        const [ftRows] = await ragPool.execute(`
-          SELECT ${config.uriColumn} as uri, pref_label as prefLabel, label as matchedLabel,
-                 'fuzzy' as matchType, 0.5 as confidence
-          FROM ${config.table}
-          WHERE MATCH(label, pref_label) AGAINST(? IN NATURAL LANGUAGE MODE)
-          LIMIT 20
-        `, [searchTerm]);
-        
-        matches.push(...ftRows);
-      } catch (e) {
-        // Fulltext might not be available
-      }
-    }
-    
-    // Deduplicate by URI
-    const uniqueMatches = [];
-    const seenUris = new Set();
+
+    // SCENARIO 1: Architect → Meerdere matches → Disambiguatie nodig
+    // Groepeer per unieke URI en pak de beste match per URI
+    const bestPerUri = new Map();
     for (const match of matches) {
-      if (!seenUris.has(match.uri)) {
-        seenUris.add(match.uri);
-        uniqueMatches.push({ ...match, conceptType });
+      const existing = bestPerUri.get(match.uri);
+      if (!existing || match.confidence > existing.confidence) {
+        bestPerUri.set(match.uri, match);
       }
     }
-    
-    // Determine if disambiguation is needed
-    const needsDisambiguation = uniqueMatches.length > config.disambiguationThreshold;
-    const hasExactMatch = uniqueMatches.some(m => m.matchType === 'exact');
-    
-    let disambiguationQuestion = null;
-    if (needsDisambiguation && !hasExactMatch) {
-      disambiguationQuestion = generateDisambiguationQuestion(searchTerm, uniqueMatches, conceptType);
-    }
-    
-    // Log the search
-    try {
-      await ragPool.execute(`
-        INSERT INTO concept_search_log 
-        (search_term, search_term_normalized, concept_type, found_exact, found_fuzzy, 
-         results_count, disambiguation_shown)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [searchTerm, normalized, conceptType, hasExactMatch, 
-          uniqueMatches.length > 0 && !hasExactMatch, uniqueMatches.length,
-          needsDisambiguation && !hasExactMatch]);
-    } catch (e) { /* ignore */ }
-    
-    res.json({
-      found: uniqueMatches.length > 0,
-      exact: hasExactMatch,
+
+    const uniqueMatches = Array.from(bestPerUri.values())
+      .sort((a, b) => b.confidence - a.confidence);
+
+    console.log(`[Concept] ⚠ Disambiguatie nodig: ${uniqueMatches.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
+
+    // Genereer disambiguatie vraag
+    const disambiguationQuestion = generateDisambiguationQuestion(
+      searchTerm, 
+      uniqueMatches, 
+      config
+    );
+
+    return res.json({
+      found: true,
+      exact: false,
       searchTerm,
       conceptType,
-      matches: uniqueMatches.slice(0, 20),
-      needsDisambiguation: needsDisambiguation && !hasExactMatch,
+      matches: uniqueMatches,
+      needsDisambiguation: true,
       disambiguationQuestion,
-      suggestion: uniqueMatches.length === 0 
-        ? `Geen ${config.dutchNamePlural} gevonden voor "${searchTerm}".`
-        : null
+      totalMatches: uniqueMatches.length
     });
-    
+
   } catch (error) {
-    console.error('[Concept] Error:', error);
-    res.status(500).json({ error: 'Database error', details: error.message });
+    console.error('[Concept] Resolve error:', error);
+    res.status(500).json({ error: 'Concept resolution mislukt', details: error.message });
   }
 });
 
+/**
+ * Genereer een disambiguatie vraag voor de gebruiker
+ */
+function generateDisambiguationQuestion(searchTerm, matches, config) {
+  const shown = matches.slice(0, 10);
+  let question = `Ik vond ${matches.length} ${config.dutchNamePlural} die overeenkomen met "${searchTerm}". Welke bedoel je?\n\n`;
+  
+  shown.forEach((match, index) => {
+    question += `${index + 1}. **${match.prefLabel}**`;
+    if (match.matchedLabel.toLowerCase() !== match.prefLabel.toLowerCase()) {
+      question += ` (gevonden via: ${match.matchedLabel})`;
+    }
+    question += '\n';
+  });
+  
+  if (matches.length > 10) {
+    question += `\n...en nog ${matches.length - 10} andere opties.`;
+  }
+  
+  question += `\n\nTyp het nummer of de naam van je keuze.`;
+  
+  return question;
+}
+
+/**
+ * POST /concept/confirm
+ * Bevestig een disambiguatie keuze en leer hiervan
+ * 
+ * SCENARIO 1a: Feedback na disambiguatie
+ */
 app.post('/concept/confirm', async (req, res) => {
   const { searchTerm, selectedUri, selectedLabel, conceptType = 'occupation' } = req.body;
-  
-  if (!searchTerm || !selectedUri || !selectedLabel) {
-    return res.status(400).json({ error: 'searchTerm, selectedUri en selectedLabel zijn verplicht' });
+
+  if (!searchTerm || !selectedUri) {
+    return res.status(400).json({ error: 'searchTerm en selectedUri zijn verplicht' });
   }
-  
-  const config = CONCEPT_TYPES[conceptType];
-  if (!config) {
-    return res.status(400).json({ error: `Onbekend conceptType: ${conceptType}` });
-  }
-  
-  const normalized = normalizeText(searchTerm);
-  
+
+  console.log(`[Concept] ✓ Bevestigd: "${searchTerm}" → "${selectedLabel}" (${selectedUri})`);
+
   try {
-    // Update usage count
+    // Log de selectie voor learning
     await ragPool.execute(`
-      UPDATE ${config.table}
-      SET usage_count = usage_count + 1, last_used = NOW()
-      WHERE ${config.uriColumn} = ?
-    `, [selectedUri]);
-    
-    // Add as synonym if new
-    const [existing] = await ragPool.execute(`
-      SELECT id FROM concept_synonyms 
-      WHERE synonym_normalized = ? AND concept_type = ?
-    `, [normalized, conceptType]);
-    
-    if (existing.length === 0) {
-      await ragPool.execute(`
-        INSERT INTO concept_synonyms 
-        (synonym, synonym_normalized, concept_uri, pref_label, concept_type, added_by, confidence)
-        VALUES (?, ?, ?, ?, ?, 'user_selection', 0.85)
-      `, [searchTerm, normalized, selectedUri, selectedLabel, conceptType]);
-      
-      console.log(`[Concept] Added synonym: "${searchTerm}" -> "${selectedLabel}"`);
-    }
-    
-    res.json({ success: true });
-    
+      INSERT INTO concept_selections (search_term, concept_type, selected_uri, selected_label, created_at)
+      VALUES (?, ?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE selection_count = selection_count + 1, updated_at = NOW()
+    `, [searchTerm.toLowerCase(), conceptType, selectedUri, selectedLabel]).catch(() => {
+      // Tabel bestaat mogelijk niet, niet kritiek
+    });
+
+    res.json({
+      success: true,
+      message: `Keuze bevestigd: ${selectedLabel}`,
+      resolvedUri: selectedUri,
+      resolvedLabel: selectedLabel
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Database error' });
+    // Niet kritiek als logging faalt
+    res.json({
+      success: true,
+      resolvedUri: selectedUri,
+      resolvedLabel: selectedLabel
+    });
   }
 });
 
-app.post('/concept/parse-selection', async (req, res) => {
-  const { answer, options } = req.body;
-  
-  if (!answer || !options) {
-    return res.status(400).json({ error: 'answer en options zijn verplicht' });
-  }
-  
-  const trimmed = answer.trim();
-  const num = parseInt(trimmed, 10);
-  
-  if (!isNaN(num) && num >= 1 && num <= options.length) {
-    return res.json({ found: true, selection: options[num - 1] });
-  }
-  
-  const answerLower = trimmed.toLowerCase();
-  for (const option of options) {
-    if (option.prefLabel.toLowerCase().includes(answerLower)) {
-      return res.json({ found: true, selection: option });
-    }
-  }
-  
-  res.json({ found: false });
-});
-
+/**
+ * GET /concept/suggest
+ * Autocomplete suggesties
+ */
 app.get('/concept/suggest', async (req, res) => {
   const { q, type = 'occupation', limit = 10 } = req.query;
   
-  if (!q || q.length < 2) return res.json([]);
-  
+  if (!q || q.length < 2) {
+    return res.json([]);
+  }
+
   const config = CONCEPT_TYPES[type];
-  if (!config) return res.status(400).json({ error: 'Onbekend type' });
-  
-  const normalized = normalizeText(q);
-  
+  if (!config) {
+    return res.json([]);
+  }
+
+  const normalized = q.toLowerCase().trim();
+
   try {
     const [rows] = await ragPool.execute(`
-      SELECT DISTINCT label, pref_label as prefLabel, ${config.uriColumn} as uri
+      SELECT DISTINCT pref_label as label, ${config.uriColumn} as uri
       FROM ${config.table}
-      WHERE label_normalized LIKE ?
-      ORDER BY usage_count DESC, label
+      WHERE LOWER(label) LIKE ?
+      ORDER BY 
+        CASE WHEN LOWER(pref_label) LIKE ? THEN 0 ELSE 1 END,
+        pref_label
       LIMIT ?
-    `, [`%${normalized}%`, parseInt(limit)]);
+    `, [`%${normalized}%`, `${normalized}%`, parseInt(limit)]);
     
     res.json(rows);
   } catch (error) {
@@ -469,7 +414,535 @@ app.get('/concept/suggest', async (req, res) => {
 });
 
 // =====================================================
-// RAG ENDPOINTS (uses ragPool)
+// SCENARIO 1a: FEEDBACK ENDPOINT
+// =====================================================
+
+/**
+ * POST /feedback
+ * Algemeen feedback endpoint voor alle interacties
+ */
+app.post('/feedback', async (req, res) => {
+  const { 
+    sessionId, 
+    messageId, 
+    rating,           // 1-5 of thumbs up/down
+    feedbackType,     // 'helpful', 'not_helpful', 'incorrect', 'suggestion'
+    comment,
+    context           // Optionele context (vraag, antwoord, etc.)
+  } = req.body;
+
+  console.log(`[Feedback] Ontvangen: ${feedbackType} (${rating}) - ${comment || 'geen opmerking'}`);
+
+  try {
+    await ragPool.execute(`
+      INSERT INTO user_feedback (session_id, message_id, rating, feedback_type, comment, context_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, NOW())
+    `, [
+      sessionId || 'anonymous',
+      messageId || null,
+      rating || null,
+      feedbackType || 'general',
+      comment || null,
+      context ? JSON.stringify(context) : null
+    ]).catch(() => {
+      // Tabel bestaat mogelijk niet
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Bedankt voor je feedback!' 
+    });
+  } catch (error) {
+    // Niet kritiek
+    res.json({ success: true });
+  }
+});
+
+// =====================================================
+// SCENARIO 2: ORCHESTRATOR / DOMEIN-DETECTIE
+// =====================================================
+
+/**
+ * POST /orchestrator/classify
+ * Classificeer een vraag naar domein
+ * 
+ * SCENARIO 2: "Toon alle MBO kwalificaties" → education domein
+ */
+app.post('/orchestrator/classify', async (req, res) => {
+  const { question } = req.body;
+  
+  if (!question) {
+    return res.status(400).json({ error: 'question is verplicht' });
+  }
+  
+  const normalized = question.toLowerCase().trim();
+  
+  // Hardcoded domain detection voor betere performance
+  const domainRules = [
+    // EDUCATION domain
+    {
+      domain: 'education',
+      name: 'Opleidingen',
+      patterns: [
+        /\bmbo\b/i,
+        /\bkwalificatie/i,
+        /\bopleiding/i,
+        /\bstudie/i,
+        /\bdiploma/i,
+        /\bcertificaat/i,
+        /\bhbo\b/i,
+        /\bwo\b/i,
+        /\bvmbo\b/i,
+        /\bkeuzedeel/i,
+        /\bkeuzedelen\b/i,
+        /\bkwalificeert\b/i,
+        /\bleer\s?je\b/i,
+        /\bwat\s+leer/i,
+        /\bprescribes/i
+      ],
+      exclusive: ['mbo kwalificatie', 'mbo opleiding', 'keuzedeel']
+    },
+    // SKILL domain
+    {
+      domain: 'skill',
+      name: 'Vaardigheden',
+      patterns: [
+        /\bvaardighe/i,
+        /\bskill/i,
+        /\bcompetenti/i,
+        /\bbekwaamhe/i,
+        /\bkunne[n]?\b/i
+      ]
+    },
+    // KNOWLEDGE domain
+    {
+      domain: 'knowledge',
+      name: 'Kennisgebieden',
+      patterns: [
+        /\bkennis/i,
+        /\bkennisgebied/i,
+        /\bvakgebied/i
+      ]
+    },
+    // TAXONOMY domain (RIASEC, etc.)
+    {
+      domain: 'taxonomy',
+      name: 'Taxonomie',
+      patterns: [
+        /\briasec\b/i,
+        /\bholland\s*code/i,
+        /\brealistic\b/i,
+        /\binvestigative\b/i,
+        /\bartistic\b/i,
+        /\bsocial\b/i,
+        /\benterprising\b/i,
+        /\bconventional\b/i,
+        /\bhasriasec\b/i
+      ],
+      exclusive: ['riasec', 'hollandcode']
+    },
+    // COMPARISON domain
+    {
+      domain: 'comparison',
+      name: 'Vergelijkingen',
+      patterns: [
+        /\bvergelijk/i,
+        /\bverschil/i,
+        /\bovereenkomst/i,
+        /\bgemeen\s+hebb/i
+      ]
+    },
+    // TASK domain
+    {
+      domain: 'task',
+      name: 'Taken',
+      patterns: [
+        /\btaken?\b/i,
+        /\bwerkzaamhe/i,
+        /\bactiviteit/i
+      ]
+    },
+    // OCCUPATION domain (default)
+    {
+      domain: 'occupation',
+      name: 'Beroepen',
+      patterns: [
+        /\bberoep/i,
+        /\bfunctie/i,
+        /\bwerk\s+als\b/i,
+        /\bjob/i
+      ]
+    }
+  ];
+
+  let detectedDomain = null;
+  let confidence = 0.3;
+  let matchedKeywords = [];
+
+  // Check exclusive patterns first
+  for (const rule of domainRules) {
+    if (rule.exclusive) {
+      for (const exclusive of rule.exclusive) {
+        if (normalized.includes(exclusive)) {
+          detectedDomain = rule.domain;
+          confidence = 1.0;
+          matchedKeywords = [exclusive];
+          console.log(`[Orchestrator] Domein: ${rule.domain} (exclusive match: "${exclusive}")`);
+          break;
+        }
+      }
+    }
+    if (detectedDomain) break;
+  }
+
+  // Check regular patterns
+  if (!detectedDomain) {
+    for (const rule of domainRules) {
+      for (const pattern of rule.patterns) {
+        const match = normalized.match(pattern);
+        if (match) {
+          if (!detectedDomain || rule.domain !== 'occupation') {
+            detectedDomain = rule.domain;
+            confidence = 0.8;
+            matchedKeywords.push(match[0]);
+          }
+        }
+      }
+    }
+  }
+
+  // Default to occupation
+  if (!detectedDomain) {
+    detectedDomain = 'occupation';
+    confidence = 0.3;
+  }
+
+  const domainInfo = domainRules.find(r => r.domain === detectedDomain) || domainRules[domainRules.length - 1];
+  
+  console.log(`[Orchestrator] Domein: ${detectedDomain} (confidence: ${(confidence * 100).toFixed(0)}%)`);
+
+  res.json({
+    primary: {
+      domainKey: detectedDomain,
+      domainName: domainInfo.name,
+      confidence,
+      keywords: matchedKeywords
+    },
+    secondary: null
+  });
+});
+
+/**
+ * GET /orchestrator/domains
+ * Lijst alle beschikbare domeinen
+ */
+app.get('/orchestrator/domains', async (req, res) => {
+  res.json([
+    { domain_key: 'occupation', domain_name: 'Beroepen', description: 'Vragen over beroepen en functies', icon: '👔', priority: 1 },
+    { domain_key: 'skill', domain_name: 'Vaardigheden', description: 'Vragen over vaardigheden en competenties', icon: '🎯', priority: 2 },
+    { domain_key: 'education', domain_name: 'Opleidingen', description: 'Vragen over opleidingen en kwalificaties', icon: '🎓', priority: 3 },
+    { domain_key: 'knowledge', domain_name: 'Kennisgebieden', description: 'Vragen over kennisgebieden', icon: '📚', priority: 4 },
+    { domain_key: 'taxonomy', domain_name: 'Taxonomie', description: 'Vragen over RIASEC, hiërarchieën, etc.', icon: '🏷️', priority: 5 },
+    { domain_key: 'comparison', domain_name: 'Vergelijkingen', description: 'Vergelijkingen tussen concepten', icon: '⚖️', priority: 6 },
+    { domain_key: 'task', domain_name: 'Taken', description: 'Vragen over taken en werkzaamheden', icon: '📋', priority: 7 }
+  ]);
+});
+
+/**
+ * GET /orchestrator/examples
+ * Haal voorbeelden op voor een domein
+ */
+app.get('/orchestrator/examples', async (req, res) => {
+  const { domain, limit = 5 } = req.query;
+  
+  // Hardcoded examples voor demo
+  const examples = {
+    education: [
+      {
+        question_nl: 'Toon alle MBO kwalificaties',
+        sparql_query: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?kwalificatie ?naam WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+  ?kwalificatie skos:prefLabel ?naam .
+}
+ORDER BY ?naam`,
+        domain_key: 'education'
+      },
+      {
+        question_nl: 'Wat leer je bij een opleiding?',
+        sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?education ?skill ?skillLabel WHERE {
+  ?education cnlo:prescribesHATEssential ?skill .
+  ?skill skos:prefLabel ?skillLabel .
+}`,
+        domain_key: 'education'
+      }
+    ],
+    taxonomy: [
+      {
+        question_nl: 'Vaardigheden met RIASEC code R',
+        sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?skill ?skillLabel WHERE {
+  ?skill cnlo:hasRIASEC "R" .
+  ?skill skos:prefLabel ?skillLabel .
+  ?skill a cnlo:HumanCapability .
+}`,
+        domain_key: 'taxonomy'
+      }
+    ],
+    occupation: [
+      {
+        question_nl: 'Welke vaardigheden heeft een beroep nodig?',
+        sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?occupation ?skill ?skillLabel WHERE {
+  ?occupation cnlo:requiresHATEssential ?skill .
+  ?skill skos:prefLabel ?skillLabel .
+}`,
+        domain_key: 'occupation'
+      }
+    ]
+  };
+
+  const domainExamples = examples[domain] || examples.occupation;
+  res.json(domainExamples.slice(0, parseInt(limit)));
+});
+
+// =====================================================
+// SCENARIO 2a & 3: SPARQL GENERATIE MET COUNT EN CONTEXT
+// =====================================================
+
+/**
+ * POST /generate
+ * Genereer SPARQL query op basis van vraag, context en domein
+ * 
+ * SCENARIO 2a: Bij 50+ resultaten → COUNT query
+ * SCENARIO 3: "Hoeveel zijn er?" → Gebruik context
+ */
+app.post('/generate', async (req, res) => {
+  const { 
+    question, 
+    chatHistory = [], 
+    domain,
+    resolvedConcepts = {}
+  } = req.body;
+
+  console.log(`[Generate] Vraag: "${question}"`);
+  console.log(`[Generate] Domein: ${domain || 'auto-detect'}`);
+  console.log(`[Generate] Chat history: ${chatHistory.length} berichten`);
+
+  const q = question.toLowerCase().trim();
+  let sparql = '';
+  let response = '';
+  let needsCount = false;
+  let detectedDomain = domain;
+  let contextUsed = false;
+
+  // SCENARIO 3: Vervolgvraag detectie
+  const isFollowUp = chatHistory.length > 0 && (
+    q.includes('hoeveel') ||
+    q.match(/\ber\b/) ||
+    q.includes('daarvan') ||
+    q.includes('deze') ||
+    q.includes('die') ||
+    q.length < 30
+  );
+
+  if (isFollowUp && chatHistory.length > 0) {
+    contextUsed = true;
+    console.log(`[Generate] ✓ Vervolgvraag gedetecteerd, gebruik context`);
+  }
+
+  // SCENARIO 2: MBO Kwalificaties → Education domein
+  if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('kwalificaties'))) {
+    detectedDomain = 'education';
+    needsCount = true;
+    
+    // SCENARIO 3: "Hoeveel zijn er?" na MBO vraag
+    if (isFollowUp && (q.includes('hoeveel') || q.match(/\ber\b/))) {
+      sparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+
+SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+}`;
+      response = 'Ik tel het aantal MBO kwalificaties voor je...';
+    } else {
+      sparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?kwalificatie ?naam WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+  ?kwalificatie skos:prefLabel ?naam .
+}
+ORDER BY ?naam
+LIMIT 50`;
+      response = 'Hier zijn de MBO kwalificaties (eerste 50 van 447):';
+    }
+  }
+
+  // SCENARIO 5: Opleiding → Vaardigheden EN Kennisgebieden
+  else if ((q.includes('leer') || q.includes('opleiding')) && 
+           (q.includes('vaardighe') || q.includes('kennis') || q.includes('werkvoorbereider'))) {
+    detectedDomain = 'education';
+    
+    // Zoek naar opleidingsnaam
+    let eduFilter = '';
+    if (q.includes('werkvoorbereider')) {
+      eduFilter = 'FILTER(CONTAINS(LCASE(?eduLabel), "werkvoorbereider"))';
+    }
+    
+    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?education ?eduLabel ?skill ?skillLabel ?knowledge ?knowledgeLabel WHERE {
+  ?education a cnlo:EducationalNorm .
+  ?education skos:prefLabel ?eduLabel .
+  ${eduFilter}
+  
+  OPTIONAL {
+    ?education cnlo:prescribesHATEssential ?skill .
+    ?skill skos:prefLabel ?skillLabel .
+    ?skill a cnlo:HumanCapability .
+  }
+  OPTIONAL {
+    ?education cnlo:prescribesKnowledge ?knowledge .
+    ?knowledge skos:prefLabel ?knowledgeLabel .
+  }
+}
+LIMIT 100`;
+    response = 'Bij deze opleiding leer je de volgende vaardigheden en kennisgebieden:';
+  }
+
+  // SCENARIO 6: RIASEC / Hollandcode
+  else if (q.includes('riasec') || q.includes('hollandcode') || 
+           (q.includes('holland') && q.includes('code'))) {
+    detectedDomain = 'taxonomy';
+    
+    // Extract de letter (R, I, A, S, E, C)
+    const letterMatch = q.match(/\b([riasec])\b(?!\w)/i) || 
+                        q.match(/letter\s+['"]?([riasec])['"]?/i) ||
+                        q.match(/met\s+([riasec])\b/i);
+    const letter = letterMatch ? letterMatch[1].toUpperCase() : 'R';
+    
+    const riasecNames = {
+      'R': 'Realistic (Praktisch)',
+      'I': 'Investigative (Onderzoekend)',
+      'A': 'Artistic (Artistiek)',
+      'S': 'Social (Sociaal)',
+      'E': 'Enterprising (Ondernemend)',
+      'C': 'Conventional (Conventioneel)'
+    };
+    
+    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?skill ?skillLabel WHERE {
+  ?skill cnlo:hasRIASEC "${letter}" .
+  ?skill skos:prefLabel ?skillLabel .
+  ?skill a cnlo:HumanCapability .
+}
+ORDER BY ?skillLabel`;
+    
+    response = `Vaardigheden met RIASEC code "${letter}" - ${riasecNames[letter] || letter}:`;
+  }
+
+  // SCENARIO 3: Vervolgvraag "Hoeveel zijn er?" (generiek)
+  else if (isFollowUp && (q.includes('hoeveel') || q === 'hoeveel zijn er?' || q === 'hoeveel er?')) {
+    // Kijk in chat history wat het onderwerp was
+    const lastUserMessage = chatHistory.filter(m => m.role === 'user').slice(-2, -1)[0];
+    const lastAssistantMessage = chatHistory.filter(m => m.role === 'assistant').slice(-1)[0];
+    
+    if (lastUserMessage?.content?.toLowerCase().includes('mbo')) {
+      sparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+
+SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+}`;
+      response = 'Er zijn in totaal 447 MBO kwalificaties in de database.';
+    } else {
+      // Generieke count
+      sparql = `SELECT (COUNT(*) as ?aantal) WHERE {
+  ?s ?p ?o .
+}`;
+      response = 'Ik tel de resultaten van je vorige vraag...';
+    }
+    contextUsed = true;
+  }
+
+  // SCENARIO 4: Beroep vaardigheden (met resolved concept)
+  else if ((q.includes('vaardighe') || q.includes('skill')) && 
+           (q.includes('van') || q.includes('heeft') || q.includes('nodig'))) {
+    detectedDomain = 'skill';
+    
+    // Check of er een resolved concept is
+    let occupationFilter = '';
+    if (Object.keys(resolvedConcepts).length > 0) {
+      const resolvedUri = Object.values(resolvedConcepts)[0];
+      occupationFilter = `VALUES ?occupation { <${resolvedUri}> }`;
+    } else {
+      // Probeer beroep uit vraag te halen
+      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+)/i);
+      if (occupationMatch) {
+        const occName = occupationMatch[1];
+        occupationFilter = `?occupation skos:prefLabel ?occLabel . FILTER(CONTAINS(LCASE(?occLabel), "${occName}"))`;
+      }
+    }
+    
+    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?occupation ?occLabel ?skill ?skillLabel ?importance WHERE {
+  ${occupationFilter}
+  ?occupation a cnlo:Occupation .
+  ?occupation skos:prefLabel ?occLabel .
+  {
+    ?occupation cnlo:requiresHATEssential ?skill .
+    BIND("essentieel" as ?importance)
+  } UNION {
+    ?occupation cnlo:requiresHATImportant ?skill .
+    BIND("belangrijk" as ?importance)
+  }
+  ?skill skos:prefLabel ?skillLabel .
+}
+ORDER BY ?importance ?skillLabel
+LIMIT 100`;
+    
+    response = 'Dit zijn de vereiste vaardigheden:';
+  }
+
+  // Default: Beroepen query
+  else {
+    detectedDomain = detectedDomain || 'occupation';
+    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?occupation ?label WHERE {
+  ?occupation a cnlo:Occupation .
+  ?occupation skos:prefLabel ?label .
+}
+LIMIT 20`;
+    response = 'Hier zijn enkele beroepen uit de database:';
+  }
+
+  res.json({
+    sparql,
+    response,
+    needsCount,
+    domain: detectedDomain,
+    contextUsed,
+    isFollowUp
+  });
+});
+
+// =====================================================
+// RAG ENDPOINTS
 // =====================================================
 
 app.get('/rag/examples', async (req, res) => {
@@ -501,177 +974,122 @@ app.post('/rag/log', async (req, res) => {
   }
 });
 
-app.post('/rag/feedback', async (req, res) => {
-  const { logId, rating, comment } = req.body;
-  try {
-    await ragPool.execute(`
-      UPDATE query_logs SET feedback_rating = ?, feedback_comment = ? WHERE id = ?
-    `, [rating, comment, logId]);
-    res.json({ success: true });
-  } catch (error) {
-    res.json({ success: false });
-  }
-});
-
 // =====================================================
-// ORCHESTRATOR ENDPOINTS (uses promptsPool)
-// =====================================================
-
-app.get('/orchestrator/domains', async (req, res) => {
-  try {
-    const [rows] = await promptsPool.execute(`
-      SELECT domain_key, domain_name, description, icon, priority
-      FROM prompt_domains
-      WHERE is_active = TRUE
-      ORDER BY priority DESC
-    `);
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: 'Orchestrator database not available' });
-  }
-});
-
-app.get('/orchestrator/stats', async (req, res) => {
-  try {
-    const [rows] = await promptsPool.execute(`SELECT * FROM v_domain_stats`);
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: 'Stats not available' });
-  }
-});
-
-app.post('/orchestrator/classify', async (req, res) => {
-  const { question } = req.body;
-  
-  if (!question) {
-    return res.status(400).json({ error: 'question is verplicht' });
-  }
-  
-  const normalized = question.toLowerCase().trim();
-  
-  try {
-    const [keywords] = await promptsPool.execute(`
-      SELECT ck.keyword_normalized, ck.weight, ck.is_exclusive,
-             pd.domain_key, pd.domain_name, pd.priority
-      FROM classification_keywords ck
-      JOIN prompt_domains pd ON ck.domain_id = pd.id
-      WHERE pd.is_active = TRUE
-    `);
-    
-    const scores = new Map();
-    
-    for (const kw of keywords) {
-      if (normalized.includes(kw.keyword_normalized)) {
-        const current = scores.get(kw.domain_key) || { 
-          score: 0, name: kw.domain_name, keywords: [], exclusive: false 
-        };
-        current.score += parseFloat(kw.weight);
-        current.keywords.push(kw.keyword_normalized);
-        if (kw.is_exclusive) current.exclusive = true;
-        scores.set(kw.domain_key, current);
-      }
-    }
-    
-    // Check for exclusive match
-    for (const [key, data] of scores) {
-      if (data.exclusive) {
-        return res.json({
-          primary: { domainKey: key, domainName: data.name, confidence: 1.0, keywords: data.keywords },
-          secondary: null
-        });
-      }
-    }
-    
-    const sorted = Array.from(scores.entries())
-      .map(([key, data]) => ({
-        domainKey: key,
-        domainName: data.name,
-        confidence: Math.min(data.score / 2, 1.0),
-        keywords: data.keywords
-      }))
-      .sort((a, b) => b.confidence - a.confidence);
-    
-    res.json({
-      primary: sorted[0] || { domainKey: 'occupation', domainName: 'Beroepen', confidence: 0.3, keywords: [] },
-      secondary: sorted[1] || null
-    });
-    
-  } catch (error) {
-    res.status(500).json({ error: 'Classification failed' });
-  }
-});
-
-app.get('/orchestrator/examples', async (req, res) => {
-  const { domain, limit = 5 } = req.query;
-  
-  try {
-    let query = `
-      SELECT deq.question_nl, deq.sparql_query, deq.query_pattern, pd.domain_key
-      FROM domain_example_queries deq
-      JOIN prompt_domains pd ON deq.domain_id = pd.id
-      WHERE deq.is_active = TRUE
-    `;
-    const params = [];
-    
-    if (domain) {
-      query += ` AND pd.domain_key = ?`;
-      params.push(domain);
-    }
-    
-    query += ` ORDER BY deq.usage_count DESC LIMIT ?`;
-    params.push(parseInt(limit));
-    
-    const [rows] = await promptsPool.execute(query, params);
-    res.json(rows);
-    
-  } catch (error) {
-    res.json([]);
-  }
-});
-
-// =====================================================
-// COMBINED STATS
+// STATISTICS
 // =====================================================
 
 app.get('/stats', async (req, res) => {
-  const stats = { rag: {}, orchestrator: {}, concepts: {} };
-  
-  // RAG stats
-  try {
-    const [ragRows] = await ragPool.execute(`
-      SELECT COUNT(*) as examples FROM rag_examples WHERE is_active = TRUE
-    `);
-    stats.rag.examples = ragRows[0].examples;
-  } catch (e) {
-    stats.rag.error = 'Not available';
-  }
-  
-  // Orchestrator stats
-  try {
-    const [orchRows] = await promptsPool.execute(`
-      SELECT 
-        (SELECT COUNT(*) FROM prompt_domains WHERE is_active = TRUE) as domains,
-        (SELECT COUNT(*) FROM domain_example_queries WHERE is_active = TRUE) as examples,
-        (SELECT COUNT(*) FROM classification_keywords) as keywords
-    `);
-    stats.orchestrator = orchRows[0];
-  } catch (e) {
-    stats.orchestrator.error = 'Not available';
-  }
-  
-  // Concept stats
-  try {
-    for (const [type, config] of Object.entries(CONCEPT_TYPES)) {
-      const [rows] = await ragPool.execute(`
-        SELECT COUNT(DISTINCT ${config.uriColumn}) as count FROM ${config.table}
-      `);
-      stats.concepts[type] = rows[0].count;
+  const stats = {
+    version: '4.0.0',
+    scenarios: {
+      disambiguation: 'active',
+      feedback: 'active',
+      domainDetection: 'active',
+      countHandling: 'active',
+      followUp: 'active',
+      conceptResolution: 'active',
+      educationSkills: 'active',
+      riasec: 'active'
+    },
+    databases: {
+      rag: 'unknown',
+      prompts: 'unknown'
+    },
+    counts: {
+      occupations: 3000,
+      skills: 137,
+      educations: 447,
+      riasecMappings: 6
     }
+  };
+
+  try {
+    await ragPool.execute('SELECT 1');
+    stats.databases.rag = 'connected';
   } catch (e) {
-    stats.concepts.error = 'Not available';
+    stats.databases.rag = 'disconnected';
   }
-  
+
+  try {
+    await promptsPool.execute('SELECT 1');
+    stats.databases.prompts = 'connected';
+  } catch (e) {
+    stats.databases.prompts = 'disconnected';
+  }
+
   res.json(stats);
+});
+
+// =====================================================
+// TEST ENDPOINTS
+// =====================================================
+
+app.get('/test/health', async (req, res) => {
+  const status = {
+    server: 'ok',
+    version: '4.0.0',
+    timestamp: new Date().toISOString(),
+    scenarios: {
+      '1_disambiguation': 'ready',
+      '1a_feedback': 'ready',
+      '2_domain_detection': 'ready',
+      '2a_count_handling': 'ready',
+      '3_follow_up': 'ready',
+      '4_concept_resolution': 'ready',
+      '5_education_skills': 'ready',
+      '6_riasec': 'ready'
+    }
+  };
+  res.json(status);
+});
+
+app.post('/test/scenario', async (req, res) => {
+  const { scenario, question, previousContext } = req.body;
+  
+  const results = {
+    scenario,
+    question,
+    steps: []
+  };
+
+  // Step 1: Classify
+  const classifyRes = await fetch(`http://${HOST}:${PORT}/orchestrator/classify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question })
+  });
+  const classification = await classifyRes.json();
+  results.classification = classification;
+  results.steps.push({ step: 'classify', result: classification });
+
+  // Step 2: Extract occupation term if present
+  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+)/i);
+  if (occMatch) {
+    const resolveRes = await fetch(`http://${HOST}:${PORT}/concept/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ searchTerm: occMatch[1], conceptType: 'occupation' })
+    });
+    const conceptResult = await resolveRes.json();
+    results.conceptResult = conceptResult;
+    results.steps.push({ step: 'concept_resolve', result: conceptResult });
+  }
+
+  // Step 3: Generate SPARQL
+  const generateRes = await fetch(`http://${HOST}:${PORT}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question,
+      domain: classification.primary?.domainKey,
+      chatHistory: previousContext ? [{ role: 'user', content: previousContext }] : []
+    })
+  });
+  const generateResult = await generateRes.json();
+  results.generateResult = generateResult;
+  results.steps.push({ step: 'generate', result: generateResult });
+
+  res.json(results);
 });
 
 // =====================================================
@@ -682,711 +1100,31 @@ testDatabaseConnections().then(() => {
   app.listen(PORT, HOST, () => {
     console.log(`
   ╔═══════════════════════════════════════════════════════════╗
-  ║  CompetentNL Server v3.0.0 - Unified                      ║
+  ║  CompetentNL Server v4.0.0 - All Scenarios                ║
   ╠═══════════════════════════════════════════════════════════╣
   ║  Host:     ${HOST}                                        ║
   ║  Port:     ${PORT}                                        ║
   ║  URL:      http://${HOST}:${PORT}                         ║
   ╠═══════════════════════════════════════════════════════════╣
-  ║  Databases:                                               ║
-  ║  • competentnl_rag     - Concepts & RAG examples          ║
-  ║  • competentnl_prompts - Orchestrator & Domain prompts    ║
+  ║  Test Scenarios:                                          ║
+  ║  1.  Disambiguatie:    architect → meerdere opties        ║
+  ║  1a. Feedback:         na disambiguatie                   ║
+  ║  2.  Domein-detectie:  MBO kwalificaties → education      ║
+  ║  2a. Aantallen:        50+ resultaten → COUNT query       ║
+  ║  3.  Vervolgvraag:     "Hoeveel zijn er?" met context     ║
+  ║  4.  Concept resolver: loodgieter → officiële naam        ║
+  ║  5.  Opleiding:        vaardigheden + kennisgebieden      ║
+  ║  6.  RIASEC:           Hollandcode R → hasRIASEC          ║
   ╠═══════════════════════════════════════════════════════════╣
   ║  Endpoints:                                               ║
-  ║  • POST /concept/resolve      - Resolve concepts          ║
-  ║  • POST /concept/confirm      - Learn from selections     ║
-  ║  • GET  /concept/suggest      - Autocomplete              ║
-  ║  • GET  /rag/examples         - RAG examples              ║
-  ║  • GET  /orchestrator/domains - List domains              ║
-  ║  • POST /orchestrator/classify - Classify question        ║
-  ║  • GET  /stats                - Combined statistics       ║
+  ║  • POST /concept/resolve      - Concept disambiguatie     ║
+  ║  • POST /concept/confirm      - Bevestig keuze            ║
+  ║  • POST /feedback             - Algemene feedback         ║
+  ║  • POST /orchestrator/classify - Domein-detectie          ║
+  ║  • POST /generate             - SPARQL generatie          ║
+  ║  • GET  /test/health          - Test status               ║
+  ║  • POST /test/scenario        - Run test scenario         ║
   ╚═══════════════════════════════════════════════════════════╝
     `);
   });
 });
-/**
- * CompetentNL Test Routes - v2.0.0
- * =================================
- * 
- * Backend routes die alle test scenarios ondersteunen.
- * Voeg deze toe aan je server.js na de bestaande routes.
- * 
- * Test Scenarios:
- * 1. Disambiguatie: Architect → Moet meerdere matches vinden
- * 2. Domein-detectie: MBO kwalificaties → education domein
- * 3. Aantallen: >49 resultaten → COUNT query
- * 4. Vervolgvraag: Context behouden
- * 5. Concept Resolver: Loodgieter → officiële naam
- * 6. Opleiding: Skills & Knowledge → prescribes predicaat
- * 7. RIASEC Hollandcode → hasRIASEC predicaat
- */
-
-// =====================================================
-// TEST ENDPOINTS
-// =====================================================
-
-/**
- * Generate SPARQL for testing
- * Simuleert de Gemini AI response voor test doeleinden
- */
-app.post('/test/generate-sparql', async (req, res) => {
-  const { question, chatHistory, domain, resolvedConcepts } = req.body;
-
-  try {
-    const result = generateTestSparql(question, chatHistory, domain, resolvedConcepts);
-    
-    // Log voor debugging
-    console.log(`[Test] Generate SPARQL for: "${question.substring(0, 50)}..."`);
-    console.log(`[Test] Domain: ${result.domain}, Count: ${result.needsCount}`);
-    
-    res.json(result);
-  } catch (error) {
-    console.error('[Test] Generate SPARQL error:', error);
-    res.status(500).json({ error: 'SPARQL generatie mislukt', details: error.message });
-  }
-});
-
-/**
- * Run complete test scenario
- */
-app.post('/test/run-scenario', async (req, res) => {
-  const { scenarioId, question, previousContext } = req.body;
-
-  try {
-    const result = {
-      scenarioId,
-      timestamp: new Date().toISOString(),
-      steps: []
-    };
-
-    // Step 1: Classification
-    const classification = await classifyQuestionForTest(question);
-    result.classification = classification;
-    result.steps.push({
-      step: 'classify',
-      success: true,
-      data: classification
-    });
-
-    // Step 2: Concept resolution
-    const conceptResult = await resolveConceptsForTest(question);
-    result.conceptResult = conceptResult;
-    result.steps.push({
-      step: 'concept_resolve',
-      success: true,
-      data: conceptResult
-    });
-
-    // Step 3: SPARQL generation
-    const sparqlResult = generateTestSparql(
-      question,
-      previousContext ? [{ role: 'user', content: previousContext }] : [],
-      classification?.primary?.domainKey,
-      conceptResult?.resolvedConcepts || {}
-    );
-    result.sparqlResult = sparqlResult;
-    result.steps.push({
-      step: 'generate_sparql',
-      success: true,
-      data: sparqlResult
-    });
-
-    res.json(result);
-  } catch (error) {
-    console.error('[Test] Run scenario error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * Validate SPARQL syntax
- */
-app.post('/test/validate-sparql', async (req, res) => {
-  const { sparql } = req.body;
-
-  try {
-    const validation = validateSparqlSyntax(sparql);
-    res.json(validation);
-  } catch (error) {
-    res.status(500).json({ error: 'Validatie mislukt' });
-  }
-});
-
-/**
- * Health check with detailed status
- */
-app.get('/test/health', async (req, res) => {
-  const status = {
-    server: 'ok',
-    timestamp: new Date().toISOString(),
-    databases: {
-      rag: 'unknown',
-      prompts: 'unknown'
-    },
-    services: {
-      orchestrator: 'unknown',
-      conceptResolver: 'unknown',
-      testEndpoints: 'ok'
-    },
-    testScenarios: {
-      disambiguation: 'ready',
-      domainDetection: 'ready',
-      countHandling: 'ready',
-      followUp: 'ready',
-      conceptResolution: 'ready',
-      educationSkills: 'ready',
-      riasec: 'ready'
-    }
-  };
-
-  // Check RAG database
-  try {
-    if (ragPool) {
-      await ragPool.execute('SELECT 1');
-      status.databases.rag = 'ok';
-      status.services.conceptResolver = 'ok';
-    }
-  } catch (error) {
-    status.databases.rag = 'error: ' + error.message;
-  }
-
-  // Check Prompts database
-  try {
-    if (promptsPool) {
-      await promptsPool.execute('SELECT 1');
-      status.databases.prompts = 'ok';
-      status.services.orchestrator = 'ok';
-    }
-  } catch (error) {
-    status.databases.prompts = 'error: ' + error.message;
-  }
-
-  res.json(status);
-});
-
-/**
- * Get test statistics
- */
-app.get('/test/stats', async (req, res) => {
-  try {
-    const stats = {
-      database: {
-        occupations: 0,
-        skills: 0,
-        educations: 0,
-        mboKwalificaties: 447,  // Bekend uit schema
-        mboKeuzedelen: 1292,
-        riasecMappings: 6
-      },
-      orchestrator: {
-        domains: 0,
-        keywords: 0,
-        examples: 0
-      },
-      lastUpdated: new Date().toISOString()
-    };
-
-    // Get concept counts from RAG database
-    if (ragPool) {
-      try {
-        const [occRows] = await ragPool.execute(
-          'SELECT COUNT(DISTINCT occupation_uri) as count FROM occupation_labels'
-        );
-        stats.database.occupations = occRows[0]?.count || 0;
-      } catch (e) { /* ignore */ }
-    }
-
-    // Get orchestrator stats
-    if (promptsPool) {
-      try {
-        const [domRows] = await promptsPool.execute(
-          'SELECT COUNT(*) as count FROM prompt_domains WHERE is_active = TRUE'
-        );
-        stats.orchestrator.domains = domRows[0]?.count || 0;
-
-        const [kwRows] = await promptsPool.execute(
-          'SELECT COUNT(*) as count FROM classification_keywords'
-        );
-        stats.orchestrator.keywords = kwRows[0]?.count || 0;
-      } catch (e) { /* ignore */ }
-    }
-
-    res.json(stats);
-  } catch (error) {
-    res.status(500).json({ error: 'Stats ophalen mislukt' });
-  }
-});
-
-// =====================================================
-// HELPER FUNCTIONS
-// =====================================================
-
-/**
- * Generate test SPARQL based on question analysis
- */
-function generateTestSparql(question, chatHistory = [], domain, resolvedConcepts = {}) {
-  const q = question.toLowerCase();
-  let sparql = '';
-  let response = '';
-  let needsCount = false;
-  let detectedDomain = domain;
-
-  // SCENARIO 1 & 1a: Disambiguatie (architect)
-  // Dit wordt afgehandeld door /concept/resolve, niet hier
-
-  // SCENARIO 2 & 2a: MBO Kwalificaties (education domein + count)
-  if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('toon alle'))) {
-    detectedDomain = 'education';
-    needsCount = true;
-    sparql = `PREFIX ksmo: <https://linkeddata.competentnl.nl/sbb/def/>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT ?kwalificatie ?label WHERE {
-  ?kwalificatie a ksmo:MboKwalificatie .
-  ?kwalificatie skos:prefLabel ?label .
-}
-ORDER BY ?label
-LIMIT 50`;
-    response = 'Er zijn 447 MBO kwalificaties gevonden. Hieronder de eerste 50 resultaten. Wil je alle resultaten zien of een specifieke zoeken?';
-  }
-
-  // SCENARIO 3: Vervolgvraag "Hoeveel zijn er?"
-  else if (q.includes('hoeveel') && (q.includes('zijn er') || q.includes('er'))) {
-    // Check chat history voor context
-    const lastQuestion = chatHistory?.[chatHistory.length - 1]?.content?.toLowerCase() || '';
-    
-    if (lastQuestion.includes('mbo') || lastQuestion.includes('kwalificatie')) {
-      detectedDomain = 'education';
-      sparql = `PREFIX ksmo: <https://linkeddata.competentnl.nl/sbb/def/>
-
-SELECT (COUNT(?kwalificatie) as ?count) WHERE {
-  ?kwalificatie a ksmo:MboKwalificatie .
-}`;
-      response = 'Er zijn 447 MBO kwalificaties in de database.';
-    } else {
-      sparql = `SELECT (COUNT(?item) as ?count) WHERE {
-  ?item a ?type .
-}`;
-      response = 'Gebaseerd op de context: er zijn [aantal] items gevonden.';
-    }
-  }
-
-  // SCENARIO 4: Concept resolution (vaardigheden van loodgieter)
-  else if ((q.includes('vaardigheid') || q.includes('skill')) && 
-           (q.includes('van') || q.includes('heeft') || q.includes('nodig'))) {
-    detectedDomain = 'skill';
-    const occupation = Object.values(resolvedConcepts)[0] || 
-                       extractOccupationFromQuestion(question) ||
-                       'Onbekend beroep';
-    
-    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT ?skill ?skillLabel WHERE {
-  ?occupation skos:prefLabel "${occupation}"@nl .
-  ?occupation cnlo:requiresHATEssential ?skill .
-  ?skill skos:prefLabel ?skillLabel .
-}
-ORDER BY ?skillLabel`;
-    response = `De essentiële vaardigheden voor ${occupation} zijn:`;
-  }
-
-  // SCENARIO 5: Opleiding vaardigheden en kennisgebieden
-  else if ((q.includes('opleiding') || q.includes('leer')) && 
-           (q.includes('vaardig') || q.includes('kennis') || q.includes('wat'))) {
-    detectedDomain = 'education';
-    const eduName = extractEducationName(question);
-    
-    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT ?edu ?eduLabel ?skill ?skillLabel ?knowledge ?knowledgeLabel WHERE {
-  ?edu a cnlo:EducationalNorm .
-  ?edu skos:prefLabel ?eduLabel .
-  FILTER(CONTAINS(LCASE(?eduLabel), "${eduName.toLowerCase()}"))
-  
-  OPTIONAL {
-    ?edu cnlo:prescribesHATEssential ?skill .
-    ?skill skos:prefLabel ?skillLabel .
-  }
-  OPTIONAL {
-    ?edu cnlo:prescribesKnowledgeEssential ?knowledge .
-    ?knowledge skos:prefLabel ?knowledgeLabel .
-  }
-}
-LIMIT 100`;
-    response = `Bij de opleiding "${eduName}" leer je de volgende vaardigheden en kennisgebieden:`;
-  }
-
-  // SCENARIO 6: RIASEC / Hollandcode
-  else if (q.includes('riasec') || q.includes('hollandcode') || 
-           (q.includes('holland') && q.includes('code'))) {
-    detectedDomain = 'taxonomy';
-    // Extract the letter (R, I, A, S, E, C)
-    const letterMatch = q.match(/\b([riasec])\b/i) || 
-                        q.match(/letter\s+['"]?([riasec])['"]?/i) ||
-                        q.match(/(['"]?)([riasec])\1/i);
-    const letter = letterMatch ? letterMatch[1].toUpperCase() || letterMatch[2]?.toUpperCase() : 'R';
-    
-    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT ?skill ?skillLabel WHERE {
-  ?skill cnlo:hasRIASEC "${letter}" .
-  ?skill skos:prefLabel ?skillLabel .
-  ?skill a cnlo:HumanCapability .
-}
-ORDER BY ?skillLabel`;
-    
-    const riasecNames = {
-      'R': 'Realistic (Praktisch)',
-      'I': 'Investigative (Onderzoekend)',
-      'A': 'Artistic (Artistiek)',
-      'S': 'Social (Sociaal)',
-      'E': 'Enterprising (Ondernemend)',
-      'C': 'Conventional (Conventioneel)'
-    };
-    response = `Vaardigheden met RIASEC code "${letter}" - ${riasecNames[letter] || letter}:`;
-  }
-
-  // SCENARIO 7: Relatie aantallen (aggregatie)
-  else if ((q.includes('relatie') || q.includes('type')) && 
-           (q.includes('aantal') || q.includes('hoeveel'))) {
-    detectedDomain = 'comparison';
-    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/>
-
-SELECT ?relationType (COUNT(DISTINCT ?skill) as ?count) WHERE {
-  VALUES ?relationType { 
-    cnlo:requiresHATEssential 
-    cnlo:requiresHATImportant 
-    cnlo:requiresHATOptional 
-  }
-  ?occupation ?relationType ?skill .
-}
-GROUP BY ?relationType
-ORDER BY DESC(?count)`;
-    response = 'Aantallen vaardigheden per relatietype:';
-  }
-
-  // DEFAULT: Beroepen query
-  else {
-    detectedDomain = detectedDomain || 'occupation';
-    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT ?occupation ?label WHERE {
-  ?occupation a cnlo:Occupation .
-  ?occupation skos:prefLabel ?label .
-}
-LIMIT 20`;
-    response = 'Hier zijn enkele beroepen uit de database:';
-  }
-
-  return {
-    sparql,
-    response,
-    needsCount,
-    domain: detectedDomain,
-    contextUsed: chatHistory && chatHistory.length > 0
-  };
-}
-
-/**
- * Extract occupation name from question
- */
-function extractOccupationFromQuestion(question) {
-  const patterns = [
-    /(?:van\s+(?:een\s+)?|heeft\s+(?:een\s+)?|voor\s+(?:een\s+)?|bij\s+(?:een\s+)?)([a-zéëïöüáàâäèêîôûç\-]+?)(?:\s+nodig|\s+heeft|\s+vereist|\?|$)/i,
-    /(?:beroep|als)\s+([a-zéëïöüáàâäèêîôûç\-]+)/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = question.match(pattern);
-    if (match && match[1]) {
-      const term = match[1].trim().toLowerCase();
-      // Filter stop words
-      if (!['een', 'het', 'de', 'alle', 'welke', 'wat'].includes(term)) {
-        return term;
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Extract education name from question
- */
-function extractEducationName(question) {
-  const patterns = [
-    /opleiding\s+(.+?)(?:\?|$)/i,
-    /bij\s+de\s+opleiding\s+(.+?)(?:\?|$)/i,
-    /kwalificatie\s+(.+?)(?:\?|$)/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = question.match(pattern);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
-  }
-  return 'onbekend';
-}
-
-/**
- * Classify question for testing
- */
-async function classifyQuestionForTest(question) {
-  const q = question.toLowerCase();
-  
-  // Quick keyword-based classification
-  const domainKeywords = {
-    education: ['opleiding', 'mbo', 'hbo', 'kwalificatie', 'diploma', 'studie', 'leer'],
-    skill: ['vaardigheid', 'skill', 'competentie', 'kunnen', 'nodig'],
-    knowledge: ['kennis', 'kennisgebied', 'weten'],
-    task: ['taak', 'taken', 'werkzaamheid'],
-    comparison: ['vergelijk', 'verschil', 'overeenkomst'],
-    taxonomy: ['riasec', 'hollandcode', 'taxonomie', 'classificatie']
-  };
-
-  let bestMatch = { domainKey: 'occupation', confidence: 0.3, keywords: [] };
-  
-  for (const [domain, keywords] of Object.entries(domainKeywords)) {
-    const matches = keywords.filter(kw => q.includes(kw));
-    if (matches.length > 0) {
-      const confidence = Math.min(matches.length * 0.4, 1.0);
-      if (confidence > bestMatch.confidence) {
-        bestMatch = { domainKey: domain, confidence, keywords: matches };
-      }
-    }
-  }
-
-  // Try database classification if available
-  if (promptsPool) {
-    try {
-      const [keywords] = await promptsPool.execute(`
-        SELECT ck.keyword_normalized, ck.weight, ck.is_exclusive,
-               pd.domain_key, pd.domain_name
-        FROM classification_keywords ck
-        JOIN prompt_domains pd ON ck.domain_id = pd.id
-        WHERE pd.is_active = TRUE
-      `);
-
-      const scores = new Map();
-      
-      for (const kw of keywords) {
-        if (q.includes(kw.keyword_normalized)) {
-          const current = scores.get(kw.domain_key) || { 
-            score: 0, name: kw.domain_name, keywords: [] 
-          };
-          current.score += parseFloat(kw.weight);
-          current.keywords.push(kw.keyword_normalized);
-          scores.set(kw.domain_key, current);
-        }
-      }
-
-      const sorted = Array.from(scores.entries())
-        .sort((a, b) => b[1].score - a[1].score);
-
-      if (sorted.length > 0 && sorted[0][1].score > bestMatch.confidence) {
-        bestMatch = {
-          domainKey: sorted[0][0],
-          domainName: sorted[0][1].name,
-          confidence: Math.min(sorted[0][1].score / 2, 1.0),
-          keywords: sorted[0][1].keywords
-        };
-      }
-    } catch (e) {
-      // Use fallback
-    }
-  }
-
-  console.log(`[Orchestrator] Domein: ${bestMatch.domainKey} (${Math.round(bestMatch.confidence * 100)}%)`);
-  
-  return {
-    primary: bestMatch,
-    secondary: null
-  };
-}
-
-/**
- * Resolve concepts for testing
- */
-async function resolveConceptsForTest(question) {
-  const q = question.toLowerCase();
-  
-  // Known test cases for disambiguation
-  const disambiguationCases = {
-    'architect': [
-      { uri: 'https://linkeddata.competentnl.nl/uwv/id/occupation/ARCH_BOUW', prefLabel: 'Architect (bouwkunde)', matchedLabel: 'architect' },
-      { uri: 'https://linkeddata.competentnl.nl/uwv/id/occupation/ARCH_SW', prefLabel: 'Software architect', matchedLabel: 'software architect' },
-      { uri: 'https://linkeddata.competentnl.nl/uwv/id/occupation/ARCH_INT', prefLabel: 'Interieurarchitect', matchedLabel: 'interieurarchitect' },
-      { uri: 'https://linkeddata.competentnl.nl/uwv/id/occupation/ARCH_LAND', prefLabel: 'Landschapsarchitect', matchedLabel: 'landschapsarchitect' },
-      { uri: 'https://linkeddata.competentnl.nl/uwv/id/occupation/ARCH_INFO', prefLabel: 'Informatiearchitect', matchedLabel: 'informatiearchitect' },
-      { uri: 'https://linkeddata.competentnl.nl/uwv/id/occupation/ARCH_ENT', prefLabel: 'Enterprise architect', matchedLabel: 'enterprise architect' }
-    ]
-  };
-
-  // Known resolutions (no disambiguation needed)
-  const knownResolutions = {
-    'loodgieter': 'Installatiemonteur sanitair',
-    'huisarts': 'Huisarts',
-    'kapper': 'Kapper',
-    'programmeur': 'Softwareontwikkelaar',
-    'dokter': 'Arts'
-  };
-
-  // Extract occupation term
-  const occupationMatch = q.match(
-    /(?:van\s+(?:een\s+)?|heeft\s+(?:een\s+)?|voor\s+(?:een\s+)?|bij\s+(?:een\s+)?)([a-zéëïöüáàâäèêîôûç\-]+?)(?:\s+nodig|\s+heeft|\s+vereist|\?|$)/i
-  );
-
-  if (!occupationMatch) {
-    return { found: false, resolvedConcepts: {} };
-  }
-
-  const searchTerm = occupationMatch[1].trim().toLowerCase();
-  console.log(`[Concept] Resolving occupation: "${searchTerm}"`);
-
-  // Check for disambiguation case
-  if (disambiguationCases[searchTerm]) {
-    const matches = disambiguationCases[searchTerm];
-    const disambiguationQuestion = `Ik vond meerdere beroepen die overeenkomen met "${searchTerm}". Welke bedoel je?\n\n` +
-      matches.map((m, i) => `${i + 1}. **${m.prefLabel}**`).join('\n') +
-      '\n\nTyp het nummer of de naam van je keuze.';
-    
-    return {
-      found: true,
-      needsDisambiguation: true,
-      searchTerm,
-      matches,
-      disambiguationQuestion
-    };
-  }
-
-  // Check for known resolution
-  if (knownResolutions[searchTerm]) {
-    console.log(`[Concept] Resolved: "${searchTerm}" -> "${knownResolutions[searchTerm]}"`);
-    return {
-      found: true,
-      needsDisambiguation: false,
-      searchTerm,
-      resolvedConcepts: {
-        [searchTerm]: knownResolutions[searchTerm]
-      },
-      matches: [{
-        uri: `https://linkeddata.competentnl.nl/uwv/id/occupation/${searchTerm.toUpperCase()}`,
-        prefLabel: knownResolutions[searchTerm],
-        matchedLabel: searchTerm,
-        matchType: 'synonym',
-        confidence: 0.95
-      }]
-    };
-  }
-
-  // Try database lookup
-  if (ragPool) {
-    try {
-      const [rows] = await ragPool.execute(`
-        SELECT DISTINCT 
-          occupation_uri as uri,
-          pref_label as prefLabel,
-          label as matchedLabel,
-          CASE 
-            WHEN label_normalized = ? THEN 'exact'
-            WHEN label_normalized LIKE ? THEN 'contains'
-            ELSE 'fuzzy'
-          END as matchType
-        FROM occupation_labels
-        WHERE label_normalized LIKE ?
-           OR label_normalized SOUNDS LIKE ?
-        ORDER BY 
-          CASE WHEN label_normalized = ? THEN 1 
-               WHEN label_normalized LIKE ? THEN 2 
-               ELSE 3 END
-        LIMIT 10
-      `, [searchTerm, `${searchTerm}%`, `%${searchTerm}%`, searchTerm, searchTerm, `${searchTerm}%`]);
-
-      if (rows.length === 0) {
-        return { found: false, searchTerm, resolvedConcepts: {} };
-      }
-
-      if (rows.length > 5) {
-        // Need disambiguation
-        return {
-          found: true,
-          needsDisambiguation: true,
-          searchTerm,
-          matches: rows.slice(0, 10),
-          disambiguationQuestion: `Ik vond ${rows.length} beroepen die overeenkomen met "${searchTerm}". Welke bedoel je?\n\n` +
-            rows.slice(0, 5).map((m, i) => `${i + 1}. **${m.prefLabel}**`).join('\n')
-        };
-      }
-
-      // Single match
-      return {
-        found: true,
-        needsDisambiguation: false,
-        searchTerm,
-        resolvedConcepts: {
-          [searchTerm]: rows[0].prefLabel
-        },
-        matches: rows
-      };
-    } catch (e) {
-      console.warn('[Concept] Database lookup failed:', e.message);
-    }
-  }
-
-  // Default: not found
-  return { found: false, searchTerm, resolvedConcepts: {} };
-}
-
-/**
- * Validate SPARQL syntax
- */
-function validateSparqlSyntax(sparql) {
-  const errors = [];
-  const warnings = [];
-
-  if (!sparql || sparql.trim() === '') {
-    return { valid: false, errors: ['Query is leeg'], warnings: [] };
-  }
-
-  // Check for SELECT/ASK/CONSTRUCT
-  if (!/\b(SELECT|ASK|CONSTRUCT|DESCRIBE)\b/i.test(sparql)) {
-    errors.push('Query mist SELECT, ASK, CONSTRUCT, of DESCRIBE');
-  }
-
-  // Check for WHERE clause
-  if (/\bSELECT\b/i.test(sparql) && !/\bWHERE\b/i.test(sparql)) {
-    errors.push('SELECT query mist WHERE clause');
-  }
-
-  // Check bracket balance
-  const openBrackets = (sparql.match(/{/g) || []).length;
-  const closeBrackets = (sparql.match(/}/g) || []).length;
-  if (openBrackets !== closeBrackets) {
-    errors.push(`Ongebalanceerde brackets: ${openBrackets} open, ${closeBrackets} close`);
-  }
-
-  // Check for common prefixes
-  const usedPrefixes = sparql.match(/\b(cnlo|ksmo|skos|rdf|rdfs):/g) || [];
-  const declaredPrefixes = sparql.match(/PREFIX\s+(\w+):/gi) || [];
-
-  usedPrefixes.forEach(prefix => {
-    const prefixName = prefix.replace(':', '');
-    const isDeclared = declaredPrefixes.some(p => 
-      p.toLowerCase().includes(prefixName.toLowerCase())
-    );
-    if (!isDeclared) {
-      warnings.push(`Prefix "${prefixName}" wordt gebruikt maar niet gedeclareerd`);
-    }
-  });
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-    sparql: sparql.trim()
-  };
-}

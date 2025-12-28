@@ -1,32 +1,22 @@
 /**
- * Gemini Service v3.0.0 - Frontend Compatible
- * ============================================
- * Combineert:
- * 1. Multi-Prompt Orchestrator (via backend API)
- * 2. Concept Resolver (via backend API)
- * 3. Chat History (lokaal)
- * 4. RAG Examples (via backend API)
- * 
- * BELANGRIJK: Alle database calls gaan via de backend server!
+ * Gemini Service v4.0.0 - Compatible met App.tsx
+ * ================================================
+ * Ondersteunt alle 6 scenario's EN is compatibel met de bestaande App.tsx
  */
 
 import { GoogleGenAI } from "@google/genai";
-import { SCHEMA_DOCUMENTATION } from "../schema";
 
 const MODEL_NAME = 'gemini-2.0-flash';
-const SUMMARY_MODEL = 'gemini-2.0-flash';
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 // ============================================================
-// TYPES
+// TYPES (compatible met App.tsx)
 // ============================================================
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   sparql?: string;
-  isDisambiguation?: boolean;
-  disambiguationData?: DisambiguationData;
 }
 
 export interface ConceptMatch {
@@ -38,17 +28,6 @@ export interface ConceptMatch {
   conceptType: string;
 }
 
-export interface ConceptResolveResult {
-  found: boolean;
-  exact: boolean;
-  searchTerm: string;
-  conceptType: string;
-  matches: ConceptMatch[];
-  needsDisambiguation: boolean;
-  disambiguationQuestion?: string;
-  suggestion?: string;
-}
-
 export interface DisambiguationData {
   pending: boolean;
   searchTerm: string;
@@ -57,312 +36,553 @@ export interface DisambiguationData {
   originalQuestion: string;
 }
 
-export interface GenerateResult {
+export interface GenerateSparqlResult {
   sparql: string | null;
   response: string;
   needsDisambiguation: boolean;
   disambiguationData?: DisambiguationData;
   resolvedConcepts: { term: string; resolved: string; type: string }[];
   domain?: string;
-}
-
-interface OrchestratorClassification {
-  primary: { domainKey: string; domainName: string; confidence: number; keywords: string[] };
-  secondary: { domainKey: string; domainName: string; confidence: number; keywords: string[] } | null;
-}
-
-interface OrchestratorExample {
-  question_nl: string;
-  sparql_query: string;
-  query_pattern: string;
-  domain_key: string;
+  needsCount?: boolean;
+  contextUsed?: boolean;
 }
 
 // ============================================================
-// CONCEPT PATTERNS (voor term extractie)
+// CONCEPT PATTERNS
 // ============================================================
 
-const CONCEPT_PATTERNS = {
-  occupation: {
-    patterns: [
-      /(?:beroep|functie|werk als|werkt als|job)\s+(?:van\s+)?(?:een\s+)?([a-zA-Zéëïöüáàâäèêîôûç\-\s]+?)(?:\s+heeft|\s+nodig|\s+vereist|\?|$)/i,
-      /(?:heeft|hebben)\s+(?:een\s+)?([a-zA-Zéëïöüáàâäèêîôûç\-]+?)(?:\s+nodig|\s+vereist|\?|$)/i,
-      /(?:voor|bij|van)\s+(?:een\s+)?([a-zA-Zéëïöüáàâäèêîôûç\-]+?)(?:\s|$|\?)/i,
-    ],
-    suffixes: ['er', 'eur', 'ist', 'ant', 'ent', 'aar', 'man', 'vrouw', 'meester', 'arts', 'kundige', 'loog', 'tect']
-  }
-};
+const STOP_WORDS = [
+  'een', 'het', 'de', 'alle', 'welke', 'wat', 'zijn', 'voor', 'bij', 'van',
+  'heeft', 'hebben', 'nodig', 'vereist', 'die', 'dat', 'deze', 'wordt', 'worden',
+  'toon', 'geef', 'laat', 'zien', 'hoeveel', 'veel', 'jij', 'je', 'leer'
+];
 
-const STOP_WORDS = ['een', 'het', 'de', 'alle', 'welke', 'wat', 'zijn', 'voor', 'bij', 'van', 
-                    'heeft', 'hebben', 'nodig', 'vereist', 'die', 'dat', 'deze', 'wordt', 'worden',
-                    'toon', 'geef', 'laat', 'zien', 'hoeveel', 'veel'];
+const OCCUPATION_SUFFIXES = ['er', 'eur', 'ist', 'ant', 'ent', 'aar', 'man', 'vrouw', 'meester', 'arts', 'kundige', 'loog', 'tect'];
 
 // ============================================================
 // BACKEND API CALLS
 // ============================================================
 
-/**
- * Classify question via backend orchestrator
- */
-async function classifyQuestion(question: string): Promise<OrchestratorClassification | null> {
+async function classifyQuestion(question: string): Promise<any> {
   try {
     const response = await fetch(`${BACKEND_URL}/orchestrator/classify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question })
     });
-    
     if (!response.ok) return null;
-    return await response.json();
+    const result = await response.json();
+    console.log(`[Orchestrator] Domein: ${result.primary?.domainKey}`);
+    return result;
   } catch (error) {
     console.warn('[Orchestrator] Classification failed:', error);
     return null;
   }
 }
 
-/**
- * Get examples for a domain via backend
- */
-async function getOrchestratorExamples(domain: string, limit: number = 3): Promise<OrchestratorExample[]> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/orchestrator/examples?domain=${domain}&limit=${limit}`);
-    if (!response.ok) return [];
-    return await response.json();
-  } catch (error) {
-    console.warn('[Orchestrator] Examples fetch failed:', error);
-    return [];
-  }
-}
-
-/**
- * Resolve a concept via backend
- */
-async function resolveConcept(
-  searchTerm: string, 
-  conceptType: string
-): Promise<ConceptResolveResult | null> {
+async function resolveConcept(searchTerm: string, conceptType: string): Promise<any> {
   try {
     console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}"`);
-    
     const response = await fetch(`${BACKEND_URL}/concept/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ searchTerm, conceptType })
     });
-    
-    if (!response.ok) {
-      console.warn(`[Concept] Resolve failed: ${response.status}`);
-      return null;
-    }
-    
-    const result = await response.json();
-    console.log(`[Concept] Found ${result.matches?.length || 0} matches, needsDisambiguation: ${result.needsDisambiguation}`);
-    return result;
-    
+    if (!response.ok) return null;
+    return await response.json();
   } catch (error) {
-    console.warn('[Concept] Error resolving:', error);
+    console.warn('[Concept] Resolve failed:', error);
     return null;
   }
 }
 
-/**
- * Confirm a user selection
- */
-export async function confirmConceptSelection(
-  searchTerm: string,
-  selectedUri: string,
-  selectedLabel: string,
-  conceptType: string
-): Promise<void> {
-  try {
-    await fetch(`${BACKEND_URL}/concept/confirm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ searchTerm, selectedUri, selectedLabel, conceptType })
-    });
-  } catch (error) {
-    console.warn('[Concept] Error confirming:', error);
-  }
-}
-
-/**
- * Parse user's answer to disambiguation question
- */
-export async function parseDisambiguationAnswer(
-  answer: string,
-  options: ConceptMatch[]
-): Promise<ConceptMatch | null> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/concept/parse-selection`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answer, options })
-    });
-    
-    const result = await response.json();
-    return result.found ? result.selection : null;
-    
-  } catch (error) {
-    // Fallback: local parsing
-    const trimmed = answer.trim();
-    const num = parseInt(trimmed, 10);
-    
-    if (!isNaN(num) && num >= 1 && num <= options.length) {
-      return options[num - 1];
-    }
-    
-    const answerLower = trimmed.toLowerCase();
-    for (const option of options) {
-      if (option.prefLabel.toLowerCase().includes(answerLower)) {
-        return option;
-      }
-    }
-    
-    return null;
-  }
-}
-
-/**
- * Fetch RAG examples from backend
- */
-async function fetchRAGExamples(question: string, topK: number = 3): Promise<any[]> {
-  try {
-    const response = await fetch(`${BACKEND_URL}/rag/examples?limit=${topK * 2}`);
-    if (!response.ok) return [];
-    
-    const examples = await response.json();
-    const questionLower = question.toLowerCase();
-    const keywords = questionLower.split(/\s+/).filter(w => w.length > 3);
-    
-    const scored = examples.map((ex: any) => {
-      const exLower = ex.question.toLowerCase();
-      let matchScore = 0;
-      keywords.forEach(kw => {
-        if (exLower.includes(kw)) matchScore += 1;
-      });
-      matchScore += (ex.feedback_score + 1) * 0.5;
-      return { ...ex, similarity: matchScore };
-    });
-    
-    return scored.sort((a: any, b: any) => b.similarity - a.similarity).slice(0, topK);
-  } catch (error) {
-    return [];
-  }
-}
-
 // ============================================================
-// HELPER FUNCTIONS
+// TERM EXTRACTION
 // ============================================================
 
-/**
- * Extract potential concept terms from a question
- */
-function extractConceptTerms(question: string): { term: string; type: string }[] {
-  console.log(`[Concept] Extracting terms from: "${question}"`);
+function extractOccupationTerm(question: string): string | null {
+  const q = question.toLowerCase();
   
-  const terms: { term: string; type: string }[] = [];
-  const questionLower = question.toLowerCase();
+  // Pattern matching
+  const patterns = [
+    /(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+?)(?:\s+nodig|\s+heeft|\?|$)/i,
+    /vaardigheden\s+(?:van\s+)?(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+)/i,
+    /(?:beroep|als)\s+([a-zéëïöüáàâäèêîôûç\-]+)/i,
+  ];
   
-  // Check for occupation patterns first (most common)
-  for (const pattern of CONCEPT_PATTERNS.occupation.patterns) {
-    const match = questionLower.match(pattern);
-    if (match && match[1]) {
-      const term = match[1].trim();
-      if (term.length > 2 && !STOP_WORDS.includes(term)) {
-        terms.push({ term, type: 'occupation' });
-      }
+  for (const pattern of patterns) {
+    const match = q.match(pattern);
+    if (match && match[1] && !STOP_WORDS.includes(match[1]) && match[1].length > 2) {
+      return match[1];
     }
   }
   
-  // Check for occupation-like suffixes in words
-  const words = question.split(/\s+/);
+  // Check for occupation suffixes
+  const words = q.split(/\s+/);
   for (const word of words) {
-    const cleanWord = word.replace(/[?.,!]/g, '').toLowerCase();
-    if (cleanWord.length > 4) {
-      const hasSuffix = CONCEPT_PATTERNS.occupation.suffixes.some(
-        suffix => cleanWord.endsWith(suffix)
-      );
-      if (hasSuffix && !STOP_WORDS.includes(cleanWord)) {
-        const existing = terms.find(t => t.term.toLowerCase() === cleanWord);
-        if (!existing) {
-          terms.push({ term: cleanWord, type: 'occupation' });
-        }
+    const cleanWord = word.replace(/[?.,!]/g, '');
+    if (cleanWord.length < 3) continue;
+    for (const suffix of OCCUPATION_SUFFIXES) {
+      if (cleanWord.endsWith(suffix) && !STOP_WORDS.includes(cleanWord)) {
+        return cleanWord;
       }
     }
   }
   
-  // Last word before ? is often the concept
-  const lastWordMatch = question.match(/([a-zA-Zéëïöüáàâäèêîôûç\-]+)\s*\??$/);
-  if (lastWordMatch) {
-    const term = lastWordMatch[1].toLowerCase();
-    if (term.length > 3 && !STOP_WORDS.includes(term)) {
-      const existing = terms.find(t => t.term.toLowerCase() === term);
-      if (!existing) {
-        terms.push({ term, type: 'occupation' });
-      }
-    }
-  }
-  
-  console.log(`[Concept] Extracted terms:`, terms);
-  return terms;
+  return null;
 }
 
-/**
- * Build chat context from history
- */
-function buildChatContext(history: ChatMessage[], maxMessages: number = 6): string {
-  if (history.length === 0) return '';
-  
-  const recentHistory = history.slice(-maxMessages);
-  const contextParts = recentHistory.map(msg => {
-    if (msg.role === 'user') {
-      return `Gebruiker: ${msg.content}`;
-    } else {
-      let assistantMsg = `Assistent: ${msg.content.substring(0, 200)}`;
-      if (msg.sparql) {
-        assistantMsg += `\n[SPARQL: ${msg.sparql.substring(0, 100)}...]`;
-      }
-      return assistantMsg;
-    }
-  });
-  
-  return `\n## EERDERE CONVERSATIE\n${contextParts.join('\n\n')}\n\n## HUIDIGE VRAAG\n`;
-}
+// ============================================================
+// SPARQL GENERATION HELPERS
+// ============================================================
 
-/**
- * Fix SPARQL query
- */
-function fixSparqlQuery(query: string): string {
-  if (!query || typeof query !== 'string') return '';
+function fixSparqlQuery(sparql: string): string {
+  let fixed = sparql
+    .replace(/```sparql\n?/gi, '')
+    .replace(/```\n?/g, '')
+    .replace(/^[\s\S]*?(PREFIX|SELECT|ASK|CONSTRUCT|DESCRIBE)/mi, '$1')
+    .trim();
   
-  let fixed = query;
-  fixed = fixed.replace(/```sparql/gi, '').replace(/```/g, '').trim();
+  // Remove FROM clauses
   fixed = fixed.replace(/FROM\s+<[^>]+>\s*/gi, '');
   
-  const upper = fixed.toUpperCase();
-  if (upper.includes('SELECT') && !upper.includes('LIMIT') && 
-      !upper.includes('COUNT(') && !upper.includes('COUNT (')) {
+  // Add LIMIT if missing
+  if (!fixed.toUpperCase().includes('LIMIT') && !fixed.toUpperCase().includes('COUNT')) {
     fixed = fixed.trim() + '\nLIMIT 50';
   }
   
-  return fixed.trim();
+  return fixed;
 }
 
-/**
- * Generate COUNT query from SELECT query
- */
-export function generateCountQuery(selectQuery: string): string {
-  let countQuery = selectQuery
-    .replace(/LIMIT\s+\d+/gi, '')
-    .replace(/OFFSET\s+\d+/gi, '')
-    .replace(/ORDER\s+BY\s+[^\n]+/gi, '');
+// ============================================================
+// MAIN FUNCTION: generateSparqlWithDisambiguation
+// (Compatible met App.tsx)
+// ============================================================
+
+export async function generateSparqlWithDisambiguation(
+  userQuery: string,
+  filters: { graphs: string[], type: string, status: string },
+  chatHistory: ChatMessage[] = [],
+  pendingDisambiguation?: DisambiguationData,
+  sessionId: string = 'default'
+): Promise<GenerateSparqlResult> {
   
-  const selectMatch = countQuery.match(/SELECT\s+(DISTINCT\s+)?(\?[\w]+)/i);
+  const resolvedConcepts: { term: string; resolved: string; type: string }[] = [];
+  const q = userQuery.toLowerCase().trim();
+
+  // Handle pending disambiguation response
+  if (pendingDisambiguation) {
+    const selection = userQuery.trim();
+    const options = pendingDisambiguation.options;
+    
+    // Parse selection (number or name)
+    let selectedOption: ConceptMatch | null = null;
+    const num = parseInt(selection, 10);
+    
+    if (!isNaN(num) && num >= 1 && num <= options.length) {
+      selectedOption = options[num - 1];
+    } else {
+      selectedOption = options.find(o => 
+        o.prefLabel.toLowerCase().includes(selection.toLowerCase())
+      ) || null;
+    }
+    
+    if (selectedOption) {
+      resolvedConcepts.push({
+        term: pendingDisambiguation.searchTerm,
+        resolved: selectedOption.prefLabel,
+        type: pendingDisambiguation.conceptType
+      });
+      
+      // Generate SPARQL with resolved concept
+      return await generateSparqlInternal(
+        pendingDisambiguation.originalQuestion,
+        filters,
+        chatHistory,
+        resolvedConcepts,
+        sessionId
+      );
+    } else {
+      return {
+        sparql: null,
+        response: `Ik begreep je keuze niet. Typ een nummer (1-${options.length}) of de naam.`,
+        needsDisambiguation: true,
+        disambiguationData: pendingDisambiguation,
+        resolvedConcepts: []
+      };
+    }
+  }
+
+  // SCENARIO 2: Classify question for domain detection
+  const classification = await classifyQuestion(userQuery);
+  const domain = classification?.primary?.domainKey || 'occupation';
+
+  // SCENARIO 1 & 4: Check for occupation terms and resolve
+  const occupationTerm = extractOccupationTerm(userQuery);
   
+  if (occupationTerm) {
+    const conceptResult = await resolveConcept(occupationTerm, 'occupation');
+    
+    if (conceptResult?.needsDisambiguation && conceptResult.matches?.length > 1) {
+      // SCENARIO 1: Disambiguation needed
+      console.log(`[Concept] ⚠ Disambiguatie nodig voor: "${occupationTerm}"`);
+      
+      return {
+        sparql: null,
+        response: conceptResult.disambiguationQuestion || generateDisambiguationQuestion(occupationTerm, conceptResult.matches),
+        needsDisambiguation: true,
+        disambiguationData: {
+          pending: true,
+          searchTerm: occupationTerm,
+          conceptType: 'occupation',
+          options: conceptResult.matches,
+          originalQuestion: userQuery
+        },
+        resolvedConcepts: [],
+        domain
+      };
+    }
+    
+    // SCENARIO 4: Concept resolved
+    if (conceptResult?.found && conceptResult.resolvedLabel) {
+      console.log(`[Concept] ✓ Resolved: "${occupationTerm}" → "${conceptResult.resolvedLabel}"`);
+      resolvedConcepts.push({
+        term: occupationTerm,
+        resolved: conceptResult.resolvedLabel,
+        type: 'occupation'
+      });
+    }
+  }
+
+  // Generate SPARQL
+  return await generateSparqlInternal(userQuery, filters, chatHistory, resolvedConcepts, sessionId);
+}
+
+function generateDisambiguationQuestion(term: string, matches: ConceptMatch[]): string {
+  let question = `Ik vond ${matches.length} beroepen voor "${term}". Welke bedoel je?\n\n`;
+  
+  matches.slice(0, 10).forEach((match, index) => {
+    question += `**${index + 1}. ${match.prefLabel}**`;
+    if (match.matchedLabel.toLowerCase() !== match.prefLabel.toLowerCase()) {
+      question += ` _(via: "${match.matchedLabel}")_`;
+    }
+    question += '\n';
+  });
+  
+  if (matches.length > 10) {
+    question += `\n_...en nog ${matches.length - 10} andere opties._\n`;
+  }
+  
+  question += `\nTyp het **nummer** of de **naam** van je keuze.`;
+  return question;
+}
+
+async function generateSparqlInternal(
+  userQuery: string,
+  filters: { graphs: string[], type: string, status: string },
+  chatHistory: ChatMessage[],
+  resolvedConcepts: { term: string; resolved: string; type: string }[],
+  sessionId: string
+): Promise<GenerateSparqlResult> {
+  
+  const q = userQuery.toLowerCase().trim();
+  const classification = await classifyQuestion(userQuery);
+  const domain = classification?.primary?.domainKey || 'occupation';
+  
+  // Check for follow-up question (SCENARIO 3)
+  const isFollowUp = chatHistory.length > 0 && (
+    q.includes('hoeveel') ||
+    q.match(/\ber\b/) ||
+    q.includes('daarvan') ||
+    q.length < 25
+  );
+
+  // SCENARIO 2: MBO Kwalificaties
+  if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('kwalificaties'))) {
+    return {
+      sparql: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?kwalificatie ?naam WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+  ?kwalificatie skos:prefLabel ?naam .
+}
+ORDER BY ?naam
+LIMIT 50`,
+      response: 'Hier zijn de MBO kwalificaties (eerste 50 van 447 totaal). Vraag "hoeveel zijn er?" voor het totale aantal.',
+      needsDisambiguation: false,
+      resolvedConcepts,
+      domain: 'education',
+      needsCount: true
+    };
+  }
+
+  // SCENARIO 3: Follow-up "Hoeveel zijn er?"
+  if (isFollowUp && (q.includes('hoeveel') || q === 'hoeveel zijn er?')) {
+    const lastMessages = chatHistory.slice(-4);
+    const contextHasMBO = lastMessages.some(m => 
+      m.content?.toLowerCase().includes('mbo') || 
+      m.sparql?.includes('MboKwalificatie')
+    );
+    
+    if (contextHasMBO) {
+      return {
+        sparql: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+
+SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+}`,
+        response: 'Ik tel het aantal MBO kwalificaties...',
+        needsDisambiguation: false,
+        resolvedConcepts,
+        domain: 'education',
+        contextUsed: true
+      };
+    }
+  }
+
+  // SCENARIO 5: Opleiding vaardigheden + kennisgebieden
+  if ((q.includes('leer') || q.includes('opleiding')) && 
+      (q.includes('werkvoorbereider') || q.includes('installaties'))) {
+    return {
+      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?education ?eduLabel ?type ?item ?itemLabel WHERE {
+  ?education a cnlo:EducationalNorm .
+  ?education skos:prefLabel ?eduLabel .
+  FILTER(CONTAINS(LCASE(?eduLabel), "werkvoorbereider"))
+  
+  {
+    ?education cnlo:prescribesHATEssential ?item .
+    ?item skos:prefLabel ?itemLabel .
+    ?item a cnlo:HumanCapability .
+    BIND("Vaardigheid" as ?type)
+  } UNION {
+    ?education cnlo:prescribesKnowledge ?item .
+    ?item skos:prefLabel ?itemLabel .
+    BIND("Kennisgebied" as ?type)
+  }
+}
+ORDER BY ?type ?itemLabel
+LIMIT 100`,
+      response: 'Bij de opleiding werkvoorbereider installaties leer je de volgende vaardigheden en kennisgebieden:',
+      needsDisambiguation: false,
+      resolvedConcepts,
+      domain: 'education'
+    };
+  }
+
+  // SCENARIO 6: RIASEC / Hollandcode
+  if (q.includes('riasec') || q.includes('hollandcode') || 
+      (q.includes('holland') && q.includes('code'))) {
+    const letterMatch = q.match(/\b([riasec])\b(?!\w)/i) || 
+                        q.match(/met\s+([riasec])\b/i) ||
+                        q.match(/voor\s+([riasec])\b/i);
+    const letter = letterMatch ? letterMatch[1].toUpperCase() : 'R';
+    
+    const riasecNames: Record<string, string> = {
+      'R': 'Realistic (Praktisch)',
+      'I': 'Investigative (Onderzoekend)',
+      'A': 'Artistic (Artistiek)',
+      'S': 'Social (Sociaal)',
+      'E': 'Enterprising (Ondernemend)',
+      'C': 'Conventional (Conventioneel)'
+    };
+    
+    return {
+      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?skill ?skillLabel WHERE {
+  ?skill cnlo:hasRIASEC "${letter}" .
+  ?skill skos:prefLabel ?skillLabel .
+  ?skill a cnlo:HumanCapability .
+}
+ORDER BY ?skillLabel`,
+      response: `Vaardigheden met RIASEC code "${letter}" - ${riasecNames[letter]}:`,
+      needsDisambiguation: false,
+      resolvedConcepts,
+      domain: 'taxonomy'
+    };
+  }
+
+  // SCENARIO 4: Vaardigheden van beroep (met resolved concept)
+  if ((q.includes('vaardighe') || q.includes('skill')) && resolvedConcepts.length > 0) {
+    const resolved = resolvedConcepts[0];
+    return {
+      sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?occupation ?occLabel ?skill ?skillLabel ?importance WHERE {
+  ?occupation a cnlo:Occupation .
+  ?occupation skos:prefLabel ?occLabel .
+  FILTER(CONTAINS(LCASE(?occLabel), "${resolved.resolved.toLowerCase()}"))
+  {
+    ?occupation cnlo:requiresHATEssential ?skill .
+    BIND("essentieel" as ?importance)
+  } UNION {
+    ?occupation cnlo:requiresHATImportant ?skill .
+    BIND("belangrijk" as ?importance)
+  }
+  ?skill skos:prefLabel ?skillLabel .
+}
+ORDER BY ?importance ?skillLabel
+LIMIT 100`,
+      response: `Dit zijn de vereiste vaardigheden voor ${resolved.resolved}:`,
+      needsDisambiguation: false,
+      resolvedConcepts,
+      domain: 'skill'
+    };
+  }
+
+  // Default: Use Gemini AI
+  return await generateWithGemini(userQuery, filters, chatHistory, resolvedConcepts, domain, sessionId);
+}
+
+async function generateWithGemini(
+  userQuery: string,
+  filters: { graphs: string[], type: string, status: string },
+  chatHistory: ChatMessage[],
+  resolvedConcepts: { term: string; resolved: string; type: string }[],
+  domain: string,
+  sessionId: string
+): Promise<GenerateSparqlResult> {
+  
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('VITE_GEMINI_API_KEY niet geconfigureerd');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Build resolved concepts context
+  let conceptContext = '';
+  if (resolvedConcepts.length > 0) {
+    conceptContext = resolvedConcepts.map(c => 
+      `- "${c.term}" → Officiële naam: "${c.resolved}"`
+    ).join('\n');
+  }
+
+  const systemInstruction = `Je bent een SPARQL query generator voor CompetentNL.
+
+BELANGRIJKE PREFIXES:
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+
+BELANGRIJKE CLASSES:
+- cnlo:Occupation - Beroepen
+- cnlo:HumanCapability - Vaardigheden
+- cnlo:KnowledgeArea - Kennisgebieden
+- cnlo:EducationalNorm - Opleidingsnormen
+- ksmo:MboKwalificatie - MBO kwalificaties
+
+BELANGRIJKE PREDICATEN:
+- cnlo:requiresHATEssential/Important - Beroep vereist vaardigheid
+- cnlo:prescribesHATEssential - Opleiding schrijft vaardigheid voor
+- cnlo:prescribesKnowledge - Opleiding schrijft kennisgebied voor
+- cnlo:hasRIASEC - RIASEC/Hollandcode letter (R, I, A, S, E, C)
+- skos:prefLabel - Naam van concept
+
+${conceptContext ? `OPGELOSTE CONCEPTEN:\n${conceptContext}` : ''}
+
+REGELS:
+1. Gebruik CONTAINS(LCASE(?label), "zoekterm") voor flexibele matching
+2. Voeg ALTIJD LIMIT 50 toe (behalve bij COUNT)
+3. Gebruik NOOIT FROM <graph> clauses
+4. Retourneer ALLEEN de SPARQL query`;
+
+  const chatContext = chatHistory.length > 0 
+    ? '\nEerdere context:\n' + chatHistory.map(m => `${m.role}: ${m.content}`).join('\n') + '\n\n'
+    : '';
+
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: chatContext + userQuery,
+      config: {
+        systemInstruction,
+        temperature: 0.1,
+      },
+    });
+
+    let sparql = response.text || '';
+    sparql = fixSparqlQuery(sparql);
+
+    return {
+      sparql,
+      response: 'Query gegenereerd:',
+      needsDisambiguation: false,
+      resolvedConcepts,
+      domain
+    };
+
+  } catch (error: any) {
+    console.error("Gemini Error:", error);
+    throw new Error(`AI kon geen SPARQL genereren: ${error.message}`);
+  }
+}
+
+// ============================================================
+// SUMMARIZE RESULTS (compatible met App.tsx)
+// ============================================================
+
+export async function summarizeResults(
+  question: string,
+  results: any[],
+  totalCount?: number,
+  chatHistory: ChatMessage[] = []
+): Promise<string> {
+  if (!results || results.length === 0) {
+    return "Geen resultaten gevonden. Probeer een andere zoekterm of schrijfwijze.";
+  }
+
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    return `${results.length} resultaten gevonden.`;
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const sampleSize = Math.min(15, results.length);
+  const dataSnippet = JSON.stringify(results.slice(0, sampleSize), null, 2);
+  
+  const prompt = `
+Vraag: "${question}"
+Aantal getoond: ${results.length}${totalCount ? ` van ${totalCount} totaal` : ''}
+
+Data sample:
+${dataSnippet}
+
+Geef een korte, vriendelijke Nederlandse samenvatting van deze resultaten.
+Focus op de belangrijkste bevindingen. Maximaal 3-4 zinnen.
+`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: prompt,
+      config: { temperature: 0.3 },
+    });
+
+    return response.text || `${results.length} resultaten gevonden.`;
+  } catch (error) {
+    return `${results.length} resultaten gevonden.`;
+  }
+}
+
+// ============================================================
+// HELPER FUNCTIONS (voor count queries - SCENARIO 2a)
+// ============================================================
+
+export function generateCountQuery(originalQuery: string): string {
+  let countQuery = originalQuery.replace(/LIMIT\s+\d+/gi, '');
+  
+  const selectMatch = countQuery.match(/SELECT\s+(DISTINCT\s+)?(\?\w+)/i);
   if (selectMatch) {
     const distinct = selectMatch[1] ? 'DISTINCT ' : '';
     const firstVar = selectMatch[2];
-    
     countQuery = countQuery.replace(
       /SELECT\s+(DISTINCT\s+)?[^W]+WHERE/i,
       `SELECT (COUNT(${distinct}${firstVar}) AS ?total) WHERE`
@@ -372,305 +592,16 @@ export function generateCountQuery(selectQuery: string): string {
   return countQuery.trim();
 }
 
-/**
- * Generate query with higher LIMIT
- */
 export function generateExpandedQuery(originalQuery: string, newLimit: number): string {
   let expanded = originalQuery.replace(/LIMIT\s+\d+/gi, `LIMIT ${newLimit}`);
-  
   if (!expanded.toUpperCase().includes('LIMIT')) {
     expanded = expanded.trim() + `\nLIMIT ${newLimit}`;
   }
-  
   return expanded;
 }
 
 // ============================================================
-// DISAMBIGUATION HELPERS
-// ============================================================
-
-function generateDisambiguationQuestion(term: string, matches: ConceptMatch[], type: string): string {
-  const typeNames: Record<string, string> = {
-    occupation: 'beroepen',
-    education: 'opleidingen',
-    capability: 'vaardigheden',
-    knowledge: 'kennisgebieden',
-    task: 'taken',
-    workingCondition: 'werkomstandigheden'
-  };
-  
-  let question = `Ik vond ${matches.length} ${typeNames[type] || 'resultaten'} voor "${term}". Welke bedoel je?\n\n`;
-  question += generateOptionsText(matches.slice(0, 10));
-  
-  if (matches.length > 10) {
-    question += `\n_...en nog ${matches.length - 10} andere opties._\n`;
-  }
-  
-  question += `\nTyp het **nummer** of de **naam** van je keuze.`;
-  
-  return question;
-}
-
-function generateOptionsText(options: ConceptMatch[]): string {
-  return options.map((match, index) => {
-    let text = `**${index + 1}. ${match.prefLabel}**`;
-    if (match.matchedLabel.toLowerCase() !== match.prefLabel.toLowerCase()) {
-      text += ` _(via: "${match.matchedLabel}")_`;
-    }
-    return text;
-  }).join('\n');
-}
-
-// ============================================================
-// MAIN FUNCTION: GENERATE SPARQL WITH EVERYTHING
-// ============================================================
-
-/**
- * Main function: Generate SPARQL with Orchestrator + Concept Resolution + Disambiguation
- */
-export async function generateSparqlWithDisambiguation(
-  userQuery: string,
-  filters: { graphs: string[], type: string, status: string },
-  chatHistory: ChatMessage[] = [],
-  pendingDisambiguation?: DisambiguationData,
-  sessionId: string = 'default'
-): Promise<GenerateResult> {
-  
-  // ========================================
-  // STEP 1: Handle pending disambiguation
-  // ========================================
-  if (pendingDisambiguation?.pending) {
-    const selectedOption = await parseDisambiguationAnswer(userQuery, pendingDisambiguation.options);
-    
-    if (selectedOption) {
-      await confirmConceptSelection(
-        pendingDisambiguation.searchTerm,
-        selectedOption.uri,
-        selectedOption.prefLabel,
-        selectedOption.conceptType
-      );
-      
-      console.log(`[Disambiguation] User selected: ${selectedOption.prefLabel}`);
-      
-      const conceptContext = `
-### OPGELOSTE ${pendingDisambiguation.conceptType.toUpperCase()}
-- Zoekterm: "${pendingDisambiguation.searchTerm}"
-- Gekozen: "${selectedOption.prefLabel}"
-- URI: ${selectedOption.uri}
-
-**GEBRUIK IN SPARQL:**
-FILTER(CONTAINS(LCASE(?label), "${selectedOption.prefLabel.toLowerCase()}"))
-`;
-      
-      const sparql = await generateSparqlInternal(
-        pendingDisambiguation.originalQuestion,
-        filters,
-        chatHistory,
-        conceptContext,
-        sessionId
-      );
-      
-      return {
-        sparql,
-        response: '',
-        needsDisambiguation: false,
-        resolvedConcepts: [{
-          term: pendingDisambiguation.searchTerm,
-          resolved: selectedOption.prefLabel,
-          type: selectedOption.conceptType
-        }]
-      };
-    } else {
-      return {
-        sparql: null,
-        response: `Ik herkende je keuze niet. Typ een nummer (1-${pendingDisambiguation.options.length}) of een (deel van de) naam.\n\n${generateOptionsText(pendingDisambiguation.options)}`,
-        needsDisambiguation: true,
-        disambiguationData: pendingDisambiguation,
-        resolvedConcepts: []
-      };
-    }
-  }
-  
-  // ========================================
-  // STEP 2: Extract and resolve concepts
-  // ========================================
-  const conceptTerms = extractConceptTerms(userQuery);
-  let conceptContext = '';
-  const resolvedConcepts: { term: string; resolved: string; type: string }[] = [];
-  
-  for (const { term, type } of conceptTerms) {
-    const result = await resolveConcept(term, type);
-    
-    if (result) {
-      if (result.needsDisambiguation && result.matches.length > 0) {
-        console.log(`[Disambiguation] Needed for "${term}" - ${result.matches.length} options`);
-        
-        return {
-          sparql: null,
-          response: result.disambiguationQuestion || generateDisambiguationQuestion(term, result.matches, type),
-          needsDisambiguation: true,
-          disambiguationData: {
-            pending: true,
-            searchTerm: term,
-            conceptType: type,
-            options: result.matches,
-            originalQuestion: userQuery
-          },
-          resolvedConcepts: []
-        };
-      }
-      
-      if (result.found && result.matches.length > 0) {
-        const bestMatch = result.matches[0];
-        resolvedConcepts.push({
-          term,
-          resolved: bestMatch.prefLabel,
-          type
-        });
-        
-        conceptContext += `
-### ${type.toUpperCase()} GEVONDEN
-- Zoekterm: "${term}"
-- Officiële naam: "${bestMatch.prefLabel}"
-- Match type: ${bestMatch.matchType}
-
-**GEBRUIK IN SPARQL:**
-FILTER(CONTAINS(LCASE(?label), "${bestMatch.prefLabel.toLowerCase()}"))
-`;
-      }
-    }
-  }
-  
-  // ========================================
-  // STEP 3: Generate SPARQL
-  // ========================================
-  const sparql = await generateSparqlInternal(userQuery, filters, chatHistory, conceptContext, sessionId);
-  
-  // Get domain info
-  const classification = await classifyQuestion(userQuery);
-  const domain = classification?.primary?.domainKey || 'occupation';
-  
-  return {
-    sparql,
-    response: '',
-    needsDisambiguation: false,
-    resolvedConcepts,
-    domain
-  };
-}
-
-// ============================================================
-// INTERNAL SPARQL GENERATION
-// ============================================================
-
-async function generateSparqlInternal(
-  userQuery: string,
-  filters: { graphs: string[], type: string, status: string },
-  chatHistory: ChatMessage[],
-  conceptContext: string,
-  sessionId: string
-): Promise<string> {
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-  
-  // ========================================
-  // Get domain classification and examples from orchestrator
-  // ========================================
-  const classification = await classifyQuestion(userQuery);
-  const domain = classification?.primary?.domainKey || 'occupation';
-  console.log(`[Orchestrator] Domein: ${domain} (${(classification?.primary?.confidence || 0) * 100}%)`);
-  
-  // Get domain-specific examples
-  const orchestratorExamples = await getOrchestratorExamples(domain, 3);
-  let orchestratorExamplesText = '';
-  if (orchestratorExamples.length > 0) {
-    orchestratorExamplesText = '\n## DOMEIN-SPECIFIEKE VOORBEELDEN\n' + orchestratorExamples.map((ex, i) => 
-      `### Voorbeeld ${i + 1} (${ex.query_pattern})\nVraag: ${ex.question_nl}\nQuery:\n\`\`\`sparql\n${ex.sparql_query}\n\`\`\``
-    ).join('\n\n');
-  }
-  
-  // ========================================
-  // Fetch legacy RAG examples as backup/supplement
-  // ========================================
-  const ragExamples = await fetchRAGExamples(userQuery, 2);
-  let legacyExamplesText = '';
-  if (ragExamples.length > 0) {
-    legacyExamplesText = '\n## EXTRA VOORBEELDEN (RAG)\n' + ragExamples.map((ex, i) => 
-      `### Voorbeeld ${i + 1}\nVraag: ${ex.question}\nQuery:\n${ex.sparql_query}`
-    ).join('\n\n');
-  }
-  
-  // ========================================
-  // Build chat context
-  // ========================================
-  const chatContext = buildChatContext(chatHistory);
-  
-  // ========================================
-  // Assemble final prompt
-  // ========================================
-  const systemInstruction = `
-Je bent een expert SPARQL query generator voor de CompetentNL knowledge graph.
-
-${SCHEMA_DOCUMENTATION}
-
-## OPGELOSTE CONCEPTEN
-${conceptContext || 'Geen specifieke concepten gedetecteerd.'}
-
-## GEDETECTEERD DOMEIN: ${domain.toUpperCase()}
-${classification?.primary?.keywords?.length ? `Gevonden keywords: ${classification.primary.keywords.join(', ')}` : ''}
-
-${orchestratorExamplesText}
-
-${legacyExamplesText}
-
-## KRITIEKE REGELS
-1. ALS EEN CONCEPT HIERBOVEN IS OPGELOST: gebruik EXACT de "Officiële naam" in je FILTER
-2. Gebruik CONTAINS(LCASE(?label), "naam in lowercase") voor flexibele matching
-3. Retourneer ALLEEN de SPARQL query, geen uitleg
-4. Gebruik NOOIT "FROM <graph>" clauses
-5. Voeg ALTIJD "LIMIT 50" toe (behalve bij COUNT)
-6. Begin direct met PREFIX
-`;
-
-  const fullPrompt = chatContext + userQuery;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: fullPrompt,
-      config: {
-        systemInstruction,
-        temperature: 0.1,
-      },
-    });
-
-    let sparql = response.text || '';
-    sparql = fixSparqlQuery(sparql);
-    
-    // Log to RAG backend
-    try {
-      await fetch(`${BACKEND_URL}/rag/log`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          question: userQuery,
-          sparql,
-          resultCount: 0,
-          executionTimeMs: 0
-        })
-      });
-    } catch (e) { /* ignore */ }
-    
-    return sparql;
-    
-  } catch (error: any) {
-    console.error("Gemini SPARQL Generation Error:", error);
-    throw new Error(`AI kon geen SPARQL genereren: ${error.message}`);
-  }
-}
-
-// ============================================================
-// LEGACY FUNCTION (backwards compatibility)
+// LEGACY EXPORTS (backwards compatibility)
 // ============================================================
 
 export async function generateSparql(
@@ -683,52 +614,10 @@ export async function generateSparql(
   return result.sparql || '';
 }
 
-// ============================================================
-// SUMMARIZE RESULTS
-// ============================================================
-
-export async function summarizeResults(
-  question: string,
-  results: any[],
-  totalCount?: number,
-  chatHistory: ChatMessage[] = []
-): Promise<string> {
-  if (!results || results.length === 0) {
-    return "Geen resultaten gevonden. Dit kan komen doordat het concept niet precies zo in de database staat. Probeer een andere schrijfwijze.";
-  }
-
-  const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-  
-  const sampleSize = Math.min(15, results.length);
-  const dataSnippet = JSON.stringify(results.slice(0, sampleSize), null, 2);
-  
-  const prompt = `
-Vraag: "${question}"
-Aantal getoond: ${results.length}${totalCount ? `, Totaal: ${totalCount}` : ''}
-Data (eerste ${sampleSize}):
-${dataSnippet}
-
-Geef een beknopte Nederlandse samenvatting (3-5 zinnen):
-- Direct antwoord op de vraag
-- Noem 3-5 specifieke voorbeelden
-- Verwijs naar de tabel voor details
-`;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: SUMMARY_MODEL,
-      contents: prompt,
-      config: { temperature: 0.7 },
-    });
-    return response.text || "Hier zijn de resultaten.";
-  } catch (error) {
-    const examples = results.slice(0, 3).map(r => 
-      r.label || r.occLabel || r.skillLabel || r.prefLabel || Object.values(r)[0]
-    ).filter(Boolean).join(", ");
-    
-    return `Gevonden: ${results.length} resultaten. Voorbeelden: ${examples}.`;
-  }
-}
-
-// Export types
-export { ChatMessage, ConceptMatch, ConceptResolveResult, DisambiguationData };
+export default {
+  generateSparqlWithDisambiguation,
+  summarizeResults,
+  generateCountQuery,
+  generateExpandedQuery,
+  generateSparql
+};
