@@ -16,6 +16,7 @@ export interface FeedbackEntry {
 }
 
 const STORAGE_KEY = 'competentnl_feedback';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 // Haal alle feedback op uit localStorage
 export const getAllFeedback = (): FeedbackEntry[] => {
@@ -100,6 +101,36 @@ export const exportFeedbackAsCsv = (): string => {
 // Verwijder alle feedback (voor testing)
 export const clearAllFeedback = (): void => {
   localStorage.removeItem(STORAGE_KEY);
+};
+
+interface FeedbackPayload {
+  sessionId: string;
+  messageId: string;
+  feedback: 'like' | 'dislike';
+  context?: Record<string, any>;
+}
+
+// Stuur feedback door naar backend voor logging
+export const sendFeedbackToBackend = async (payload: FeedbackPayload): Promise<void> => {
+  const rating = payload.feedback === 'like' ? 5 : 1;
+  const feedbackType = payload.feedback === 'like' ? 'helpful' : 'not_helpful';
+
+  try {
+    await fetch(`${BACKEND_URL}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: payload.sessionId,
+        messageId: payload.messageId,
+        rating,
+        feedbackType,
+        context: payload.context
+      })
+    });
+  } catch (error) {
+    // Niet kritiek voor de UI, log alleen
+    console.warn('Feedback kon niet naar de backend worden gestuurd', error);
+  }
 };
 
 // Haal queries op die negatieve feedback kregen (voor analyse)

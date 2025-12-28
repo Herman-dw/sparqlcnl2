@@ -304,6 +304,28 @@ async function ensureTableExists(connection, config) {
   await connection.execute(createSql);
 }
 
+async function ensureConversationTable(connection) {
+  const createSql = `
+    CREATE TABLE IF NOT EXISTS conversation_messages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      session_id VARCHAR(100) NOT NULL,
+      message_id VARCHAR(100) NOT NULL,
+      role ENUM('user', 'assistant', 'system') NOT NULL,
+      text_content TEXT NOT NULL,
+      sparql TEXT,
+      results_json JSON,
+      status ENUM('pending', 'success', 'error') DEFAULT 'success',
+      feedback ENUM('like', 'dislike', 'none') DEFAULT 'none',
+      metadata_json JSON,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_session_message (session_id, message_id),
+      INDEX idx_session_created (session_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `;
+
+  await connection.execute(createSql);
+}
+
 async function syncConceptType(connection, config) {
   console.log(`\n📦 Syncing ${config.name}...`);
   
@@ -398,6 +420,9 @@ async function main() {
     console.log('\n🔌 Connecting to database...');
     connection = await mysql.createConnection(DB_CONFIG);
     console.log('   ✅ Connected');
+    console.log('   🗂️  Ensuring conversation logging table exists...');
+    await ensureConversationTable(connection);
+    console.log('   ✅ conversation_messages ready');
     
     // Filter configs if specific type requested
     let configs = CONCEPT_CONFIGS;
