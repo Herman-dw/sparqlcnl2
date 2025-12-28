@@ -537,6 +537,124 @@ app.post('/feedback', async (req, res) => {
 });
 
 // =====================================================
+// CONVERSATIE LOGGING
+// =====================================================
+
+app.get('/conversation/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) return res.status(400).json({ error: 'sessionId is verplicht' });
+
+  try {
+    const [rows] = await ragPool.execute(`
+      SELECT 
+        message_id as id,
+        role,
+        text_content as text,
+        sparql,
+        results_json,
+        status,
+        feedback,
+        metadata_json,
+        created_at as timestamp
+      FROM conversation_messages
+      WHERE session_id = ?
+      ORDER BY created_at ASC
+    `, [sessionId]);
+
+    const safeParse = (value) => {
+      try {
+        return value ? JSON.parse(value) : null;
+      } catch (e) {
+        return null;
+      }
+    };
+
+    const mapped = rows.map(row => ({
+      ...row,
+      results: safeParse(row.results_json) || [],
+      metadata: safeParse(row.metadata_json) || undefined
+    }));
+
+    res.json(mapped);
+  } catch (error) {
+    console.error('[Conversation] Ophalen mislukt', error);
+    res.status(500).json({ error: 'Kon conversatie niet ophalen' });
+  }
+});
+
+app.post('/conversation', async (req, res) => {
+  const { sessionId, message } = req.body;
+  if (!sessionId || !message?.id) {
+    return res.status(400).json({ error: 'sessionId en message.id zijn verplicht' });
+  }
+
+  try {
+    await ragPool.execute(`
+      INSERT INTO conversation_messages (
+        session_id, message_id, role, text_content, sparql, results_json,
+        status, feedback, metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        text_content = VALUES(text_content),
+        sparql = VALUES(sparql),
+        results_json = VALUES(results_json),
+        status = VALUES(status),
+        feedback = VALUES(feedback),
+        metadata_json = VALUES(metadata_json)
+    `, [
+      sessionId,
+      message.id,
+      message.role,
+      message.text,
+      message.sparql || null,
+      message.results ? JSON.stringify(message.results) : null,
+      message.status || 'success',
+      message.feedback || 'none',
+      message.metadata ? JSON.stringify(message.metadata) : null,
+      message.timestamp ? new Date(message.timestamp) : new Date()
+    ]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Conversation] Opslaan mislukt', error);
+    res.status(500).json({ error: 'Kon bericht niet opslaan' });
+  }
+});
+
+app.post('/conversation/feedback', async (req, res) => {
+  const { sessionId, messageId, feedback } = req.body;
+  if (!sessionId || !messageId || !feedback) {
+    return res.status(400).json({ error: 'sessionId, messageId en feedback zijn verplicht' });
+  }
+
+  try {
+    await ragPool.execute(`
+      UPDATE conversation_messages
+      SET feedback = ?
+      WHERE session_id = ? AND message_id = ?
+    `, [feedback, sessionId, messageId]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Conversation] Feedback opslaan mislukt', error);
+    res.status(500).json({ error: 'Kon feedback niet opslaan' });
+  }
+});
+
+app.delete('/conversation/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  if (!sessionId) return res.status(400).json({ error: 'sessionId is verplicht' });
+
+  try {
+    await ragPool.execute(`DELETE FROM conversation_messages WHERE session_id = ?`, [sessionId]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Conversation] Verwijderen mislukt', error);
+    res.status(500).json({ error: 'Kon conversatie niet verwijderen' });
+  }
+});
+
+// =====================================================
 // SCENARIO 2: ORCHESTRATOR / DOMEIN-DETECTIE
 // =====================================================
 

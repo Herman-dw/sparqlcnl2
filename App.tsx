@@ -3,11 +3,11 @@
  * Met concept disambiguatie
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Send, Database, Download, Filter, Info, Trash2, Loader2,
   Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
-  HelpCircle, CheckCircle
+  HelpCircle, CheckCircle, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS, EXAMPLES } from './constants';
@@ -18,11 +18,11 @@ import {
 } from './services/geminiService';
 import { executeSparql, validateSparqlQuery, ProxyType } from './services/sparqlService';
 import { downloadAsExcel } from './services/excelService';
+import { saveFeedback, sendFeedbackToBackend } from './services/feedbackService';
 import TestPage from './test-suite/components/TestPage';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
-
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -37,6 +37,13 @@ const App: React.FC = () => {
   const [localBackendUrl, setLocalBackendUrl] = useState(() => localStorage.getItem('local_backend_url') || DEFAULT_LOCAL_BACKEND);
   const [showSettings, setShowSettings] = useState(false);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [sessionId] = useState(() => {
+    const existing = localStorage.getItem('session_id');
+    if (existing) return existing;
+    const generated = `session_${Date.now()}`;
+    localStorage.setItem('session_id', generated);
+    return generated;
+  });
   
   // Disambiguation state
   const [pendingDisambiguation, setPendingDisambiguation] = useState<DisambiguationData | null>(null);
@@ -49,6 +56,47 @@ const App: React.FC = () => {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
+
+  const persistMessage = useCallback(async (message: Message) => {
+    try {
+      await fetch(`${localBackendUrl}/conversation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          message: {
+            ...message,
+            timestamp: message.timestamp.toISOString()
+          }
+        })
+      });
+    } catch (error) {
+      console.warn('Kon bericht niet opslaan in de database', error);
+    }
+  }, [localBackendUrl, sessionId]);
+
+  const loadConversation = useCallback(async () => {
+    try {
+      const response = await fetch(`${localBackendUrl}/conversation/${sessionId}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      const restored: Message[] = data.map((msg: any) => ({
+        ...msg,
+        timestamp: new Date(msg.timestamp || msg.created_at || msg.createdAt),
+        results: msg.results || [],
+        feedback: msg.feedback === 'none' ? undefined : msg.feedback,
+        status: msg.status || 'success'
+      }));
+      setMessages(restored);
+    } catch (error) {
+      console.warn('Kon gesprek niet laden uit de database', error);
+    }
+  }, [localBackendUrl, sessionId]);
+
+  // Restore conversation from database on load
+  useEffect(() => {
+    loadConversation();
+  }, [loadConversation]);
 
   const checkConnectivity = async () => {
     setApiStatus('checking');
@@ -91,6 +139,7 @@ const App: React.FC = () => {
       status: 'success' 
     };
     setMessages(prev => [...prev, userMsg]);
+    await persistMessage(userMsg);
     setInputText('');
     setIsLoading(true);
 
@@ -116,6 +165,7 @@ const App: React.FC = () => {
           metadata: { isDisambiguation: true }
         };
         setMessages(prev => [...prev, disambigMsg]);
+        await persistMessage(disambigMsg);
         setIsLoading(false);
         return;
       }
@@ -150,17 +200,20 @@ const App: React.FC = () => {
           status: 'success'
         };
         setMessages(prev => [...prev, assistantMsg]);
+        await persistMessage(assistantMsg);
       }
       
     } catch (error: any) {
       setPendingDisambiguation(null);
-      setMessages(prev => [...prev, {
+      const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         text: `Fout: ${error.message}`,
         timestamp: new Date(),
         status: 'error'
-      }]);
+      };
+      setMessages(prev => [...prev, errorMsg]);
+      await persistMessage(errorMsg);
     } finally {
       setIsLoading(false);
     }
@@ -171,6 +224,68 @@ const App: React.FC = () => {
     if (pendingDisambiguation) {
       handleSend((index + 1).toString());
     }
+  };
+
+  const handleClearChat = async () => {
+    setMessages([]);
+    setPendingDisambiguation(null);
+    try {
+      await fetch(`${localBackendUrl}/conversation/${sessionId}`, { method: 'DELETE' });
+    } catch (error) {
+      console.warn('Kon gesprek niet verwijderen uit de database', error);
+    }
+  };
+
+  const handleFeedback = async (messageId: string, feedback: 'like' | 'dislike') => {
+    const targetIndex = messages.findIndex(m => m.id === messageId);
+    if (targetIndex === -1) return;
+
+    const assistantMessage = messages[targetIndex];
+    const lastQuestion = [...messages]
+      .slice(0, targetIndex)
+      .reverse()
+      .find(m => m.role === 'user');
+
+    // Update UI immediately
+    setMessages(prev => prev.map(m => 
+      m.id === messageId ? { ...m, feedback } : m
+    ));
+
+    // Update conversation log in database
+    try {
+      await fetch(`${localBackendUrl}/conversation/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, messageId, feedback })
+      });
+    } catch (error) {
+      console.warn('Kon feedback niet opslaan in conversation log', error);
+    }
+
+    // Persist feedback locally
+    try {
+      saveFeedback({
+        question: lastQuestion?.text || '(geen vraag gevonden)',
+        sparqlQuery: assistantMessage.sparql || '',
+        resultCount: assistantMessage.results?.length || 0,
+        feedback
+      });
+    } catch (error) {
+      console.warn('Kon feedback niet opslaan', error);
+    }
+
+    // Log feedback to backend with context
+    await sendFeedbackToBackend({
+      sessionId,
+      messageId,
+      feedback,
+      context: {
+        question: lastQuestion?.text,
+        response: assistantMessage.text,
+        sparql: assistantMessage.sparql,
+        results: assistantMessage.results
+      }
+    });
   };
 
   // Show Test Dashboard if enabled
@@ -258,7 +373,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
-          <button onClick={() => { setMessages([]); setPendingDisambiguation(null); }} className="text-[10px] text-slate-400 font-bold hover:text-rose-500 flex items-center gap-1 uppercase">
+          <button onClick={handleClearChat} className="text-[10px] text-slate-400 font-bold hover:text-rose-500 flex items-center gap-1 uppercase">
             <Trash2 className="w-3 h-3" /> Wis Chat
           </button>
           <div onClick={checkConnectivity} className={`flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 rounded-full cursor-pointer shadow-sm ${
@@ -398,6 +513,38 @@ const App: React.FC = () => {
                       <pre className="mt-3 p-4 bg-slate-900 text-emerald-400 text-[10px] rounded-2xl overflow-x-auto font-mono border border-slate-800">
                         {msg.sparql}
                       </pre>
+                    )}
+                  </div>
+                )}
+
+                {/* Feedback controls */}
+                {msg.role === 'assistant' && !msg.metadata?.isDisambiguation && (
+                  <div className="mt-4 flex items-center gap-3 pt-4 border-t border-slate-100">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Feedback</span>
+                    <button
+                      className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${
+                        msg.feedback === 'like' 
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                          : 'bg-white border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-700'
+                      }`}
+                      onClick={() => handleFeedback(msg.id, 'like')}
+                      disabled={!!msg.feedback}
+                    >
+                      <ThumbsUp className="w-4 h-4" /> Handig
+                    </button>
+                    <button
+                      className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${
+                        msg.feedback === 'dislike' 
+                          ? 'bg-rose-50 border-rose-200 text-rose-700' 
+                          : 'bg-white border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-700'
+                      }`}
+                      onClick={() => handleFeedback(msg.id, 'dislike')}
+                      disabled={!!msg.feedback}
+                    >
+                      <ThumbsDown className="w-4 h-4" /> Niet nuttig
+                    </button>
+                    {msg.feedback && (
+                      <span className="text-xs font-semibold text-slate-500">Bedankt! Feedback opgeslagen.</span>
                     )}
                   </div>
                 )}
