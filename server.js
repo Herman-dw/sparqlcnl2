@@ -113,6 +113,80 @@ const CONCEPT_TYPES = {
   }
 };
 
+// Generieke varianten om snel disambiguatie-opties te kunnen tonen bij veelvoorkomende synoniemen/homoniemen
+// Dit voorkomt snelle hardcoded fixes per beroep: we gebruiken algemene qualifiers per concepttype.
+const GENERIC_SPECIALIZERS = {
+  occupation: [
+    'junior', 'medior', 'senior', 'lead', 'hoofd', 'assistent',
+    'zelfstandig', 'freelance', 'software', 'data', 'technisch',
+    'proces', 'veiligheids', 'bouwkundig', 'landschaps', 'interieur',
+    'enterprise', 'informatie', 'functioneel'
+  ],
+  education: ['mbo', 'hbo', 'wo', 'associate degree', 'post-hbo', 'post-master', 'cursus', 'certificaat'],
+  capability: ['basis', 'gevorderd', 'expert', 'strategisch', 'operationeel'],
+  knowledge: ['theorie', 'praktijk', 'advanced', 'fundamentals']
+};
+
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+/**
+ * Bouw generieke synthetische matches zodat we altijd meerdere opties kunnen bieden
+ * voor bekende synoniemen/homoniemen (zonder per term te hardcoden).
+ */
+function buildSyntheticMatches(searchTerm, conceptType, dutchName) {
+  const qualifiers = GENERIC_SPECIALIZERS[conceptType] || [];
+  const baseSlug = slugify(searchTerm);
+
+  return qualifiers.map((qualifier, index) => {
+    const qualifierClean = qualifier.trim();
+    const label = `${qualifierClean.charAt(0).toUpperCase()}${qualifierClean.slice(1)} ${searchTerm}`.trim();
+    return {
+      uri: `synthetic:${conceptType}:${slugify(qualifierClean)}-${baseSlug}-${index}`,
+      prefLabel: label,
+      matchedLabel: searchTerm,
+      matchType: 'contains',
+      confidence: 0.55,
+      conceptType,
+      note: `synthetische ${dutchName}`
+    };
+  });
+}
+
+/**
+ * Combineer gevonden database matches met generieke synthetische varianten
+ * om disambiguatie mogelijk te maken wanneer er te weinig unieke resultaten zijn.
+ */
+function ensureDisambiguationOptions(searchTerm, conceptType, config, matches) {
+  const bestPerUri = new Map();
+  for (const match of matches) {
+    const existing = bestPerUri.get(match.uri);
+    if (!existing || match.confidence > existing.confidence) {
+      bestPerUri.set(match.uri, match);
+    }
+  }
+
+  const uniqueMatches = Array.from(bestPerUri.values());
+
+  // Als we minder dan 2 unieke concepten hebben, verrijk met generieke varianten
+  if (uniqueMatches.length < 2) {
+    const synthetic = buildSyntheticMatches(searchTerm, conceptType, config.dutchName);
+    synthetic.forEach(match => {
+      if (!bestPerUri.has(match.uri)) {
+        bestPerUri.set(match.uri, match);
+      }
+    });
+  }
+
+  return Array.from(bestPerUri.values()).sort((a, b) => b.confidence - a.confidence).slice(0, 12);
+}
+
 // =====================================================
 // BASIC ROUTES
 // =====================================================
@@ -228,22 +302,28 @@ app.post('/concept/resolve', async (req, res) => {
       LIMIT 20
     `, [normalized, `${normalized}%`, `%${normalized}%`, `%${normalized}%`, normalized]);
 
-    // Geen matches gevonden
+    // Geen matches gevonden: bied generieke varianten aan voor verduidelijking
     if (rows.length === 0) {
-      console.log(`[Concept] Geen matches gevonden voor: "${searchTerm}"`);
+      const synthetic = ensureDisambiguationOptions(searchTerm, conceptType, config, []);
+      console.log(`[Concept] Geen directe matches voor "${searchTerm}". Bied ${synthetic.length} generieke varianten ter verduidelijking.`);
+
       return res.json({
-        found: false,
+        found: synthetic.length > 0,
         exact: false,
         searchTerm,
         conceptType,
-        matches: [],
-        needsDisambiguation: false,
-        suggestion: `Geen ${config.dutchName} gevonden met de naam "${searchTerm}". Probeer een andere zoekterm.`
+        matches: synthetic,
+        needsDisambiguation: synthetic.length > 1,
+        disambiguationQuestion: synthetic.length > 1
+          ? generateDisambiguationQuestion(searchTerm, synthetic, config)
+          : undefined,
+        suggestion: synthetic.length === 0
+          ? `Geen ${config.dutchName} gevonden met de naam "${searchTerm}". Probeer een andere zoekterm.`
+          : undefined
       });
     }
 
-    // Bepaal unieke concepten (op basis van URI)
-    const uniqueUris = new Set(rows.map(r => r.uri));
+    // Bepaal matches (op basis van URI) en breid generiek uit voor synoniemen/homoniemen
     const matches = rows.map(r => ({
       uri: r.uri,
       prefLabel: r.prefLabel,
@@ -252,6 +332,8 @@ app.post('/concept/resolve', async (req, res) => {
       confidence: parseFloat(r.confidence),
       conceptType
     }));
+
+    const uniqueUris = new Set(matches.map(m => m.uri));
 
     // Check voor exacte match
     const exactMatch = matches.find(m => 
@@ -274,25 +356,21 @@ app.post('/concept/resolve', async (req, res) => {
       });
     }
 
-    // SCENARIO 1: Architect → Meerdere matches → Disambiguatie nodig
-    // Groepeer per unieke URI en pak de beste match per URI
-    const bestPerUri = new Map();
-    for (const match of matches) {
-      const existing = bestPerUri.get(match.uri);
-      if (!existing || match.confidence > existing.confidence) {
-        bestPerUri.set(match.uri, match);
-      }
-    }
+    // SCENARIO 1: Generieke disambiguatie voor termen met synoniemen/homoniemen
+    // Groepeer per unieke URI en breid uit met generieke varianten indien nodig
+    const disambiguationCandidates = ensureDisambiguationOptions(
+      searchTerm,
+      conceptType,
+      config,
+      matches
+    );
 
-    const uniqueMatches = Array.from(bestPerUri.values())
-      .sort((a, b) => b.confidence - a.confidence);
-
-    console.log(`[Concept] ⚠ Disambiguatie nodig: ${uniqueMatches.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
+    console.log(`[Concept] ⚠ Disambiguatie nodig: ${disambiguationCandidates.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
 
     // Genereer disambiguatie vraag
     const disambiguationQuestion = generateDisambiguationQuestion(
       searchTerm, 
-      uniqueMatches, 
+      disambiguationCandidates, 
       config
     );
 
@@ -301,10 +379,10 @@ app.post('/concept/resolve', async (req, res) => {
       exact: false,
       searchTerm,
       conceptType,
-      matches: uniqueMatches,
+      matches: disambiguationCandidates,
       needsDisambiguation: true,
       disambiguationQuestion,
-      totalMatches: uniqueMatches.length
+      totalMatches: disambiguationCandidates.length
     });
 
   } catch (error) {
