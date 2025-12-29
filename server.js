@@ -992,6 +992,11 @@ app.post('/generate', async (req, res) => {
   let listSparql = null;
   let detectedDomain = domain;
   let contextUsed = false;
+  const relationSkillCountQuery = (
+    (q.includes('relatie') || q.includes('relaties')) &&
+    (q.includes('vaardigheid') || q.includes('vaardigheden') || q.includes('skill') || q.includes('skills')) &&
+    q.includes('hoeveel')
+  );
 
   // SCENARIO 3: Vervolgvraag detectie
   const isFollowUp = chatHistory.length > 0 && (
@@ -1139,7 +1144,7 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
   }
 
   // RELATIE AANTALLEN: aantal vaardigheden per HAT-relatie
-  else if (q.includes('relatie') && q.includes('vaardigheid') && q.includes('hoeveel')) {
+  else if (relationSkillCountQuery) {
     detectedDomain = 'occupation';
     needsCount = true;
 
@@ -1226,7 +1231,8 @@ LIMIT 20`;
     listSparql,
     domain: detectedDomain,
     contextUsed,
-    isFollowUp
+    isFollowUp,
+    needsDisambiguation: false
   });
 });
 

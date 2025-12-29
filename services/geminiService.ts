@@ -74,6 +74,18 @@ function isRiasecQuestionText(text?: string | null): boolean {
 }
 
 // ============================================================
+// SPECIAL CASE DETECTION
+// ============================================================
+
+function isRelationSkillCountQuery(question: string): boolean {
+  const normalized = question.toLowerCase();
+  const hasRelation = normalized.includes('relatie') || normalized.includes('relaties');
+  const hasSkill = normalized.includes('vaardigheid') || normalized.includes('vaardigheden') || normalized.includes('skill') || normalized.includes('skills');
+  const hasCount = normalized.includes('hoeveel');
+  return hasRelation && hasSkill && hasCount;
+}
+
+// ============================================================
 // BACKEND API CALLS
 // ============================================================
 
@@ -115,6 +127,32 @@ async function resolveConcept(
     return await response.json();
   } catch (error) {
     console.warn('[Concept] Resolve failed:', error);
+    return null;
+  }
+}
+
+async function generateViaBackend(question: string, chatHistory: ChatMessage[]): Promise<GenerateSparqlResult | null> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, chatHistory })
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+
+    return {
+      sparql: data.sparql || null,
+      response: data.response || 'Query gegenereerd:',
+      needsDisambiguation: false,
+      resolvedConcepts: [],
+      domain: data.domain,
+      needsCount: data.needsCount,
+      contextUsed: data.contextUsed
+    };
+  } catch (error) {
+    console.warn('[Generate] Backend generate failed:', error);
     return null;
   }
 }
@@ -193,6 +231,14 @@ export async function generateSparqlWithDisambiguation(
   const resolvedConcepts: { term: string; resolved: string; type: string }[] = [];
   const q = userQuery.toLowerCase().trim();
   const riasecDetected = isRiasecQuestionText(userQuery);
+
+  // HAT relatie-vaardigheid count: sla concept-resolve over en gebruik /generate direct
+  if (isRelationSkillCountQuery(q)) {
+    const backendResult = await generateViaBackend(userQuery, chatHistory);
+    if (backendResult) {
+      return backendResult;
+    }
+  }
 
   // Handle pending disambiguation response
   if (pendingDisambiguation) {
