@@ -223,6 +223,8 @@ function generateTestSparql(question, chatHistory = [], domain, resolvedConcepts
   let sparql = '';
   let response = '';
   let needsCount = false;
+  let needsList = false;
+  let listSparql = null;
   let detectedDomain = domain;
 
   // SCENARIO 1 & 1a: Disambiguatie (architect)
@@ -232,7 +234,7 @@ function generateTestSparql(question, chatHistory = [], domain, resolvedConcepts
   if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('toon alle'))) {
     detectedDomain = 'education';
     needsCount = true;
-    sparql = `PREFIX ksmo: <https://linkeddata.competentnl.nl/sbb/def/>
+    listSparql = `PREFIX ksmo: <https://linkeddata.competentnl.nl/sbb/def/>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
 SELECT ?kwalificatie ?label WHERE {
@@ -241,7 +243,13 @@ SELECT ?kwalificatie ?label WHERE {
 }
 ORDER BY ?label
 LIMIT 50`;
-    response = 'Er zijn 447 MBO kwalificaties gevonden. Hieronder de eerste 50 resultaten. Wil je alle resultaten zien of een specifieke zoeken?';
+    needsList = true;
+    sparql = `PREFIX ksmo: <https://linkeddata.competentnl.nl/sbb/def/>
+
+SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+}`;
+    response = 'Er zijn 447 MBO kwalificaties gevonden. Wil je de eerste 50 zien?';
   }
 
   // SCENARIO 3: Vervolgvraag "Hoeveel zijn er?"
@@ -380,6 +388,8 @@ LIMIT 20`;
     sparql,
     response,
     needsCount,
+    needsList,
+    listSparql,
     domain: detectedDomain,
     contextUsed: chatHistory && chatHistory.length > 0
   };

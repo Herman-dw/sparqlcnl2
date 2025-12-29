@@ -10,6 +10,9 @@ export interface Message {
   timestamp: Date;
   status: 'pending' | 'success' | 'error';
   feedback?: 'like' | 'dislike';
+  needsList?: boolean;
+  listSparql?: string;
+  sourceQuestion?: string;
   metadata?: {
     isDisambiguation?: boolean;
     graphs?: string[];
