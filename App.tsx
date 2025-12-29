@@ -1,13 +1,13 @@
 /**
- * CompetentNL SPARQL Agent - v2.0.0
- * Met concept disambiguatie
+ * CompetentNL SPARQL Agent - v2.1.0
+ * Met concept disambiguatie EN profiel matching
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Send, Database, Download, Filter, Info, Trash2, Loader2,
   Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
-  HelpCircle, CheckCircle, ThumbsUp, ThumbsDown
+  HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS, EXAMPLES } from './constants';
@@ -21,6 +21,7 @@ import { downloadAsExcel } from './services/excelService';
 import { saveFeedback, sendFeedbackToBackend } from './services/feedbackService';
 import TestPage from './test-suite/components/TestPage';
 import RiasecTest from './components/RiasecTest';
+import MatchModal from './components/MatchModal';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
@@ -80,6 +81,9 @@ const App: React.FC = () => {
 
   // Test Dashboard state
   const [showTests, setShowTests] = useState(false);
+
+  // Match Modal state
+  const [showMatchModal, setShowMatchModal] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -548,7 +552,7 @@ const App: React.FC = () => {
             </button>
           </div>
           <div className="text-[10px] font-bold opacity-80 uppercase tracking-widest flex items-center gap-1">
-            <Server className="w-3 h-3" /> v2.0 met Disambiguatie
+            <Server className="w-3 h-3" /> v2.1 met Matching
           </div>
         </div>
 
@@ -575,6 +579,23 @@ const App: React.FC = () => {
               </button>
             </div>
           )}
+
+          {/* Match Profiel Section */}
+          <div className="space-y-3">
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Target className="w-3 h-3" /> Matching
+            </h3>
+            <button
+              onClick={() => setShowMatchModal(true)}
+              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/25"
+            >
+              <Target className="w-4 h-4" />
+              Match mijn Profiel
+            </button>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              Selecteer vaardigheden en ontdek welke beroepen bij je passen.
+            </p>
+          </div>
 
           <div className="space-y-4">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
@@ -861,6 +882,15 @@ const App: React.FC = () => {
       </main>
         </div>
       )}
+
+      {/* Match Modal */}
+      <MatchModal
+        isOpen={showMatchModal}
+        onClose={() => setShowMatchModal(false)}
+        onMatchComplete={(results) => {
+          console.log('Match complete:', results.length, 'beroepen gevonden');
+        }}
+      />
     </div>
   );
 };
