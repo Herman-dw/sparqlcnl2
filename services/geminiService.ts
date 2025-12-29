@@ -58,6 +58,8 @@ const STOP_WORDS = [
 ];
 
 const OCCUPATION_SUFFIXES = ['er', 'eur', 'ist', 'ant', 'ent', 'aar', 'man', 'vrouw', 'meester', 'arts', 'kundige', 'loog', 'tect'];
+const STRONG_MATCH_TYPES = ['exact', 'preflabel', 'altlabel'];
+const STRONG_MATCH_THRESHOLD = 0.98;
 
 // ============================================================
 // BACKEND API CALLS
@@ -222,8 +224,25 @@ export async function generateSparqlWithDisambiguation(
   
   if (occupationTerm) {
     const conceptResult = await resolveConcept(occupationTerm, 'occupation');
+    const matches = conceptResult?.matches || [];
+    const normalizedTerm = occupationTerm.toLowerCase();
+    let occupationResolved = false;
+    const strongMatches = matches.filter(m => 
+      STRONG_MATCH_TYPES.includes((m.matchType || '').toLowerCase()) &&
+      m.matchedLabel?.toLowerCase() === normalizedTerm &&
+      m.confidence >= STRONG_MATCH_THRESHOLD
+    );
     
-    if (conceptResult?.needsDisambiguation && conceptResult.matches?.length > 1) {
+    if (strongMatches.length === 1) {
+      const selected = strongMatches[0];
+      console.log(`[Concept] ✓ Sterke match gekozen: "${occupationTerm}" → "${selected.prefLabel}"`);
+      resolvedConcepts.push({
+        term: occupationTerm,
+        resolved: selected.prefLabel,
+        type: 'occupation'
+      });
+      occupationResolved = true;
+    } else if (conceptResult?.needsDisambiguation && conceptResult.matches?.length > 1) {
       // SCENARIO 1: Disambiguation needed
       console.log(`[Concept] ⚠ Disambiguatie nodig voor: "${occupationTerm}"`);
       
@@ -244,7 +263,7 @@ export async function generateSparqlWithDisambiguation(
     }
     
     // SCENARIO 4: Concept resolved
-    if (conceptResult?.found && conceptResult.resolvedLabel) {
+    if (!occupationResolved && conceptResult?.found && conceptResult.resolvedLabel) {
       console.log(`[Concept] ✓ Resolved: "${occupationTerm}" → "${conceptResult.resolvedLabel}"`);
       resolvedConcepts.push({
         term: occupationTerm,

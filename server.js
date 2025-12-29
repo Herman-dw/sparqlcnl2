@@ -113,6 +113,9 @@ const CONCEPT_TYPES = {
   }
 };
 
+const STRONG_MATCH_TYPES = ['exact', 'prefLabel', 'altLabel'];
+const STRONG_MATCH_THRESHOLD = 0.98;
+
 // Generieke varianten om snel disambiguatie-opties te kunnen tonen bij veelvoorkomende synoniemen/homoniemen
 // Dit voorkomt snelle hardcoded fixes per beroep: we gebruiken algemene qualifiers per concepttype.
 const GENERIC_SPECIALIZERS = {
@@ -335,9 +338,31 @@ app.post('/concept/resolve', async (req, res) => {
 
     const uniqueUris = new Set(matches.map(m => m.uri));
 
+    // Sterke (exacte) matches hebben voorrang, ook als er andere fuzzy matches zijn
+    const strongMatches = matches.filter(m => 
+      STRONG_MATCH_TYPES.includes((m.matchType || '').toLowerCase()) &&
+      m.matchedLabel.toLowerCase() === normalized &&
+      m.confidence >= STRONG_MATCH_THRESHOLD
+    );
+
+    if (strongMatches.length === 1) {
+      const selected = strongMatches[0];
+      console.log(`[Concept] ✓ Sterke exacte match: "${searchTerm}" → "${selected.prefLabel}" (confidence ${selected.confidence})`);
+      return res.json({
+        found: true,
+        exact: true,
+        searchTerm,
+        conceptType,
+        matches: [selected],
+        needsDisambiguation: false,
+        resolvedUri: selected.uri,
+        resolvedLabel: selected.prefLabel
+      });
+    }
+
     // Check voor exacte match
     const exactMatch = matches.find(m => 
-      m.matchedLabel.toLowerCase() === normalized && m.confidence >= 0.95
+      m.matchedLabel.toLowerCase() === normalized && m.confidence >= STRONG_MATCH_THRESHOLD
     );
 
     // SCENARIO 4: Loodgieter → Exacte match of 1 uniek concept
