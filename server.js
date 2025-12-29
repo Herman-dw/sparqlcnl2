@@ -3,14 +3,14 @@
  * ====================================
  * Complete implementatie voor alle 6 test scenarios:
  * 
- * 1. Disambiguatie: "Welke vaardigheden heeft een architect?" → Vraagt om verduidelijking
+ * 1. Disambiguatie: "Welke vaardigheden heeft een architect?" â†’ Vraagt om verduidelijking
  * 1a. Feedback: Na disambiguatie moet feedback mogelijk zijn
- * 2. Domein-detectie: "Toon alle MBO kwalificaties" → Console: [Orchestrator] Domein: education
- * 2a. Aantallen: Bij 50+ resultaten → COUNT query + mogelijkheid alle op te halen
- * 3. Vervolgvraag: "Hoeveel zijn er?" → Moet context gebruiken
- * 4. Concept resolver: "Vaardigheden van loodgieter" → Resolven naar officiële naam
- * 5. Opleiding: "Wat leer jij bij de opleiding werkvoorbereider installaties?" → vaardigheden + kennisgebieden
- * 6. RIASEC: "geef alle vaardigheden die een relatie hebben met R" → hasRIASEC predicaat
+ * 2. Domein-detectie: "Toon alle MBO kwalificaties" â†’ Console: [Orchestrator] Domein: education
+ * 2a. Aantallen: Bij 50+ resultaten â†’ COUNT query + mogelijkheid alle op te halen
+ * 3. Vervolgvraag: "Hoeveel zijn er?" â†’ Moet context gebruiken
+ * 4. Concept resolver: "Vaardigheden van loodgieter" â†’ Resolven naar officiÃ«le naam
+ * 5. Opleiding: "Wat leer jij bij de opleiding werkvoorbereider installaties?" â†’ vaardigheden + kennisgebieden
+ * 6. RIASEC: "geef alle vaardigheden die een relatie hebben met R" â†’ hasRIASEC predicaat
  */
 
 import fs from 'fs';
@@ -69,16 +69,16 @@ const promptsPool = mysql.createPool({
 async function testDatabaseConnections() {
   try {
     await ragPool.execute('SELECT 1');
-    console.log('[DB] ✓ competentnl_rag connected');
+    console.log('[DB] âœ“ competentnl_rag connected');
   } catch (e) {
-    console.warn('[DB] ✗ competentnl_rag not available:', e.message);
+    console.warn('[DB] âœ— competentnl_rag not available:', e.message);
   }
   
   try {
     await promptsPool.execute('SELECT 1');
-    console.log('[DB] ✓ competentnl_prompts connected');
+    console.log('[DB] âœ“ competentnl_prompts connected');
   } catch (e) {
-    console.warn('[DB] ✗ competentnl_prompts not available (orchestrator disabled):', e.message);
+    console.warn('[DB] âœ— competentnl_prompts not available (orchestrator disabled):', e.message);
   }
 }
 
@@ -277,8 +277,8 @@ app.post('/proxy/sparql', async (req, res) => {
  * POST /concept/resolve
  * Resolveert een zoekterm naar concept(en) in de knowledge graph
  * 
- * SCENARIO 1: "architect" → meerdere matches → disambiguatie
- * SCENARIO 4: "loodgieter" → match naar officiële naam
+ * SCENARIO 1: "architect" â†’ meerdere matches â†’ disambiguatie
+ * SCENARIO 4: "loodgieter" â†’ match naar officiÃ«le naam
  */
 app.post('/concept/resolve', async (req, res) => {
   const { searchTerm, conceptType = 'occupation', riasecBypass = false, questionContext, question } = req.body;
@@ -375,7 +375,7 @@ app.post('/concept/resolve', async (req, res) => {
 
     if (strongMatches.length === 1) {
       const selected = strongMatches[0];
-      console.log(`[Concept] ✓ Sterke exacte match: "${searchTerm}" → "${selected.prefLabel}" (confidence ${selected.confidence})`);
+      console.log(`[Concept] âœ“ Sterke exacte match: "${searchTerm}" â†’ "${selected.prefLabel}" (confidence ${selected.confidence})`);
       return res.json({
         found: true,
         exact: true,
@@ -393,10 +393,10 @@ app.post('/concept/resolve', async (req, res) => {
       m.matchedLabel.toLowerCase() === normalized && m.confidence >= STRONG_MATCH_THRESHOLD
     );
 
-    // SCENARIO 4: Loodgieter → Exacte match of 1 uniek concept
+    // SCENARIO 4: Loodgieter â†’ Exacte match of 1 uniek concept
     if (exactMatch || uniqueUris.size === 1) {
       const selected = exactMatch || matches[0];
-      console.log(`[Concept] ✓ Exact match: "${searchTerm}" → "${selected.prefLabel}"`);
+      console.log(`[Concept] âœ“ Exact match: "${searchTerm}" â†’ "${selected.prefLabel}"`);
       return res.json({
         found: true,
         exact: true,
@@ -418,7 +418,7 @@ app.post('/concept/resolve', async (req, res) => {
       matches
     );
 
-    console.log(`[Concept] ⚠ Disambiguatie nodig: ${disambiguationCandidates.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
+    console.log(`[Concept] âš  Disambiguatie nodig: ${disambiguationCandidates.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
 
     // Genereer disambiguatie vraag
     const disambiguationQuestion = generateDisambiguationQuestion(
@@ -481,7 +481,7 @@ app.post('/concept/confirm', async (req, res) => {
     return res.status(400).json({ error: 'searchTerm en selectedUri zijn verplicht' });
   }
 
-  console.log(`[Concept] ✓ Bevestigd: "${searchTerm}" → "${selectedLabel}" (${selectedUri})`);
+  console.log(`[Concept] âœ“ Bevestigd: "${searchTerm}" â†’ "${selectedLabel}" (${selectedUri})`);
 
   try {
     // Log de selectie voor learning
@@ -715,7 +715,7 @@ app.delete('/conversation/:sessionId', async (req, res) => {
  * POST /orchestrator/classify
  * Classificeer een vraag naar domein
  * 
- * SCENARIO 2: "Toon alle MBO kwalificaties" → education domein
+ * SCENARIO 2: "Toon alle MBO kwalificaties" â†’ education domein
  */
 app.post('/orchestrator/classify', async (req, res) => {
   const { question } = req.body;
@@ -887,13 +887,13 @@ app.post('/orchestrator/classify', async (req, res) => {
  */
 app.get('/orchestrator/domains', async (req, res) => {
   res.json([
-    { domain_key: 'occupation', domain_name: 'Beroepen', description: 'Vragen over beroepen en functies', icon: '👔', priority: 1 },
-    { domain_key: 'skill', domain_name: 'Vaardigheden', description: 'Vragen over vaardigheden en competenties', icon: '🎯', priority: 2 },
-    { domain_key: 'education', domain_name: 'Opleidingen', description: 'Vragen over opleidingen en kwalificaties', icon: '🎓', priority: 3 },
-    { domain_key: 'knowledge', domain_name: 'Kennisgebieden', description: 'Vragen over kennisgebieden', icon: '📚', priority: 4 },
-    { domain_key: 'taxonomy', domain_name: 'Taxonomie', description: 'Vragen over RIASEC, hiërarchieën, etc.', icon: '🏷️', priority: 5 },
-    { domain_key: 'comparison', domain_name: 'Vergelijkingen', description: 'Vergelijkingen tussen concepten', icon: '⚖️', priority: 6 },
-    { domain_key: 'task', domain_name: 'Taken', description: 'Vragen over taken en werkzaamheden', icon: '📋', priority: 7 }
+    { domain_key: 'occupation', domain_name: 'Beroepen', description: 'Vragen over beroepen en functies', icon: 'ðŸ‘”', priority: 1 },
+    { domain_key: 'skill', domain_name: 'Vaardigheden', description: 'Vragen over vaardigheden en competenties', icon: 'ðŸŽ¯', priority: 2 },
+    { domain_key: 'education', domain_name: 'Opleidingen', description: 'Vragen over opleidingen en kwalificaties', icon: 'ðŸŽ“', priority: 3 },
+    { domain_key: 'knowledge', domain_name: 'Kennisgebieden', description: 'Vragen over kennisgebieden', icon: 'ðŸ“š', priority: 4 },
+    { domain_key: 'taxonomy', domain_name: 'Taxonomie', description: 'Vragen over RIASEC, hiÃ«rarchieÃ«n, etc.', icon: 'ðŸ·ï¸', priority: 5 },
+    { domain_key: 'comparison', domain_name: 'Vergelijkingen', description: 'Vergelijkingen tussen concepten', icon: 'âš–ï¸', priority: 6 },
+    { domain_key: 'task', domain_name: 'Taken', description: 'Vragen over taken en werkzaamheden', icon: 'ðŸ“‹', priority: 7 }
   ]);
 });
 
@@ -972,8 +972,8 @@ SELECT ?occupation ?skill ?skillLabel WHERE {
  * POST /generate
  * Genereer SPARQL query op basis van vraag, context en domein
  * 
- * SCENARIO 2a: Bij 50+ resultaten → COUNT query
- * SCENARIO 3: "Hoeveel zijn er?" → Gebruik context
+ * SCENARIO 2a: Bij 50+ resultaten â†’ COUNT query
+ * SCENARIO 3: "Hoeveel zijn er?" â†’ Gebruik context
  */
 app.post('/generate', async (req, res) => {
   const { 
@@ -1014,10 +1014,10 @@ app.post('/generate', async (req, res) => {
 
   if (isFollowUp && chatHistory.length > 0) {
     contextUsed = true;
-    console.log(`[Generate] ✓ Vervolgvraag gedetecteerd, gebruik context`);
+    console.log(`[Generate] âœ“ Vervolgvraag gedetecteerd, gebruik context`);
   }
 
-  // SCENARIO 2: MBO Kwalificaties → Education domein
+  // SCENARIO 2: MBO Kwalificaties â†’ Education domein
   if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('kwalificaties'))) {
     detectedDomain = 'education';
     needsCount = true;
@@ -1058,7 +1058,7 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
     }
   }
 
-  // SCENARIO 5: Opleiding → Vaardigheden EN Kennisgebieden
+  // SCENARIO 5: Opleiding â†’ Vaardigheden EN Kennisgebieden
   else if ((q.includes('leer') || q.includes('opleiding')) && 
            (q.includes('vaardighe') || q.includes('kennis') || q.includes('werkvoorbereider'))) {
     detectedDomain = 'education';
@@ -1184,7 +1184,7 @@ ORDER BY ?relatietype`;
       occupationFilter = `VALUES ?occupation { <${resolvedUri}> }`;
     } else {
       // Probeer beroep uit vraag te halen
-      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+)/i);
+      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zÃ©Ã«Ã¯Ã¶Ã¼Ã¡Ã Ã¢Ã¤Ã¨ÃªÃ®Ã´Ã»Ã§\-]+)/i);
       if (occupationMatch) {
         const occName = occupationMatch[1];
         occupationFilter = `?occupation skos:prefLabel ?occLabel . FILTER(CONTAINS(LCASE(?occLabel), "${occName}"))`;
@@ -1271,6 +1271,184 @@ app.post('/rag/log', async (req, res) => {
   } catch (error) {
     res.json({ success: false });
   }
+});
+
+// =====================================================
+// RIASEC CAPABILITIES API
+// =====================================================
+
+const RIASEC_INFO = {
+  R: { code: 'R', name: 'Realistic', dutch: 'Praktisch', description: 'Praktische vaardigheden voor het werken met objecten, gereedschap en machines' },
+  I: { code: 'I', name: 'Investigative', dutch: 'Onderzoekend', description: 'Onderzoekende vaardigheden voor analyseren en begrijpen' },
+  A: { code: 'A', name: 'Artistic', dutch: 'Artistiek', description: 'Creatieve vaardigheden voor expressie en innovatie' },
+  S: { code: 'S', name: 'Social', dutch: 'Sociaal', description: 'Sociale vaardigheden voor samenwerken en helpen' },
+  E: { code: 'E', name: 'Enterprising', dutch: 'Ondernemend', description: 'Ondernemende vaardigheden voor leiden en overtuigen' },
+  C: { code: 'C', name: 'Conventional', dutch: 'Conventioneel', description: 'Organisatorische vaardigheden voor structuur en precisie' }
+};
+
+// Cache voor RIASEC capabilities (wordt gevuld bij eerste request)
+const riasecCapabilitiesCache = new Map();
+
+/**
+ * Haal capabilities op voor een RIASEC letter via SPARQL
+ */
+async function fetchCapabilitiesForLetter(letter) {
+  const upperLetter = letter.toUpperCase();
+  
+  // Check cache
+  if (riasecCapabilitiesCache.has(upperLetter)) {
+    return riasecCapabilitiesCache.get(upperLetter);
+  }
+  
+  const sparqlQuery = `
+    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+    SELECT ?capability ?label WHERE {
+      ?capability cnlo:hasRIASEC "${upperLetter}" .
+      ?capability skos:prefLabel ?label .
+      ?capability a cnlo:HumanCapability .
+    }
+    ORDER BY ?label
+  `;
+  
+  const endpoint = process.env.COMPETENTNL_ENDPOINT || 'https://sparql.competentnl.nl';
+  const apiKey = process.env.COMPETENTNL_API_KEY;
+  
+  try {
+    // Gebruik dezelfde parameters als de werkende proxy
+    const params = new URLSearchParams();
+    params.append('query', sparqlQuery);
+    params.append('format', 'application/sparql-results+json');
+    
+    const headers = {
+      'Accept': 'application/sparql-results+json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'CompetentNL-AI-Agent/4.0'
+    };
+    
+    if (apiKey) {
+      headers['apikey'] = apiKey;
+    }
+    
+    console.log(`[RIASEC] Fetching capabilities for letter ${upperLetter}`);
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: headers,
+      body: params
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[RIASEC] SPARQL error ${response.status}:`, errorText);
+      throw new Error(`SPARQL error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const capabilities = (data.results?.bindings || []).map(binding => ({
+      uri: binding.capability?.value || '',
+      label: binding.label?.value || ''
+    }));
+    
+    console.log(`[RIASEC] Found ${capabilities.length} capabilities for ${upperLetter}`);
+    
+    // Cache het resultaat
+    riasecCapabilitiesCache.set(upperLetter, capabilities);
+    
+    return capabilities;
+  } catch (error) {
+    console.error(`[RIASEC] Error fetching capabilities for ${upperLetter}:`, error.message);
+    return [];
+  }
+}
+
+/**
+ * GET /api/riasec/capabilities/:letter
+ * Haal alle capabilities op voor een specifieke RIASEC letter
+ */
+app.get('/api/riasec/capabilities/:letter', async (req, res) => {
+  const letter = req.params.letter?.toUpperCase();
+  
+  if (!letter || !RIASEC_INFO[letter]) {
+    return res.status(400).json({
+      success: false,
+      error: `Ongeldige RIASEC letter. Gebruik: R, I, A, S, E, of C`
+    });
+  }
+  
+  const info = RIASEC_INFO[letter];
+  const capabilities = await fetchCapabilitiesForLetter(letter);
+  
+  res.json({
+    success: true,
+    letter: info.code,
+    name: info.name,
+    dutch: info.dutch,
+    description: info.description,
+    capabilities,
+    totalCount: capabilities.length
+  });
+});
+
+/**
+ * POST /api/riasec/capabilities/batch
+ * Haal capabilities op voor meerdere RIASEC letters tegelijk
+ * Body: { letters: ["S", "I", "A"] }
+ */
+app.post('/api/riasec/capabilities/batch', async (req, res) => {
+  const { letters } = req.body;
+  
+  if (!letters || !Array.isArray(letters) || letters.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Geef een array van RIASEC letters op in het "letters" veld'
+    });
+  }
+  
+  // Valideer alle letters
+  const validLetters = letters
+    .map(l => l?.toUpperCase())
+    .filter(l => RIASEC_INFO[l]);
+  
+  if (validLetters.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Geen geldige RIASEC letters gevonden. Gebruik: R, I, A, S, E, of C'
+    });
+  }
+  
+  // Haal capabilities op voor alle letters parallel
+  const results = {};
+  await Promise.all(validLetters.map(async (letter) => {
+    const info = RIASEC_INFO[letter];
+    const capabilities = await fetchCapabilitiesForLetter(letter);
+    results[letter] = {
+      letter: info.code,
+      name: info.name,
+      dutch: info.dutch,
+      description: info.description,
+      capabilities,
+      totalCount: capabilities.length
+    };
+  }));
+  
+  res.json({
+    success: true,
+    letters: validLetters,
+    results
+  });
+});
+
+/**
+ * GET /api/riasec/info
+ * Haal informatie op over alle RIASEC letters
+ */
+app.get('/api/riasec/info', (req, res) => {
+  res.json({
+    success: true,
+    letters: Object.values(RIASEC_INFO)
+  });
 });
 
 // =====================================================
@@ -1362,7 +1540,7 @@ app.post('/test/scenario', async (req, res) => {
   results.steps.push({ step: 'classify', result: classification });
 
   // Step 2: Extract occupation term if present
-  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+)/i);
+  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zÃ©Ã«Ã¯Ã¶Ã¼Ã¡Ã Ã¢Ã¤Ã¨ÃªÃ®Ã´Ã»Ã§\-]+)/i);
   if (occMatch) {
     const resolveRes = await fetch(`http://${HOST}:${PORT}/concept/resolve`, {
       method: 'POST',
@@ -1398,53 +1576,53 @@ app.post('/test/scenario', async (req, res) => {
 testDatabaseConnections().then(async () => {
   
   // Preload matching cache voor snelle eerste requests
-  console.log('🔄 Preloading matching cache...');
+  console.log('ðŸ”„ Preloading matching cache...');
   const cacheStart = Date.now();
   
   try {
     await preloadCache();
     const cacheDuration = ((Date.now() - cacheStart) / 1000).toFixed(1);
-    console.log(`✅ Matching cache ready (${cacheDuration}s)`);
+    console.log(`âœ… Matching cache ready (${cacheDuration}s)`);
   } catch (err) {
-    console.warn('⚠️ Matching cache preload failed:', err.message);
+    console.warn('âš ï¸ Matching cache preload failed:', err.message);
     console.warn('   Cache wordt opgebouwd bij eerste request');
   }
   
   app.listen(PORT, HOST, () => {
     console.log(`
-  ╔═══════════════════════════════════════════════════════════╗
-  ║  CompetentNL Server v4.1.0 - All Scenarios + Matching     ║
-  ╠═══════════════════════════════════════════════════════════╣
-  ║  Host:     ${HOST}                                        ║
-  ║  Port:     ${PORT}                                        ║
-  ║  URL:      http://${HOST}:${PORT}                         ║
-  ╠═══════════════════════════════════════════════════════════╣
-  ║  Test Scenarios:                                          ║
-  ║  1.  Disambiguatie:    architect → meerdere opties        ║
-  ║  1a. Feedback:         na disambiguatie                   ║
-  ║  2.  Domein-detectie:  MBO kwalificaties → education      ║
-  ║  2a. Aantallen:        50+ resultaten → COUNT query       ║
-  ║  3.  Vervolgvraag:     "Hoeveel zijn er?" met context     ║
-  ║  4.  Concept resolver: loodgieter → officiële naam        ║
-  ║  5.  Opleiding:        vaardigheden + kennisgebieden      ║
-  ║  6.  RIASEC:           Hollandcode R → hasRIASEC          ║
-  ╠═══════════════════════════════════════════════════════════╣
-  ║  Bestaande Endpoints:                                     ║
-  ║  • POST /concept/resolve      - Concept disambiguatie     ║
-  ║  • POST /concept/confirm      - Bevestig keuze            ║
-  ║  • POST /feedback             - Algemene feedback         ║
-  ║  • POST /orchestrator/classify - Domein-detectie          ║
-  ║  • POST /generate             - SPARQL generatie          ║
-  ║  • GET  /test/health          - Test status               ║
-  ║  • POST /test/scenario        - Run test scenario         ║
-  ╠═══════════════════════════════════════════════════════════╣
-  ║  Nieuwe Matching Endpoints:                               ║
-  ║  • POST /api/match-profile         - Match profiel        ║
-  ║  • POST /api/match-profile/preload - Herlaad cache        ║
-  ║  • DELETE /api/match-profile/cache - Wis cache            ║
-  ║  • GET  /api/match-profile/health  - Health check         ║
-  ║  • GET  /api/idf-weights           - Bekijk IDF weights   ║
-  ╚═══════════════════════════════════════════════════════════╝
+  â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+  â•‘  CompetentNL Server v4.1.0 - All Scenarios + Matching     â•‘
+  â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
+  â•‘  Host:     ${HOST}                                        â•‘
+  â•‘  Port:     ${PORT}                                        â•‘
+  â•‘  URL:      http://${HOST}:${PORT}                         â•‘
+  â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
+  â•‘  Test Scenarios:                                          â•‘
+  â•‘  1.  Disambiguatie:    architect â†’ meerdere opties        â•‘
+  â•‘  1a. Feedback:         na disambiguatie                   â•‘
+  â•‘  2.  Domein-detectie:  MBO kwalificaties â†’ education      â•‘
+  â•‘  2a. Aantallen:        50+ resultaten â†’ COUNT query       â•‘
+  â•‘  3.  Vervolgvraag:     "Hoeveel zijn er?" met context     â•‘
+  â•‘  4.  Concept resolver: loodgieter â†’ officiÃ«le naam        â•‘
+  â•‘  5.  Opleiding:        vaardigheden + kennisgebieden      â•‘
+  â•‘  6.  RIASEC:           Hollandcode R â†’ hasRIASEC          â•‘
+  â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
+  â•‘  Bestaande Endpoints:                                     â•‘
+  â•‘  â€¢ POST /concept/resolve      - Concept disambiguatie     â•‘
+  â•‘  â€¢ POST /concept/confirm      - Bevestig keuze            â•‘
+  â•‘  â€¢ POST /feedback             - Algemene feedback         â•‘
+  â•‘  â€¢ POST /orchestrator/classify - Domein-detectie          â•‘
+  â•‘  â€¢ POST /generate             - SPARQL generatie          â•‘
+  â•‘  â€¢ GET  /test/health          - Test status               â•‘
+  â•‘  â€¢ POST /test/scenario        - Run test scenario         â•‘
+  â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
+  â•‘  Nieuwe Matching Endpoints:                               â•‘
+  â•‘  â€¢ POST /api/match-profile         - Match profiel        â•‘
+  â•‘  â€¢ POST /api/match-profile/preload - Herlaad cache        â•‘
+  â•‘  â€¢ DELETE /api/match-profile/cache - Wis cache            â•‘
+  â•‘  â€¢ GET  /api/match-profile/health  - Health check         â•‘
+  â•‘  â€¢ GET  /api/idf-weights           - Bekijk IDF weights   â•‘
+  â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     `);
   });
 });

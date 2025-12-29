@@ -30,6 +30,7 @@ interface MatchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMatchComplete?: (results: MatchResult[]) => void;
+  initialSkills?: string[];  // Pre-selected skills (e.g., from RIASEC flow)
 }
 
 // ============================================================
@@ -264,7 +265,7 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
                   <ScoreBar score={breakdown.skills.score} showPercentage={false} />
                 </div>
                 <span className="text-xs text-slate-600 w-20 text-right">
-                  {breakdown.skills.matchedCount}/{breakdown.skills.totalCount} × {breakdown.skills.weight}
+                  {breakdown.skills.matchedCount}/{breakdown.skills.totalCount} Ã— {breakdown.skills.weight}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -273,7 +274,7 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
                   <ScoreBar score={breakdown.knowledge.score} showPercentage={false} />
                 </div>
                 <span className="text-xs text-slate-600 w-20 text-right">
-                  {breakdown.knowledge.matchedCount}/{breakdown.knowledge.totalCount} × {breakdown.knowledge.weight}
+                  {breakdown.knowledge.matchedCount}/{breakdown.knowledge.totalCount} Ã— {breakdown.knowledge.weight}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -282,7 +283,7 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
                   <ScoreBar score={breakdown.tasks.score} showPercentage={false} />
                 </div>
                 <span className="text-xs text-slate-600 w-20 text-right">
-                  {breakdown.tasks.matchedCount}/{breakdown.tasks.totalCount} × {breakdown.tasks.weight}
+                  {breakdown.tasks.matchedCount}/{breakdown.tasks.totalCount} Ã— {breakdown.tasks.weight}
                 </span>
               </div>
             </div>
@@ -346,7 +347,7 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
 // MAIN MODAL COMPONENT
 // ============================================================
 
-const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplete }) => {
+const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplete, initialSkills }) => {
   // State
   const [view, setView] = useState<MatchModalView>('builder');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
@@ -359,13 +360,18 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   const [expandedResult, setExpandedResult] = useState<number | null>(0);
   const [executionTime, setExecutionTime] = useState<number>(0);
 
-  // Reset state when modal opens
+  // Reset state when modal opens, and load initial skills if provided
   useEffect(() => {
     if (isOpen) {
       setView('builder');
       setError(null);
+      
+      // Load initial skills if provided (e.g., from RIASEC flow)
+      if (initialSkills && initialSkills.length > 0) {
+        setSelectedSkills(initialSkills);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, initialSkills]);
 
   // Handle skill selection
   const handleSelectSkill = useCallback((item: SkillSearchResult) => {
@@ -392,7 +398,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   // Handle matching
   const handleMatch = async () => {
     if (selectedSkills.length === 0 && selectedKnowledge.length === 0) {
-      setError('Selecteer minimaal één vaardigheid of kennisgebied');
+      setError('Selecteer minimaal Ã©Ã©n vaardigheid of kennisgebied');
       return;
     }
 
@@ -596,7 +602,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
               <div className="text-sm text-slate-500">
                 <span className="font-medium">Profiel:</span>{' '}
                 {selectedSkills.join(', ')}
-                {selectedKnowledge.length > 0 && ` • ${selectedKnowledge.join(', ')}`}
+                {selectedKnowledge.length > 0 && ` â€¢ ${selectedKnowledge.join(', ')}`}
               </div>
 
               {/* Results list */}

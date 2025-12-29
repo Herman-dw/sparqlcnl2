@@ -17,7 +17,7 @@ const statements: Record<RiasecLetter, string[]> = {
   ],
   A: [
     'Ik druk mezelf graag creatief uit (bijv. schrijven, ontwerpen, muziek).',
-    'Ik bedenk originele ideeën of nieuwe invalshoeken.',
+    'Ik bedenk originele ideeÃ«n of nieuwe invalshoeken.',
     'Ik waardeer vrijheid en ruimte om te improviseren.',
     'Ik voel me thuis in een omgeving die openstaat voor nieuwe vormen en experimenten.'
   ],
@@ -42,16 +42,17 @@ const statements: Record<RiasecLetter, string[]> = {
 };
 
 const letterInfo: Record<RiasecLetter, string> = {
-  R: 'Realistisch – praktisch, handig, houdt van doen.',
-  I: 'Investigatief – onderzoekend, analytisch, nieuwsgierig.',
-  A: 'Artistiek – creatief, origineel, expressief.',
-  S: 'Sociaal – helpend, samenwerkend, empathisch.',
-  E: 'Enterprising – ondernemend, overtuigend, leidend.',
-  C: 'Conventioneel – ordelijk, precies, procesgericht.'
+  R: 'Realistisch â€“ praktisch, handig, houdt van doen.',
+  I: 'Investigatief â€“ onderzoekend, analytisch, nieuwsgierig.',
+  A: 'Artistiek â€“ creatief, origineel, expressief.',
+  S: 'Sociaal â€“ helpend, samenwerkend, empathisch.',
+  E: 'Enterprising â€“ ondernemend, overtuigend, leidend.',
+  C: 'Conventioneel â€“ ordelijk, precies, procesgericht.'
 };
 
 interface RiasecTestProps {
   onBack?: () => void;
+  onResultComplete?: (result: RiasecResult) => void;
 }
 
 interface RiasecResult {
@@ -59,7 +60,9 @@ interface RiasecResult {
   scores: Array<[RiasecLetter, number]>;
 }
 
-const RiasecTest: React.FC<RiasecTestProps> = ({ onBack }) => {
+export type { RiasecResult };
+
+const RiasecTest: React.FC<RiasecTestProps> = ({ onBack, onResultComplete }) => {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [error, setError] = useState('');
   const [result, setResult] = useState<RiasecResult | null>(null);
@@ -129,7 +132,7 @@ const RiasecTest: React.FC<RiasecTestProps> = ({ onBack }) => {
                 onClick={onBack}
                 className="inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl font-semibold shadow-lg hover:bg-slate-800 transition"
               >
-                ← Terug naar chat
+                â† Terug naar chat
               </button>
             )}
             <a
@@ -156,7 +159,7 @@ const RiasecTest: React.FC<RiasecTestProps> = ({ onBack }) => {
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
               <h3 className="text-lg font-semibold text-slate-900 mb-1">Schaal</h3>
               <p className="text-sm text-slate-600">
-                1 = helemaal niet van toepassing · 3 = neutraal · 5 = zeer van toepassing
+                1 = helemaal niet van toepassing Â· 3 = neutraal Â· 5 = zeer van toepassing
               </p>
             </div>
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
@@ -279,6 +282,25 @@ const RiasecTest: React.FC<RiasecTestProps> = ({ onBack }) => {
                     </a>
                     .
                   </p>
+                  
+                  {/* Doorgaan naar vaardigheden selectie */}
+                  {onResultComplete && (
+                    <div className="pt-4 mt-4 border-t border-emerald-200">
+                      <button
+                        type="button"
+                        onClick={() => onResultComplete(result)}
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all"
+                      >
+                        <span>Selecteer vaardigheden op basis van je profiel</span>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                      </button>
+                      <p className="mt-2 text-xs text-emerald-700">
+                        Kies vaardigheden die bij je passen en ontdek welke beroepen het beste matchen.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

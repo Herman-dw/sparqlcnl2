@@ -20,7 +20,8 @@ import { executeSparql, validateSparqlQuery, ProxyType } from './services/sparql
 import { downloadAsExcel } from './services/excelService';
 import { saveFeedback, sendFeedbackToBackend } from './services/feedbackService';
 import TestPage from './test-suite/components/TestPage';
-import RiasecTest from './components/RiasecTest';
+import RiasecTest, { RiasecResult } from './components/RiasecTest';
+import RiasecSkillSelector, { SelectedCapability } from './components/RiasecSkillSelector';
 import MatchModal from './components/MatchModal';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
@@ -60,7 +61,11 @@ const App: React.FC = () => {
   const [resourceType, setResourceType] = useState<ResourceType>(ResourceType.All);
   const [showSparql, setShowSparql] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const [activePage, setActivePage] = useState<'chat' | 'riasec'>('chat');
+  const [activePage, setActivePage] = useState<'chat' | 'riasec' | 'riasec-skills'>('chat');
+  
+  // RIASEC flow state
+  const [riasecResult, setRiasecResult] = useState<RiasecResult | null>(null);
+  const [riasecSelectedCapabilities, setRiasecSelectedCapabilities] = useState<SelectedCapability[]>([]);
   
   const [sparqlEndpoint, setSparqlEndpoint] = useState(() => localStorage.getItem('sparql_url') || DEFAULT_URL);
   const [authHeader, setAuthHeader] = useState(() => localStorage.getItem('sparql_auth') || '');
@@ -333,7 +338,7 @@ const App: React.FC = () => {
         let resolvedInfo = '';
         if (result.resolvedConcepts.length > 0) {
           resolvedInfo = result.resolvedConcepts
-            .map(c => `_"${c.term}" → "${c.resolved}"_`)
+            .map(c => `_"${c.term}" â†’ "${c.resolved}"_`)
             .join(', ') + '\n\n';
         }
         
@@ -536,7 +541,28 @@ const App: React.FC = () => {
       </div>
 
       {activePage === 'riasec' ? (
-        <RiasecTest onBack={() => setActivePage('chat')} />
+        <RiasecTest 
+          onBack={() => setActivePage('chat')} 
+          onResultComplete={(result) => {
+            setRiasecResult(result);
+            setActivePage('riasec-skills');
+          }}
+        />
+      ) : activePage === 'riasec-skills' && riasecResult ? (
+        <div className="bg-slate-50 min-h-[calc(100vh-88px)] py-8 px-4">
+          <div className="max-w-5xl mx-auto">
+            <RiasecSkillSelector
+              riasecResult={riasecResult}
+              onBack={() => setActivePage('riasec')}
+              onSkillsSelected={(capabilities) => {
+                setRiasecSelectedCapabilities(capabilities);
+                // Open de MatchModal met de geselecteerde capabilities
+                setShowMatchModal(true);
+                setActivePage('chat');
+              }}
+            />
+          </div>
+        </div>
       ) : (
         <div className="flex overflow-hidden" style={{ minHeight: 'calc(100vh - 88px)' }}>
       {/* Sidebar */}
@@ -739,7 +765,7 @@ const App: React.FC = () => {
                     onClick={() => handleShowList(msg)}
                     disabled={isLoading}
                   >
-                    📄 Toon eerste 50 resultaten
+                    ðŸ“„ Toon eerste 50 resultaten
                   </button>
                 )}
                 
@@ -877,7 +903,7 @@ const App: React.FC = () => {
           onClick={() => setShowTests(true)}
           className="fixed bottom-6 right-6 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg transition-all flex items-center gap-2 font-bold text-sm z-50"
         >
-          🧪 Tests
+          ðŸ§ª Tests
         </button>
       </main>
         </div>
@@ -886,10 +912,15 @@ const App: React.FC = () => {
       {/* Match Modal */}
       <MatchModal
         isOpen={showMatchModal}
-        onClose={() => setShowMatchModal(false)}
+        onClose={() => {
+          setShowMatchModal(false);
+          // Reset RIASEC selectie als modal gesloten wordt
+          setRiasecSelectedCapabilities([]);
+        }}
         onMatchComplete={(results) => {
           console.log('Match complete:', results.length, 'beroepen gevonden');
         }}
+        initialSkills={riasecSelectedCapabilities.map(cap => cap.label)}
       />
     </div>
   );
