@@ -88,15 +88,28 @@ export class TestRunner {
 
     try {
       // Reset chat history for non-follow-up tests
-      if (!scenario.previousContext) {
-        this.chatHistory = [];
-      }
+      this.chatHistory = [];
 
       // Step 1: Execute previous context if specified (for follow-up tests)
       if (scenario.previousContext) {
         this.chatHistory.push({ role: 'user', content: scenario.previousContext });
         context.contextUsed = true;
         context.consoleOutput.push(`[Context] Vorige vraag: "${scenario.previousContext}"`);
+
+        const firstTurn = await this.generateSparql(
+          scenario.previousContext,
+          null,
+          {}
+        );
+
+        if (firstTurn?.sparql || firstTurn?.response) {
+          this.chatHistory.push({
+            role: 'assistant',
+            content: firstTurn.response || 'Resultaat',
+            sparql: firstTurn.sparql
+          });
+          context.consoleOutput.push('[Context] Eerste vraag toegevoegd aan chatgeschiedenis');
+        }
       }
 
       // Step 2: Add current question to history
@@ -409,7 +422,8 @@ export class TestRunner {
     resolvedConcepts: Record<string, string>
   ): Promise<any> {
     try {
-      const response = await fetch(`${this.config.backendUrl}/test/generate-sparql`, {
+      // Probeer echte /generate endpoint eerst
+      const response = await fetch(`${this.config.backendUrl}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -421,6 +435,22 @@ export class TestRunner {
       });
 
       if (!response.ok) {
+        // Vallen terug op test endpoint
+        const testResponse = await fetch(`${this.config.backendUrl}/test/generate-sparql`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question,
+            chatHistory: this.chatHistory,
+            domain,
+            resolvedConcepts
+          })
+        });
+
+        if (testResponse.ok) {
+          return await testResponse.json();
+        }
+
         return this.fallbackSparqlGenerate(question, domain, resolvedConcepts);
       }
 

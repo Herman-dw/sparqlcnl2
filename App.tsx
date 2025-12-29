@@ -120,12 +120,16 @@ const App: React.FC = () => {
   };
 
   // Build chat history for context
-  const getChatHistory = () => {
-    return messages.slice(-6).map(m => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.text,
-      sparql: m.sparql
-    }));
+  const getChatHistory = (nextMessage?: Message) => {
+    const source = nextMessage ? [...messages, nextMessage] : messages;
+    return source
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .slice(-6)
+      .map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.text,
+        sparql: m.sparql
+      }));
   };
 
   const handleSend = async (text: string = inputText) => {
@@ -145,11 +149,13 @@ const App: React.FC = () => {
 
     try {
       // Generate SPARQL with disambiguation support
+      const chatHistory = getChatHistory(userMsg);
       const result = await generateSparqlWithDisambiguation(
         text, 
         { graphs: selectedGraphs, type: resourceType, status: 'Current' },
-        getChatHistory(),
-        pendingDisambiguation || undefined
+        chatHistory,
+        pendingDisambiguation || undefined,
+        sessionId
       );
 
       // Check if disambiguation is needed
