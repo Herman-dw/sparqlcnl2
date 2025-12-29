@@ -20,6 +20,7 @@ import { executeSparql, validateSparqlQuery, ProxyType } from './services/sparql
 import { downloadAsExcel } from './services/excelService';
 import { saveFeedback, sendFeedbackToBackend } from './services/feedbackService';
 import TestPage from './test-suite/components/TestPage';
+import RiasecTest from './components/RiasecTest';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
@@ -58,6 +59,7 @@ const App: React.FC = () => {
   const [resourceType, setResourceType] = useState<ResourceType>(ResourceType.All);
   const [showSparql, setShowSparql] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [activePage, setActivePage] = useState<'chat' | 'riasec'>('chat');
   
   const [sparqlEndpoint, setSparqlEndpoint] = useState(() => localStorage.getItem('sparql_url') || DEFAULT_URL);
   const [authHeader, setAuthHeader] = useState(() => localStorage.getItem('sparql_auth') || '');
@@ -492,7 +494,47 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
+    <div className="min-h-screen bg-slate-50 font-sans">
+      <div className="bg-indigo-900 text-white px-6 py-4 shadow-lg">
+        <div className="flex flex-wrap items-center justify-between gap-3 max-w-7xl mx-auto">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-700 flex items-center justify-center shadow-lg">
+              <Database className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase font-semibold tracking-widest text-indigo-200">CompetentNL</p>
+              <h1 className="text-xl font-bold leading-tight">SPARQL Agent & RIASEC-zelftest</h1>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setActivePage('chat')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition ${
+                activePage === 'chat'
+                  ? 'bg-white text-indigo-700 border-white shadow-md'
+                  : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+              }`}
+            >
+              Home
+            </button>
+            <button
+              onClick={() => setActivePage('riasec')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition ${
+                activePage === 'riasec'
+                  ? 'bg-emerald-500 text-white border-emerald-400 shadow-md'
+                  : 'bg-emerald-600/80 text-white border-emerald-400/50 hover:bg-emerald-600'
+              }`}
+            >
+              RIASEC-zelftest
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {activePage === 'riasec' ? (
+        <RiasecTest onBack={() => setActivePage('chat')} />
+      ) : (
+        <div className="flex overflow-hidden" style={{ minHeight: 'calc(100vh - 88px)' }}>
       {/* Sidebar */}
       <aside className="w-80 bg-white border-r border-slate-200 flex flex-col shadow-xl z-20">
         <div className="p-6 bg-indigo-700 text-white">
@@ -817,6 +859,8 @@ const App: React.FC = () => {
           🧪 Tests
         </button>
       </main>
+        </div>
+      )}
     </div>
   );
 };
