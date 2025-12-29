@@ -255,6 +255,16 @@ class CLITestRunner {
         consoleOutput.push(`[Context] Vorige vraag: ${scenario.previousContext}`);
         this.chatHistory.push({ role: 'user', content: scenario.previousContext });
         contextUsed = true;
+
+        const firstTurn = await this.generateSparql(scenario.previousContext, null);
+        if (firstTurn) {
+          this.chatHistory.push({
+            role: 'assistant',
+            content: firstTurn.response || 'Resultaten van vorige vraag',
+            sparql: firstTurn.sparql
+          });
+          consoleOutput.push('[Context] Eerste beurt toegevoegd aan chatgeschiedenis');
+        }
       }
 
       // Add current question to history
@@ -371,7 +381,8 @@ class CLITestRunner {
 
   private async generateSparql(question: string, domain: string | null): Promise<any> {
     try {
-      const response = await fetch(`${this.backendUrl}/test/generate-sparql`, {
+      // Probeer eerst de echte generate endpoint
+      const response = await fetch(`${this.backendUrl}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -380,7 +391,25 @@ class CLITestRunner {
           domain
         })
       });
-      if (!response.ok) return this.simulateSparql(question, domain);
+
+      if (!response.ok) {
+        const testResponse = await fetch(`${this.backendUrl}/test/generate-sparql`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            question,
+            chatHistory: this.chatHistory,
+            domain
+          })
+        });
+
+        if (testResponse.ok) {
+          return await testResponse.json();
+        }
+
+        return this.simulateSparql(question, domain);
+      }
+
       return await response.json();
     } catch {
       return this.simulateSparql(question, domain);
