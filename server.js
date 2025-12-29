@@ -973,13 +973,11 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
       sparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
-SELECT ?kwalificatie ?naam WHERE {
+SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
   ?kwalificatie a ksmo:MboKwalificatie .
-  ?kwalificatie skos:prefLabel ?naam .
 }
-ORDER BY ?naam
-LIMIT 50`;
-      response = 'Hier zijn de MBO kwalificaties (eerste 50 van 447):';
+`;
+      response = 'Er zijn in totaal 447 MBO kwalificaties. Wil je ze allemaal zien? Ik kan ze per 50 tonen.';
     }
   }
 
@@ -1070,6 +1068,31 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
       response = 'Ik tel de resultaten van je vorige vraag...';
     }
     contextUsed = true;
+  }
+
+  // RELATIE AANTALLEN: aantal vaardigheden per HAT-relatie
+  else if (q.includes('relatie') && q.includes('vaardigheid') && q.includes('hoeveel')) {
+    detectedDomain = 'occupation';
+    needsCount = true;
+
+    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?relatietype (COUNT(DISTINCT ?skill) AS ?aantal) WHERE {
+  ?occupation a cnlo:Occupation .
+  VALUES (?relation ?relatietype) {
+    (cnlo:requiresHATEssential "Essential")
+    (cnlo:requiresHATImportant "Important")
+    (cnlo:requiresHATOptional "Optional")
+  }
+  ?occupation ?relation ?skill .
+  ?skill a cnlo:HumanCapability .
+  ?skill skos:prefLabel ?skillLabel .
+}
+GROUP BY ?relatietype
+ORDER BY ?relatietype`;
+
+    response = 'Hier zijn de aantallen vaardigheden per relatietype (Essential, Important, Optional):';
   }
 
   // SCENARIO 4: Beroep vaardigheden (met resolved concept)
