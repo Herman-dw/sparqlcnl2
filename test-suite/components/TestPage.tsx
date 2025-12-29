@@ -141,7 +141,9 @@ const API_SCENARIO_CONFIG: Record<string, ScenarioConfig> = {
     method: 'POST',
     validations: [
       { type: 'contains', field: 'sparql', value: 'hasRIASEC', description: 'SPARQL moet hasRIASEC bevatten' },
-      { type: 'regex', field: 'sparql', pattern: "[\\\"']R[\\\"']", description: 'SPARQL moet \"R\" als waarde hebben' }
+      { type: 'regex', field: 'sparql', pattern: "[\\\"']R[\\\"']", description: 'SPARQL moet \"R\" als waarde hebben' },
+      { type: 'contains', field: 'response', value: 'RIASEC code \"R\"', description: 'Response moet RIASEC vaardigheden benoemen' },
+      { type: 'exact', field: 'disambiguationQuestion', expected: undefined, description: 'Geen disambiguatie prompt bij RIASEC vragen' }
     ]
   },
   'relation-counts': {

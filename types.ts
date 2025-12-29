@@ -14,11 +14,13 @@ export interface Message {
   listSparql?: string;
   sourceQuestion?: string;
   metadata?: {
+    isDisambiguation?: boolean;
     graphs?: string[];
     endpoint?: string;
     error?: string;
-    isDisambiguation?: boolean;
-    needsList?: boolean;
+    domain?: string;
+    isRiasec?: boolean;
+    riasecLetter?: string;
   };
 }
 

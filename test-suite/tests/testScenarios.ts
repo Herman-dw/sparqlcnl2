@@ -306,6 +306,16 @@ export const TEST_SCENARIOS: TestScenario[] = [
         type: 'domain_equals',
         value: 'taxonomy',
         description: 'Domein moet taxonomy zijn'
+      },
+      {
+        type: 'response_contains',
+        value: /Vaardigheden met RIASEC code "R"|RIASEC code "R"/i,
+        description: 'Response moet direct over RIASEC-vaardigheden gaan'
+      },
+      {
+        type: 'needs_disambiguation',
+        value: false,
+        description: 'Geen disambiguatie prompt bij RIASEC vragen'
       }
     ],
     expectedBehavior: 'Het systeem moet vaardigheden ophalen die gemapt zijn op Hollandcode "R".',

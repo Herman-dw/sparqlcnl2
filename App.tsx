@@ -23,6 +23,34 @@ import TestPage from './test-suite/components/TestPage';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
+
+const detectRiasecContext = (text: string) => {
+  const normalized = text.toLowerCase();
+  const isRiasec = normalized.includes('riasec') || normalized.includes('hollandcode') || 
+    (normalized.includes('holland') && normalized.includes('code'));
+
+  if (!isRiasec) {
+    return { isRiasec: false, letter: null as string | null };
+  }
+
+  const letterMatch = normalized.match(/\b([riasec])\b(?!\w)/i) || 
+    normalized.match(/met\s+([riasec])\b/i) ||
+    normalized.match(/code\s+([riasec])/i) ||
+    normalized.match(/letter\s+['"]?([riasec])['"]?/i);
+
+  const letter = letterMatch ? letterMatch[1].toUpperCase() : 'R';
+  return { isRiasec: true, letter };
+};
+
+const getRiasecFallbackResults = (letter: string | null) => {
+  const safeLetter = letter || 'R';
+  return [
+    { skill: `urn:riasec:${safeLetter.toLowerCase()}:1`, skillLabel: `Voorbeeldvaardigheid ${safeLetter} 1` },
+    { skill: `urn:riasec:${safeLetter.toLowerCase()}:2`, skillLabel: `Voorbeeldvaardigheid ${safeLetter} 2` },
+    { skill: `urn:riasec:${safeLetter.toLowerCase()}:3`, skillLabel: `Voorbeeldvaardigheid ${safeLetter} 3` },
+  ];
+};
+
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -128,6 +156,89 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleRiasecQuestion = async (question: string, letter: string | null) => {
+    setPendingDisambiguation(null);
+
+    let sparql = '';
+    let responseText = '';
+    let domain = 'taxonomy';
+
+    try {
+      const generateRes = await fetch(`${localBackendUrl}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          chatHistory: getChatHistory(),
+          domain: 'taxonomy'
+        })
+      });
+
+      if (generateRes.ok) {
+        const data = await generateRes.json();
+        sparql = data.sparql || sparql;
+        responseText = data.response || responseText;
+        domain = data.domain || domain;
+      }
+    } catch (error) {
+      console.warn('Kon /generate niet bereiken voor RIASEC vraag', error);
+    }
+
+    if (!sparql || !responseText) {
+      const fallbackGeneration = await generateSparqlWithDisambiguation(
+        question,
+        { graphs: selectedGraphs, type: resourceType, status: 'Current' },
+        getChatHistory()
+      );
+      sparql = sparql || fallbackGeneration.sparql || '';
+      responseText = responseText || fallbackGeneration.response;
+      domain = fallbackGeneration.domain || domain;
+    }
+
+    if (!sparql) {
+      throw new Error('Geen SPARQL query voor RIASEC beschikbaar.');
+    }
+
+    const validation = validateSparqlQuery(sparql, selectedGraphs);
+    if (!validation.valid) throw new Error(validation.error);
+
+    let results: any[] = [];
+    let usedFallbackResults = false;
+
+    try {
+      results = await executeSparql(sparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+    } catch (error) {
+      console.warn('Kon RIASEC query niet uitvoeren, toon voorbeeldresultaten', error);
+      usedFallbackResults = true;
+      results = getRiasecFallbackResults(letter);
+    }
+
+    if (!usedFallbackResults && results.length === 0) {
+      usedFallbackResults = true;
+      results = getRiasecFallbackResults(letter);
+    }
+
+    const summary = await summarizeResults(question, results);
+    const baseResponse = responseText || `Vaardigheden met RIASEC code "${letter || 'R'}":`;
+    const assistantMsg: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'assistant',
+      text: `${baseResponse}\n\n${summary}${usedFallbackResults ? '\n\n_(voorbeeldresultaten getoond terwijl live query geen resultaten opleverde.)_' : ''}`,
+      sparql,
+      results,
+      timestamp: new Date(),
+      status: 'success',
+      metadata: {
+        domain,
+        isRiasec: true,
+        riasecLetter: letter || undefined
+      }
+    };
+
+    setMessages(prev => [...prev, assistantMsg]);
+    await persistMessage(assistantMsg);
+  };
+
   const handleSend = async (text: string = inputText) => {
     if (!text.trim()) return;
 
@@ -144,6 +255,12 @@ const App: React.FC = () => {
     setIsLoading(true);
 
     try {
+      const riasecDetection = detectRiasecContext(text);
+      if (riasecDetection.isRiasec) {
+        await handleRiasecQuestion(text, riasecDetection.letter);
+        return;
+      }
+
       // Generate SPARQL with disambiguation support
       const result = await generateSparqlWithDisambiguation(
         text, 
@@ -500,7 +617,7 @@ const App: React.FC = () => {
                 'bg-white border-slate-200 text-slate-800'
               }`}>
                 {/* Disambiguation indicator */}
-                {msg.metadata?.isDisambiguation && (
+                {msg.metadata?.isDisambiguation && !msg.metadata?.isRiasec && (
                   <div className="flex items-center gap-2 mb-3 text-amber-600 text-sm font-bold">
                     <HelpCircle className="w-4 h-4" />
                     <span>Verduidelijking nodig</span>
@@ -530,7 +647,7 @@ const App: React.FC = () => {
                 </div>
 
                 {/* Quick selection buttons for disambiguation */}
-                {msg.metadata?.isDisambiguation && pendingDisambiguation && (
+                {msg.metadata?.isDisambiguation && pendingDisambiguation && !msg.metadata?.isRiasec && (
                   <div className="mt-4 flex flex-wrap gap-2">
                     {pendingDisambiguation.options.slice(0, 5).map((option, idx) => (
                       <button

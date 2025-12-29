@@ -187,6 +187,15 @@ function ensureDisambiguationOptions(searchTerm, conceptType, config, matches) {
   return Array.from(bestPerUri.values()).sort((a, b) => b.confidence - a.confidence).slice(0, 12);
 }
 
+function isRiasecText(text = '') {
+  const normalized = text.toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('riasec') || normalized.includes('hollandcode') || normalized.includes('holland code')) {
+    return true;
+  }
+  return /\briasec\s*[:\-]?\s*[riasec]\b/i.test(normalized);
+}
+
 // =====================================================
 // BASIC ROUTES
 // =====================================================
@@ -265,19 +274,34 @@ app.post('/proxy/sparql', async (req, res) => {
  * SCENARIO 4: "loodgieter" → match naar officiële naam
  */
 app.post('/concept/resolve', async (req, res) => {
-  const { searchTerm, conceptType = 'occupation' } = req.body;
+  const { searchTerm, conceptType = 'occupation', riasecBypass = false, questionContext } = req.body;
 
   if (!searchTerm) {
     return res.status(400).json({ error: 'searchTerm is verplicht' });
   }
 
-  const config = CONCEPT_TYPES[conceptType];
+  const riasecDetected = riasecBypass || isRiasecText(questionContext) || isRiasecText(searchTerm);
+  const effectiveConceptType = riasecDetected && conceptType === 'occupation' ? 'capability' : conceptType;
+  const config = CONCEPT_TYPES[effectiveConceptType];
   if (!config) {
-    return res.status(400).json({ error: `Onbekend conceptType: ${conceptType}` });
+    return res.status(400).json({ error: `Onbekend conceptType: ${effectiveConceptType}` });
+  }
+
+  if (riasecDetected) {
+    console.log(`[Concept] RIASEC-detectie: oversla concept-resolve voor "${searchTerm}" (type ${effectiveConceptType}).`);
+    return res.json({
+      found: false,
+      exact: false,
+      searchTerm,
+      conceptType: effectiveConceptType,
+      matches: [],
+      needsDisambiguation: false,
+      bypassed: 'riasec_detection'
+    });
   }
 
   const normalized = searchTerm.toLowerCase().trim();
-  console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}"`);
+  console.log(`[Concept] Resolving ${effectiveConceptType}: "${searchTerm}"`);
 
   try {
     // Stap 1: Zoek exacte en fuzzy matches
@@ -304,14 +328,14 @@ app.post('/concept/resolve', async (req, res) => {
 
     // Geen matches gevonden: bied generieke varianten aan voor verduidelijking
     if (rows.length === 0) {
-      const synthetic = ensureDisambiguationOptions(searchTerm, conceptType, config, []);
+      const synthetic = ensureDisambiguationOptions(searchTerm, effectiveConceptType, config, []);
       console.log(`[Concept] Geen directe matches voor "${searchTerm}". Bied ${synthetic.length} generieke varianten ter verduidelijking.`);
 
       return res.json({
         found: synthetic.length > 0,
         exact: false,
         searchTerm,
-        conceptType,
+        conceptType: effectiveConceptType,
         matches: synthetic,
         needsDisambiguation: synthetic.length > 1,
         disambiguationQuestion: synthetic.length > 1
@@ -330,7 +354,7 @@ app.post('/concept/resolve', async (req, res) => {
       matchedLabel: r.matchedLabel,
       matchType: r.matchType,
       confidence: parseFloat(r.confidence),
-      conceptType
+      conceptType: effectiveConceptType
     }));
 
     const uniqueUris = new Set(matches.map(m => m.uri));
@@ -348,7 +372,7 @@ app.post('/concept/resolve', async (req, res) => {
         found: true,
         exact: true,
         searchTerm,
-        conceptType,
+        conceptType: effectiveConceptType,
         matches: [selected],
         needsDisambiguation: false,
         resolvedUri: selected.uri,
@@ -360,7 +384,7 @@ app.post('/concept/resolve', async (req, res) => {
     // Groepeer per unieke URI en breid uit met generieke varianten indien nodig
     const disambiguationCandidates = ensureDisambiguationOptions(
       searchTerm,
-      conceptType,
+      effectiveConceptType,
       config,
       matches
     );
@@ -378,7 +402,7 @@ app.post('/concept/resolve', async (req, res) => {
       found: true,
       exact: false,
       searchTerm,
-      conceptType,
+      conceptType: effectiveConceptType,
       matches: disambiguationCandidates,
       needsDisambiguation: true,
       disambiguationQuestion,
