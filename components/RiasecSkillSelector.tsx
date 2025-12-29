@@ -86,6 +86,35 @@ async function getCapabilitiesForLetters(letters: string[]): Promise<RiasecBatch
   }
 }
 
+// API function to fetch capabilities for a single letter (fallback)
+async function getCapabilitiesForLetter(letter: string): Promise<RiasecCapabilitiesResponse> {
+  const backendUrl = getBackendUrl();
+  const upper = letter.toUpperCase();
+
+  try {
+    const response = await fetch(`${backendUrl}/api/riasec/capabilities/${upper}`);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP error ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`RIASEC capabilities error for ${upper}:`, error);
+    return {
+      success: false,
+      letter: upper,
+      name: RIASEC_LETTERS[upper]?.name || upper,
+      dutch: RIASEC_LETTERS[upper]?.dutch || upper,
+      description: RIASEC_LETTERS[upper]?.description || '',
+      capabilities: [],
+      totalCount: 0,
+      error: error instanceof Error ? error.message : 'Onbekende fout'
+    };
+  }
+}
+
 // ============================================================
 // TYPES
 // ============================================================
@@ -138,8 +167,47 @@ const RiasecSkillSelector: React.FC<RiasecSkillSelectorProps> = ({
       const response = await getCapabilitiesForLetters(topLetters);
       
       if (response.success) {
-        setCapabilitiesData(response);
-        setActiveTab(topLetters[0]); // Set eerste tab als actief
+        // Hydrate missing/empty letters with single-letter fallback
+        const hydratedResults = { ...(response.results || {}) };
+
+        await Promise.all(topLetters.map(async (letter) => {
+          const existing = hydratedResults[letter];
+          const hasCapabilities = existing && existing.capabilities && existing.capabilities.length > 0;
+
+          if (!hasCapabilities) {
+            const fallback = await getCapabilitiesForLetter(letter);
+            if (fallback.success && fallback.capabilities.length > 0) {
+              hydratedResults[letter] = {
+                ...fallback,
+                totalCount: fallback.capabilities.length
+              };
+            } else if (!existing) {
+              hydratedResults[letter] = fallback;
+            }
+          }
+        }));
+
+        const missingLetters = topLetters.filter(
+          (letter) => !hydratedResults[letter]?.capabilities?.length
+        );
+
+        if (missingLetters.length === topLetters.length) {
+          setError('Kon geen vaardigheden ophalen voor je RIASEC-profiel.');
+        } else {
+          const firstWithData = topLetters.find(
+            (letter) => hydratedResults[letter]?.capabilities?.length
+          );
+
+          setCapabilitiesData({
+            ...response,
+            results: hydratedResults
+          });
+          setActiveTab(firstWithData || topLetters[0]); // Kies eerste letter met data
+
+          if (missingLetters.length > 0) {
+            console.warn('RIASEC capabilities partially loaded, missing:', missingLetters.join(', '));
+          }
+        }
       } else {
         setError(response.error || 'Kon vaardigheden niet laden');
       }
