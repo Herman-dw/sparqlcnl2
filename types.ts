@@ -11,9 +11,13 @@ export interface Message {
   status: 'pending' | 'success' | 'error';
   feedback?: 'like' | 'dislike';
   metadata?: {
+    isDisambiguation?: boolean;
     graphs?: string[];
     endpoint?: string;
     error?: string;
+    domain?: string;
+    isRiasec?: boolean;
+    riasecLetter?: string;
   };
 }
 
