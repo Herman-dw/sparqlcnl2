@@ -369,7 +369,8 @@ class CLITestRunner {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           searchTerm: occupationMatch[1].trim(), 
-          conceptType: 'occupation' 
+          conceptType: 'occupation',
+          question
         })
       });
       if (!response.ok) return null;

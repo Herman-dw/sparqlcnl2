@@ -323,6 +323,34 @@ export const TEST_SCENARIOS: TestScenario[] = [
     tags: ['riasec', 'hollandcode', 'taxonomie', 'vaardigheden']
   },
 
+  {
+    id: 'riasec-hollandcode-ui-flow',
+    name: 'RIASEC UI flow zonder disambiguatiekaart',
+    description: 'Volledige UI-stroom voor RIASEC vraag; mag geen disambiguatie tonen en moet vaardighedenlijst geven',
+    type: 'riasec',
+    question: 'Geef alle vaardigheden die een relatie hebben met Hollandcode R (RIASEC)',
+    validations: [
+      {
+        type: 'needs_disambiguation',
+        value: false,
+        description: 'RIASEC mag geen disambiguatiekaart tonen'
+      },
+      {
+        type: 'sparql_contains',
+        value: 'hasRIASEC',
+        description: 'SPARQL moet RIASEC predicaat bevatten'
+      },
+      {
+        type: 'response_contains',
+        value: /vaardigheden.*riasec|riasec.*vaardigheden/i,
+        description: 'Antwoord moet verwijzen naar de RIASEC-vaardighedenlijst'
+      }
+    ],
+    expectedBehavior: 'UI gaat zonder disambiguatie naar generate en toont de RIASEC vaardigheden.',
+    priority: 2,
+    tags: ['riasec', 'ui-flow', 'vaardigheden']
+  },
+
   // ----------------------------------------------------------------
   // 7. NEGATIEVE TEST: Geen disambiguatie bij uniek beroep
   // ----------------------------------------------------------------

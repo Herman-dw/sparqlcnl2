@@ -355,7 +355,7 @@ export class TestRunner {
       const response = await fetch(`${this.config.backendUrl}/concept/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ searchTerm, conceptType: 'occupation' })
+        body: JSON.stringify({ searchTerm, conceptType: 'occupation', question: question })
       });
 
       if (!response.ok) {

@@ -277,13 +277,13 @@ app.post('/proxy/sparql', async (req, res) => {
  * SCENARIO 4: "loodgieter" → match naar officiële naam
  */
 app.post('/concept/resolve', async (req, res) => {
-  const { searchTerm, conceptType = 'occupation', riasecBypass = false, questionContext } = req.body;
+  const { searchTerm, conceptType = 'occupation', riasecBypass = false, questionContext, question } = req.body;
 
   if (!searchTerm) {
     return res.status(400).json({ error: 'searchTerm is verplicht' });
   }
 
-  const riasecDetected = riasecBypass || isRiasecText(questionContext) || isRiasecText(searchTerm);
+  const riasecDetected = riasecBypass || isRiasecText(questionContext) || isRiasecText(question) || isRiasecText(searchTerm);
   const effectiveConceptType = riasecDetected && conceptType === 'occupation' ? 'capability' : conceptType;
   const config = CONCEPT_TYPES[effectiveConceptType];
   if (!config) {
