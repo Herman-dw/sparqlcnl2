@@ -20,6 +20,8 @@ import cors from 'cors';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import { preloadCache } from './profile-matching-api.mjs';
+import matchingRouter from './matching-router.mjs';
 
 // Load environment
 if (fs.existsSync('.env.local')) {
@@ -35,6 +37,7 @@ const HOST = '127.0.0.1';
 
 app.use(cors());
 app.use(express.json());
+app.use('/api', matchingRouter);
 
 // =====================================================
 // DATABASE CONNECTION POOLS
@@ -209,7 +212,8 @@ app.get('/', (req, res) => {
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', version: '4.0.0' });
-});
+  });
+
 
 // =====================================================
 // SPARQL PROXY
@@ -1388,14 +1392,28 @@ app.post('/test/scenario', async (req, res) => {
 });
 
 // =====================================================
-// START SERVER
+// START SERVER - Vervang je huidige testDatabaseConnections().then() blok met dit:
 // =====================================================
 
-testDatabaseConnections().then(() => {
+testDatabaseConnections().then(async () => {
+  
+  // Preload matching cache voor snelle eerste requests
+  console.log('🔄 Preloading matching cache...');
+  const cacheStart = Date.now();
+  
+  try {
+    await preloadCache();
+    const cacheDuration = ((Date.now() - cacheStart) / 1000).toFixed(1);
+    console.log(`✅ Matching cache ready (${cacheDuration}s)`);
+  } catch (err) {
+    console.warn('⚠️ Matching cache preload failed:', err.message);
+    console.warn('   Cache wordt opgebouwd bij eerste request');
+  }
+  
   app.listen(PORT, HOST, () => {
     console.log(`
   ╔═══════════════════════════════════════════════════════════╗
-  ║  CompetentNL Server v4.0.0 - All Scenarios                ║
+  ║  CompetentNL Server v4.1.0 - All Scenarios + Matching     ║
   ╠═══════════════════════════════════════════════════════════╣
   ║  Host:     ${HOST}                                        ║
   ║  Port:     ${PORT}                                        ║
@@ -1411,7 +1429,7 @@ testDatabaseConnections().then(() => {
   ║  5.  Opleiding:        vaardigheden + kennisgebieden      ║
   ║  6.  RIASEC:           Hollandcode R → hasRIASEC          ║
   ╠═══════════════════════════════════════════════════════════╣
-  ║  Endpoints:                                               ║
+  ║  Bestaande Endpoints:                                     ║
   ║  • POST /concept/resolve      - Concept disambiguatie     ║
   ║  • POST /concept/confirm      - Bevestig keuze            ║
   ║  • POST /feedback             - Algemene feedback         ║
@@ -1419,6 +1437,13 @@ testDatabaseConnections().then(() => {
   ║  • POST /generate             - SPARQL generatie          ║
   ║  • GET  /test/health          - Test status               ║
   ║  • POST /test/scenario        - Run test scenario         ║
+  ╠═══════════════════════════════════════════════════════════╣
+  ║  Nieuwe Matching Endpoints:                               ║
+  ║  • POST /api/match-profile         - Match profiel        ║
+  ║  • POST /api/match-profile/preload - Herlaad cache        ║
+  ║  • DELETE /api/match-profile/cache - Wis cache            ║
+  ║  • GET  /api/match-profile/health  - Health check         ║
+  ║  • GET  /api/idf-weights           - Bekijk IDF weights   ║
   ╚═══════════════════════════════════════════════════════════╝
     `);
   });

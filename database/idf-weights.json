@@ -1,0 +1,786 @@
+[
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/3DA7BAB0C4",
+    "label": "Verplegen",
+    "occupationCount": 304,
+    "coverage": 9.3,
+    "idf": 2.373374595187099
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/F2D610E19F",
+    "label": "Programmeren",
+    "occupationCount": 356,
+    "coverage": 10.9,
+    "idf": 2.2154715657412902
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/DB59A57C01",
+    "label": "Verzorgen",
+    "occupationCount": 403,
+    "coverage": 12.4,
+    "idf": 2.0914657346466377
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/584412A2FB",
+    "label": "Non-verbaal creatief uitdrukken",
+    "occupationCount": 549,
+    "coverage": 16.8,
+    "idf": 1.78230385508379
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D989743D35",
+    "label": "Psychosociaal begeleiden",
+    "occupationCount": 716,
+    "coverage": 21.9,
+    "idf": 1.516722129632675
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/07DBC86B2C",
+    "label": "Non-verbaal communiceren",
+    "occupationCount": 777,
+    "coverage": 23.8,
+    "idf": 1.434961946225673
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/B620732163",
+    "label": "Aandacht en begrip tonen",
+    "occupationCount": 984,
+    "coverage": 30.2,
+    "idf": 1.1987763995410672
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D5AD4F0905",
+    "label": "Installeren",
+    "occupationCount": 994,
+    "coverage": 30.5,
+    "idf": 1.1886650899367466
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/1C1D574677",
+    "label": "Repareren",
+    "occupationCount": 1001,
+    "coverage": 30.7,
+    "idf": 1.1816475172781
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/B4866702BB",
+    "label": "Ontwerpen van systemen en producten",
+    "occupationCount": 1075,
+    "coverage": 32.9,
+    "idf": 1.1103263560315575
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/C8730D1BAB",
+    "label": "Delegeren ",
+    "occupationCount": 1179,
+    "coverage": 36.1,
+    "idf": 1.0179803960559497
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/BC3AB34C1A",
+    "label": "Financiële middelen beheren",
+    "occupationCount": 1247,
+    "coverage": 38.2,
+    "idf": 0.9619063509132841
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/6180B5A6EE",
+    "label": "Onderhouden van materiaal en gereedschap",
+    "occupationCount": 1253,
+    "coverage": 38.4,
+    "idf": 0.9571063416972523
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/1A5EF0A63E",
+    "label": "Lesgeven",
+    "occupationCount": 1269,
+    "coverage": 38.9,
+    "idf": 0.9444178288789329
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/49790E767C",
+    "label": "Leidinggeven",
+    "occupationCount": 1292,
+    "coverage": 39.6,
+    "idf": 0.9264556122507734
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/FAB3EE0CD1",
+    "label": "Operationeel toezicht houden",
+    "occupationCount": 1304,
+    "coverage": 40,
+    "idf": 0.9172105541067223
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/7C37C4FF38",
+    "label": "Bedrijfsprocessen verbeteren",
+    "occupationCount": 1316,
+    "coverage": 40.3,
+    "idf": 0.9080501847080582
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/E06265451B",
+    "label": "Promoten",
+    "occupationCount": 1358,
+    "coverage": 41.6,
+    "idf": 0.8766339884746792
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/57F37BF52D",
+    "label": "Vervoeren",
+    "occupationCount": 1368,
+    "coverage": 41.9,
+    "idf": 0.8692971984108248
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/4257E202F2",
+    "label": "Materiaal en gereedschap uitkiezen",
+    "occupationCount": 1446,
+    "coverage": 44.3,
+    "idf": 0.8138458938746106
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D0866C5206",
+    "label": "Machines bedienen",
+    "occupationCount": 1460,
+    "coverage": 44.7,
+    "idf": 0.8042105818909384
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/647BB5C0A7",
+    "label": "Teamgeest bevorderen",
+    "occupationCount": 1653,
+    "coverage": 50.7,
+    "idf": 0.6800551987722965
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/9744544CFB",
+    "label": "Motiveren",
+    "occupationCount": 1655,
+    "coverage": 50.7,
+    "idf": 0.6788460087821574
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/E66E6D3B86",
+    "label": "Handvaardigheid",
+    "occupationCount": 1665,
+    "coverage": 51,
+    "idf": 0.6728218941787765
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/0A4C7D6130",
+    "label": "Controleren van machines en systemen",
+    "occupationCount": 1687,
+    "coverage": 51.7,
+    "idf": 0.6596952140473523
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/0EBFAD3C80",
+    "label": "Meten",
+    "occupationCount": 1739,
+    "coverage": 53.3,
+    "idf": 0.6293367822390377
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/FCCEE4730B",
+    "label": "Innoveren",
+    "occupationCount": 1741,
+    "coverage": 53.4,
+    "idf": 0.6281873568251315
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/B260384107",
+    "label": "Ruimtelijk inzicht",
+    "occupationCount": 1789,
+    "coverage": 54.8,
+    "idf": 0.6009902130846015
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/3679757482",
+    "label": "Digitale content ontwikkelen",
+    "occupationCount": 1820,
+    "coverage": 55.8,
+    "idf": 0.5838105165224796
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/072570C444",
+    "label": "Gereedschappen en apparaten gebruiken",
+    "occupationCount": 1861,
+    "coverage": 57,
+    "idf": 0.5615330399510698
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D16A30C42A",
+    "label": "Verplaatsen",
+    "occupationCount": 1886,
+    "coverage": 57.8,
+    "idf": 0.5481888333999178
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/A43394A208",
+    "label": "Systeemevaluatie",
+    "occupationCount": 1983,
+    "coverage": 60.8,
+    "idf": 0.4980361680735247
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/199B8C08C3",
+    "label": "Werken aan mentaal welbevinden",
+    "occupationCount": 2055,
+    "coverage": 63,
+    "idf": 0.46237116966298564
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/3D18A18F12",
+    "label": "Organisatiesensitiviteit",
+    "occupationCount": 2075,
+    "coverage": 63.6,
+    "idf": 0.45268586392852195
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/9DC1DB64EA",
+    "label": "Creatief denken",
+    "occupationCount": 2091,
+    "coverage": 64.1,
+    "idf": 0.4450045971646871
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/299CE88E49",
+    "label": "Informatie ordenen",
+    "occupationCount": 2115,
+    "coverage": 64.8,
+    "idf": 0.4335922051129422
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/590AC2FC12",
+    "label": "Presenteren",
+    "occupationCount": 2166,
+    "coverage": 66.4,
+    "idf": 0.4097648690323846
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/3DECCF2E7C",
+    "label": "Netwerken",
+    "occupationCount": 2241,
+    "coverage": 68.7,
+    "idf": 0.37572482279239366
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/F2FD24AA16",
+    "label": "Improviseren",
+    "occupationCount": 2249,
+    "coverage": 68.9,
+    "idf": 0.372161344634005
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/4186375D3A",
+    "label": "Systeemanalyse",
+    "occupationCount": 2264,
+    "coverage": 69.4,
+    "idf": 0.3655138572702471
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/DC1C2EC0BB",
+    "label": "Visualiseren",
+    "occupationCount": 2310,
+    "coverage": 70.8,
+    "idf": 0.3453994930774814
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/9D3CE51A04",
+    "label": "Onbevooroordeeld zijn",
+    "occupationCount": 2364,
+    "coverage": 72.4,
+    "idf": 0.3222919180673318
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/2492D7AE9B",
+    "label": "Ideeën bedenken",
+    "occupationCount": 2366,
+    "coverage": 72.5,
+    "idf": 0.3214462520549885
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/0802CD6B4E",
+    "label": "Holistisch denken",
+    "occupationCount": 2384,
+    "coverage": 73.1,
+    "idf": 0.3138672684080803
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/CFE8550C77",
+    "label": "Initiatief tonen",
+    "occupationCount": 2426,
+    "coverage": 74.3,
+    "idf": 0.2964032070893252
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/29B470A4FC",
+    "label": "Reageren op risicovolle omstandigheden",
+    "occupationCount": 2506,
+    "coverage": 76.8,
+    "idf": 0.263959161137307
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/5C8ADA7777",
+    "label": "Materiële middelen beheren",
+    "occupationCount": 2539,
+    "coverage": 77.8,
+    "idf": 0.2508767148886422
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/B48D956870",
+    "label": "Onderhandelen",
+    "occupationCount": 2551,
+    "coverage": 78.2,
+    "idf": 0.2461615784515092
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/7E462C867D",
+    "label": "Wiskundig redeneren",
+    "occupationCount": 2562,
+    "coverage": 78.5,
+    "idf": 0.24185881413664104
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/CECB22E3FA",
+    "label": "Adviseren",
+    "occupationCount": 2564,
+    "coverage": 78.6,
+    "idf": 0.2410784785527599
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/5D8EA693BD",
+    "label": "Conflicten oplossen",
+    "occupationCount": 2568,
+    "coverage": 78.7,
+    "idf": 0.23951963178346877
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/518455478C",
+    "label": "Ondernemerszin tonen",
+    "occupationCount": 2578,
+    "coverage": 79,
+    "idf": 0.2356331130941879
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/26D3098394",
+    "label": "Overtuigen",
+    "occupationCount": 2600,
+    "coverage": 79.7,
+    "idf": 0.22713557258374711
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/6EDDE6185F",
+    "label": "Verplichtingen nakomen",
+    "occupationCount": 2610,
+    "coverage": 80,
+    "idf": 0.22329679627658158
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/AA253D1EBA",
+    "label": "Assertiviteit tonen",
+    "occupationCount": 2613,
+    "coverage": 80.1,
+    "idf": 0.2221480310727081
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/BC98BE9135",
+    "label": "Schrijven",
+    "occupationCount": 2620,
+    "coverage": 80.3,
+    "idf": 0.2194726998381781
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/DB64E761DE",
+    "label": "Nieuwsgierigheid tonen",
+    "occupationCount": 2654,
+    "coverage": 81.3,
+    "idf": 0.20657908170116787
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/4DDDBC0121",
+    "label": "Stressbestendig",
+    "occupationCount": 2673,
+    "coverage": 81.9,
+    "idf": 0.1994455804544017
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/1DD562B682",
+    "label": "Uitdagingen aangaan",
+    "occupationCount": 2693,
+    "coverage": 82.5,
+    "idf": 0.19199120378172163
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/83D3AC05BD",
+    "label": "Doorzettingsvermogen tonen",
+    "occupationCount": 2711,
+    "coverage": 83.1,
+    "idf": 0.18532944709465504
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/6AE2F3F890",
+    "label": "Instrueren",
+    "occupationCount": 2735,
+    "coverage": 83.8,
+    "idf": 0.17651558173723908
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D8863A73CA",
+    "label": "Plannen",
+    "occupationCount": 2744,
+    "coverage": 84.1,
+    "idf": 0.17323030774754472
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/44C6CEB444",
+    "label": "Omgaan met onzekerheid",
+    "occupationCount": 2781,
+    "coverage": 85.2,
+    "idf": 0.15983644235935568
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/2F2D779459",
+    "label": "Integriteit tonen",
+    "occupationCount": 2796,
+    "coverage": 85.7,
+    "idf": 0.1544571932396197
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/663E4EFD55",
+    "label": "Verbaal creatief uitdrukken",
+    "occupationCount": 2807,
+    "coverage": 86,
+    "idf": 0.15053072023143804
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/66C527547D",
+    "label": "Mondeling uitdrukken",
+    "occupationCount": 2819,
+    "coverage": 86.4,
+    "idf": 0.1462648054792081
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D5BBA931FB",
+    "label": "Rekenen",
+    "occupationCount": 2841,
+    "coverage": 87.1,
+    "idf": 0.13849091473913272
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/B6D93142FE",
+    "label": "Administreren",
+    "occupationCount": 2847,
+    "coverage": 87.3,
+    "idf": 0.13638120931528305
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/E71773F7A8",
+    "label": "Omgaan met tegenslag",
+    "occupationCount": 2873,
+    "coverage": 88,
+    "idf": 0.12729023761403105
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/AD5635E995",
+    "label": "(digitale) Informatie verzamelen",
+    "occupationCount": 2874,
+    "coverage": 88.1,
+    "idf": 0.12694222995435048
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/F755E32480",
+    "label": "Dienstbaarheid tonen",
+    "occupationCount": 2912,
+    "coverage": 89.2,
+    "idf": 0.11380688727674396
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/BA2CB60880",
+    "label": "Vertrouwelijkheid bieden",
+    "occupationCount": 2924,
+    "coverage": 89.6,
+    "idf": 0.10969447572365143
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/CD7B4C0F34",
+    "label": "(digitale) Informatie beheren",
+    "occupationCount": 2953,
+    "coverage": 90.5,
+    "idf": 0.09982541484939797
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/2E80D9179C",
+    "label": "Begrijpend lezen",
+    "occupationCount": 2970,
+    "coverage": 91,
+    "idf": 0.09408506479657533
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/1D54A21B60",
+    "label": "Samenwerken",
+    "occupationCount": 2984,
+    "coverage": 91.4,
+    "idf": 0.08938233526966918
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/693D5CC352",
+    "label": "Wetenschappelijk werken",
+    "occupationCount": 2996,
+    "coverage": 91.8,
+    "idf": 0.0853689519562106
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/DEDBBC55E0",
+    "label": "Organiseren",
+    "occupationCount": 2997,
+    "coverage": 91.8,
+    "idf": 0.08503522927665741
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D6B90E6D17",
+    "label": "Zelfvertrouwen tonen",
+    "occupationCount": 3022,
+    "coverage": 92.6,
+    "idf": 0.07672815376063569
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D98DE01097",
+    "label": "Timemanagement",
+    "occupationCount": 3030,
+    "coverage": 92.9,
+    "idf": 0.07408439808990572
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/EDB4E0C35A",
+    "label": "Anticiperen",
+    "occupationCount": 3032,
+    "coverage": 92.9,
+    "idf": 0.07342454983105838
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/8500CACF46",
+    "label": "Actief luisteren",
+    "occupationCount": 3053,
+    "coverage": 93.6,
+    "idf": 0.06652230385844278
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/717E511A75",
+    "label": "Inductief logisch redeneren",
+    "occupationCount": 3065,
+    "coverage": 93.9,
+    "idf": 0.06259944822300882
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/B03F4F484C",
+    "label": "Monitoren",
+    "occupationCount": 3065,
+    "coverage": 93.9,
+    "idf": 0.06259944822300882
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/DB21DC938E",
+    "label": "Aanpassen aan verandering",
+    "occupationCount": 3066,
+    "coverage": 94,
+    "idf": 0.06227323716156121
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/22799303D1",
+    "label": "Categoriseren",
+    "occupationCount": 3080,
+    "coverage": 94.4,
+    "idf": 0.05771742062570042
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/E033DC4809",
+    "label": "Deductief logisch redeneren",
+    "occupationCount": 3080,
+    "coverage": 94.4,
+    "idf": 0.05771742062570042
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/CB768EFA19",
+    "label": "Leergierig zijn",
+    "occupationCount": 3089,
+    "coverage": 94.7,
+    "idf": 0.05479960367473884
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/C21A058358",
+    "label": "Reflecteren op jezelf",
+    "occupationCount": 3098,
+    "coverage": 94.9,
+    "idf": 0.05189027561650675
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/53E033E58A",
+    "label": "Problemen oplossen",
+    "occupationCount": 3103,
+    "coverage": 95.1,
+    "idf": 0.0502776321449405
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/DB6B8EEBD1",
+    "label": "Actiegericht leren",
+    "occupationCount": 3106,
+    "coverage": 95.2,
+    "idf": 0.04931129288468823
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/4D400FE127",
+    "label": "Problemen signaleren",
+    "occupationCount": 3111,
+    "coverage": 95.3,
+    "idf": 0.04770279969568364
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/234586C77C",
+    "label": "Snel waarneming inzichtelijk maken",
+    "occupationCount": 3123,
+    "coverage": 95.7,
+    "idf": 0.04385293931024204
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/2965722BD7",
+    "label": "Patroonherkenning",
+    "occupationCount": 3125,
+    "coverage": 95.8,
+    "idf": 0.04321273442281873
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/49BD0F4516",
+    "label": "Memoriseren",
+    "occupationCount": 3136,
+    "coverage": 96.1,
+    "idf": 0.03969891512302205
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/00F4349F9A",
+    "label": "Snel informatie begrijpen",
+    "occupationCount": 3146,
+    "coverage": 96.4,
+    "idf": 0.03651521297509747
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/7555D32771",
+    "label": "Leerstrategieën toepassen",
+    "occupationCount": 3150,
+    "coverage": 96.5,
+    "idf": 0.03524456477364184
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/E1F935288C",
+    "label": "Kritisch nadenken",
+    "occupationCount": 3178,
+    "coverage": 97.4,
+    "idf": 0.026394949496659274
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/23131CF73E",
+    "label": "Multitasken",
+    "occupationCount": 3196,
+    "coverage": 97.9,
+    "idf": 0.0207469897071553
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/4F97986168",
+    "label": "Beoordelen van functioneren en kwaliteit",
+    "occupationCount": 3198,
+    "coverage": 98,
+    "idf": 0.020121403199421028
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/4C03E226B4",
+    "label": "Resultaatgericht",
+    "occupationCount": 3199,
+    "coverage": 98,
+    "idf": 0.019808756643802695
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/78E94823F7",
+    "label": "Kritiek en begeleiding accepteren",
+    "occupationCount": 3209,
+    "coverage": 98.3,
+    "idf": 0.016687655483463744
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/1F27972B01",
+    "label": "Langdurig concentreren",
+    "occupationCount": 3242,
+    "coverage": 99.4,
+    "idf": 0.00645659429769922
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/752EEDBE89",
+    "label": "Procedures volgen",
+    "occupationCount": 3242,
+    "coverage": 99.4,
+    "idf": 0.00645659429769922
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/9DD6D3E301",
+    "label": "Beslissingen nemen",
+    "occupationCount": 3242,
+    "coverage": 99.4,
+    "idf": 0.00645659429769922
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D28377D00A",
+    "label": "Efficiënt werken",
+    "occupationCount": 3247,
+    "coverage": 99.5,
+    "idf": 0.0049155244904747
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/40A423F2B4",
+    "label": "Verantwoordelijkheid nemen",
+    "occupationCount": 3255,
+    "coverage": 99.8,
+    "idf": 0.002454741950651054
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/5D96B8A9BF",
+    "label": "Kwaliteit controleren",
+    "occupationCount": 3256,
+    "coverage": 99.8,
+    "idf": 0.0021475694708896886
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/7620BCA1C4",
+    "label": "Prioriteiten stellen",
+    "occupationCount": 3257,
+    "coverage": 99.8,
+    "idf": 0.0018404913170872192
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/73CE64DACE",
+    "label": "Zorgvuldig werken",
+    "occupationCount": 3258,
+    "coverage": 99.8,
+    "idf": 0.0015335074313301239
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/D5DED5A92E",
+    "label": "Zelfstandig werken",
+    "occupationCount": 3260,
+    "coverage": 99.9,
+    "idf": 0.0009198222325674004
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/3906E425EA",
+    "label": "Toewijding tonen",
+    "occupationCount": 3262,
+    "coverage": 100,
+    "idf": 0.00030651341236143277
+  },
+  {
+    "uri": "https://linkeddata.competentnl.nl/id/humancapability/FC91431A6A",
+    "label": "Loyaliteit tonen",
+    "occupationCount": 3262,
+    "coverage": 100,
+    "idf": 0.00030651341236143277
+  }
+]

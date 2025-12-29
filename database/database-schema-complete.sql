@@ -1,5 +1,5 @@
 -- ============================================================
--- CompetentNL Database Schema v3.0.0 - COMPLETE
+-- CompetentNL Database Schema v3.2.0 - COMPLETE
 -- ============================================================
 -- Dit script maakt ALLEEN de structuur aan (lege tabellen)
 -- Data wordt gesynchroniseerd via sync-all-concepts.mjs
@@ -7,6 +7,10 @@
 -- Gebruik: 
 --   1. Eerst dit script voor structuur
 --   2. Dan: node sync-all-concepts.mjs voor data
+--
+-- Changelog:
+--   v3.2.0 - Sync script fix voor SPARQL endpoint (UNION queries)
+--   v3.1.0 - skill_idf_weights tabel voor matching algoritme
 -- ============================================================
 
 -- ============================================================
@@ -133,6 +137,28 @@ CREATE TABLE IF NOT EXISTS workingcondition_labels (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
+-- IDF GEWICHTEN TABEL (voor matching algoritme)
+-- ============================================================
+-- Deze tabel bevat de IDF (Inverse Document Frequency) gewichten
+-- voor vaardigheden, gebruikt bij profiel-naar-beroep matching.
+-- Zie: voorstel-matching-algoritme.md, stap 5.2
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS skill_idf_weights (
+    skill_uri VARCHAR(500) PRIMARY KEY,
+    skill_label VARCHAR(255),
+    occupation_count INT,
+    total_occupations INT DEFAULT 3263,
+    idf_weight DECIMAL(8,4),
+    skill_category VARCHAR(50),  -- DENKEN, DOEN, VERBINDEN, STUREN, CREËREN, ZIJN, OVERIG
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_skill_label (skill_label),
+    INDEX idx_idf_weight (idf_weight),
+    INDEX idx_skill_category (skill_category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
 -- SYNONIEMEN & MAPPING TABELLEN
 -- ============================================================
 
@@ -193,22 +219,45 @@ CREATE TABLE IF NOT EXISTS occupation_search_log (
     session_id VARCHAR(100),
     search_term VARCHAR(255) NOT NULL,
     found BOOLEAN DEFAULT FALSE,
-    match_count INT DEFAULT 0,
+    match_type VARCHAR(50),
     selected_uri VARCHAR(500),
+    selected_label VARCHAR(500),
+    alternatives_shown INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_search (search_term(100))
+    INDEX idx_session (session_id),
+    INDEX idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS query_logs (
+-- ============================================================
+-- RAG & EMBEDDINGS TABELLEN
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS question_embeddings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    question TEXT NOT NULL,
+    question_normalized TEXT,
+    sparql_query TEXT NOT NULL,
+    category VARCHAR(100),
+    domain VARCHAR(50),
+    embedding_model VARCHAR(50) DEFAULT 'text-embedding-004',
+    usage_count INT DEFAULT 0,
+    success_rate DECIMAL(5,2) DEFAULT 100.00,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_category (category),
+    INDEX idx_domain (domain)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS query_feedback (
     id INT AUTO_INCREMENT PRIMARY KEY,
     session_id VARCHAR(100),
-    question TEXT NOT NULL,
+    question TEXT,
     detected_domain VARCHAR(50),
-    resolved_concepts JSON,
-    generated_sparql TEXT,
-    result_count INT DEFAULT 0,
-    execution_time_ms INT DEFAULT 0,
-    success BOOLEAN DEFAULT TRUE,
+    sparql_query TEXT,
+    execution_success BOOLEAN DEFAULT TRUE,
+    result_count INT,
+    user_rating TINYINT,
+    user_feedback TEXT,
     error_message TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_session (session_id),
@@ -217,145 +266,55 @@ CREATE TABLE IF NOT EXISTS query_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
--- FEEDBACK TABELLEN
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS user_feedback (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    session_id VARCHAR(100),
-    message_id VARCHAR(100),
-    question TEXT,
-    sparql_query TEXT,
-    rating INT CHECK (rating >= 1 AND rating <= 5),
-    feedback_type ENUM('helpful', 'not_helpful', 'incorrect', 'general') DEFAULT 'general',
-    comment TEXT,
-    context_json JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_session (session_id),
-    INDEX idx_rating (rating),
-    INDEX idx_type (feedback_type)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS feedback_details (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    feedback_id INT,
-    detail_type VARCHAR(50),
-    detail_value TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_feedback (feedback_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- DISAMBIGUATIE TABELLEN
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS disambiguation_sessions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    session_id VARCHAR(100),
-    search_term VARCHAR(255) NOT NULL,
-    concept_type VARCHAR(50),
-    options_shown JSON,
-    selected_option INT,
-    selected_uri VARCHAR(500),
-    selected_label VARCHAR(500),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_session (session_id),
-    INDEX idx_term (search_term(100))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS concept_selections (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    search_term VARCHAR(255) NOT NULL,
-    concept_type VARCHAR(50) DEFAULT 'occupation',
-    selected_uri VARCHAR(500) NOT NULL,
-    selected_label VARCHAR(500) NOT NULL,
-    selection_count INT DEFAULT 1,
-    last_selected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_selection (search_term(100), selected_uri(255)),
-    INDEX idx_search_term (search_term(100)),
-    INDEX idx_count (selection_count DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- RAG / EMBEDDINGS TABELLEN
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS question_embeddings (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    question TEXT NOT NULL,
-    question_normalized VARCHAR(500),
-    sparql_query TEXT NOT NULL,
-    embedding BLOB,
-    category VARCHAR(50),
-    domain VARCHAR(50),
-    usage_count INT DEFAULT 0,
-    success_rate DECIMAL(5,2) DEFAULT 100.00,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_category (category),
-    INDEX idx_domain (domain)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS schema_concepts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    concept_type VARCHAR(50) NOT NULL,
-    concept_uri VARCHAR(500) NOT NULL,
-    concept_label VARCHAR(255) NOT NULL,
-    description TEXT,
-    related_predicates JSON,
-    example_queries JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_type (concept_type),
-    INDEX idx_label (concept_label(100))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
 -- VIEWS
 -- ============================================================
 
-CREATE OR REPLACE VIEW v_missing_occupations AS
+CREATE OR REPLACE VIEW v_concept_stats AS
 SELECT 
-    search_term,
-    COUNT(*) as search_count,
-    MAX(created_at) as last_searched
-FROM occupation_search_log
-WHERE found = FALSE
-GROUP BY search_term
-HAVING COUNT(*) >= 2
-ORDER BY search_count DESC;
+    'occupation' as concept_type,
+    COUNT(*) as total_labels,
+    COUNT(DISTINCT occupation_uri) as unique_concepts
+FROM occupation_labels
+UNION ALL
+SELECT 'education', COUNT(*), COUNT(DISTINCT education_uri) FROM education_labels
+UNION ALL
+SELECT 'capability', COUNT(*), COUNT(DISTINCT capability_uri) FROM capability_labels
+UNION ALL
+SELECT 'knowledge', COUNT(*), COUNT(DISTINCT knowledge_uri) FROM knowledge_labels
+UNION ALL
+SELECT 'task', COUNT(*), COUNT(DISTINCT task_uri) FROM task_labels
+UNION ALL
+SELECT 'workingcondition', COUNT(*), COUNT(DISTINCT workingcondition_uri) FROM workingcondition_labels;
 
-CREATE OR REPLACE VIEW v_missing_concepts AS
+CREATE OR REPLACE VIEW v_idf_stats AS
 SELECT 
-    search_term,
-    concept_type,
-    COUNT(*) as search_count,
-    MAX(created_at) as last_searched
-FROM concept_search_log
-WHERE found_exact = FALSE AND found_fuzzy = FALSE AND results_count = 0
-GROUP BY search_term, concept_type
-HAVING COUNT(*) >= 2
-ORDER BY search_count DESC;
+    COUNT(*) as total_skills,
+    ROUND(AVG(idf_weight), 3) as avg_idf,
+    ROUND(MAX(idf_weight), 3) as max_idf,
+    ROUND(MIN(idf_weight), 3) as min_idf,
+    SUM(CASE WHEN (occupation_count * 100.0 / total_occupations) > 90 THEN 1 ELSE 0 END) as universal_skills,
+    SUM(CASE WHEN (occupation_count * 100.0 / total_occupations) < 10 THEN 1 ELSE 0 END) as specific_skills
+FROM skill_idf_weights;
 
-CREATE OR REPLACE VIEW v_popular_disambiguations AS
+CREATE OR REPLACE VIEW v_idf_by_category AS
 SELECT 
-    concept_type,
-    selected_label,
-    selected_concept_uri,
-    COUNT(*) as selection_count
-FROM concept_search_log
-WHERE disambiguation_shown = TRUE AND user_confirmed = TRUE AND selected_concept_uri IS NOT NULL
-GROUP BY concept_type, selected_label, selected_concept_uri
-ORDER BY selection_count DESC;
+    skill_category,
+    COUNT(*) as skill_count,
+    ROUND(AVG(idf_weight), 3) as avg_idf,
+    ROUND(MIN(idf_weight), 3) as min_idf,
+    ROUND(MAX(idf_weight), 3) as max_idf
+FROM skill_idf_weights
+GROUP BY skill_category
+ORDER BY avg_idf ASC;
 
-CREATE OR REPLACE VIEW v_problem_queries AS
+CREATE OR REPLACE VIEW v_failed_queries AS
 SELECT 
     question,
     detected_domain,
     error_message,
-    COUNT(*) as error_count,
-    MAX(created_at) as last_error
-FROM query_logs
-WHERE success = FALSE
+    COUNT(*) as error_count
+FROM query_feedback
+WHERE execution_success = FALSE
 GROUP BY question, detected_domain, error_message
 ORDER BY error_count DESC
 LIMIT 100;
@@ -549,5 +508,5 @@ GROUP BY pd.id, pd.domain_key, pd.domain_name;
 -- DONE
 -- ============================================================
 
-SELECT '✅ Database schema v3.0.0 aangemaakt!' as status;
+SELECT '✅ Database schema v3.1.0 aangemaakt!' as status;
 SELECT 'Nu uitvoeren: node sync-all-concepts.mjs' as next_step;

@@ -122,8 +122,8 @@ De relatie-sterkte (Essential/Important/Somewhat) krijgt een multiplicator:
 | Niveau | Predicaat | Multiplicator |
 |--------|-----------|---------------|
 | Essential | requiresHATEssential | 1.0 |
-| Important | requiresHATImportant | 0.6 |
-| Somewhat | requiresHATSomewhat | 0.3 |
+| Important | requiresHATImportant | 0.4 |
+| Somewhat | requiresHATSomewhat | 0.2 |
 
 ### 3.4 Vaardighedenscore Formule
 
@@ -137,13 +137,13 @@ SKILL_SCORE = Σ(skills in P ∩ B) [IDF(skill) × relevance_weight_B]
 
 **Waarbij**:
 - `P ∩ B` = vaardigheden die zowel in het profiel als in de beroepsvereisten zitten
-- `relevance_weight_B` = gewicht op basis van Essential (1.0) / Important (0.6) / Somewhat (0.3)
+- `relevance_weight_B` = gewicht op basis van Essential (1.0) / Important (0.4) / Somewhat (0.2)
 - `IDF(skill)` = inverse document frequency van de vaardigheid
 
 **Voorbeeld**:
 - Beroep B vereist: Skill A (essential, IDF=2.0), Skill B (important, IDF=0.5), Skill C (essential, IDF=1.5)
 - Profiel P heeft: Skill A, Skill C
-- Score = (2.0×1.0 + 1.5×1.0) / (2.0×1.0 + 0.5×0.6 + 1.5×1.0) = 3.5 / 3.8 = 0.92
+- Score = (2.0×1.0 + 1.5×1.0) / (2.0×1.0 + 0.5×0.4 + 1.5×1.0) = 3.5 / 3.8 = 0.92
 
 ---
 

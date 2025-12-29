@@ -1,0 +1,12 @@
+﻿PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+# Wat voor types zijn er gelinkt via requiresHATEssential?
+SELECT DISTINCT ?type (COUNT(?item) as ?count)
+WHERE {
+  ?occ a cnlo:Occupation .
+  ?occ cnlo:requiresHATEssential ?item .
+  ?item a ?type .
+}
+GROUP BY ?type
+ORDER BY DESC(?count)
