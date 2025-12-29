@@ -113,12 +113,13 @@ async function resolveConcept(
 ): Promise<any> {
   try {
     console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}"`);
+    const requestedConceptType = options.riasecSafeMode ? 'capability' : conceptType;
     const response = await fetch(`${BACKEND_URL}/concept/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         searchTerm, 
-        conceptType,
+        conceptType: requestedConceptType,
         riasecBypass: options.riasecSafeMode,
         questionContext: options.questionContext
       })
@@ -295,8 +296,10 @@ export async function generateSparqlWithDisambiguation(
   // SCENARIO 1 & 4: Check for occupation terms and resolve
   const occupationTerm = extractOccupationTerm(userQuery);
   
-  if (occupationTerm) {
-    const conceptResult = await resolveConcept(occupationTerm, 'occupation');
+  if (occupationTerm && !riasecDetected) {
+    const conceptResult = await resolveConcept(occupationTerm, 'occupation', {
+      questionContext: userQuery
+    });
     const matches = conceptResult?.matches || [];
     const normalizedTerm = occupationTerm.toLowerCase();
     let occupationResolved = false;

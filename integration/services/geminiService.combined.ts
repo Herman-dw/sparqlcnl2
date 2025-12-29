@@ -157,13 +157,13 @@ async function resolveConcept(
 ): Promise<ConceptResolveResult | null> {
   try {
     console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}"`);
-    
+    const requestedConceptType = options.riasecSafeMode ? 'capability' : conceptType;
     const response = await fetch(`${BACKEND_URL}/concept/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         searchTerm, 
-        conceptType,
+        conceptType: requestedConceptType,
         riasecBypass: options.riasecSafeMode,
         questionContext: options.questionContext
       })
