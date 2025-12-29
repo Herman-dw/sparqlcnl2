@@ -130,6 +130,16 @@ const CONCEPT_PATTERNS = {
 const STOP_WORDS = ['een', 'het', 'de', 'alle', 'welke', 'wat', 'zijn', 'voor', 'bij', 'van', 
                     'heeft', 'hebben', 'nodig', 'vereist', 'die', 'dat', 'deze', 'wordt', 'worden',
                     'toon', 'geef', 'laat', 'zien', 'hoeveel', 'veel'];
+const RIASEC_KEYWORDS = ['riasec', 'hollandcode', 'holland code'];
+
+function isRiasecQuestionText(text?: string | null): boolean {
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  if (RIASEC_KEYWORDS.some(keyword => normalized.includes(keyword))) {
+    return true;
+  }
+  return /\briasec\s*[:\-]?\s*[riasec]\b/i.test(normalized);
+}
 
 // ============================================================
 // CONCEPT RESOLVER FUNCTIONS
@@ -140,7 +150,8 @@ const STOP_WORDS = ['een', 'het', 'de', 'alle', 'welke', 'wat', 'zijn', 'voor', 
  */
 async function resolveConcept(
   searchTerm: string, 
-  conceptType: string
+  conceptType: string,
+  options: { riasecSafeMode?: boolean; questionContext?: string } = {}
 ): Promise<ConceptResolveResult | null> {
   try {
     console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}"`);
@@ -148,7 +159,12 @@ async function resolveConcept(
     const response = await fetch(`${BACKEND_URL}/concept/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ searchTerm, conceptType })
+      body: JSON.stringify({ 
+        searchTerm, 
+        conceptType,
+        riasecBypass: options.riasecSafeMode,
+        questionContext: options.questionContext
+      })
     });
     
     if (!response.ok) {
@@ -506,12 +522,20 @@ FILTER(CONTAINS(LCASE(?label), "${selectedOption.prefLabel.toLowerCase()}"))
   // ========================================
   // STEP 2: Extract and resolve concepts
   // ========================================
-  const conceptTerms = extractConceptTerms(userQuery);
+  const riasecDetected = isRiasecQuestionText(userQuery);
+  if (riasecDetected) {
+    // RIASEC/Hollandcode vragen mogen zonder concept-resolve naar /generate.
+    console.log('[RIASEC] Hollandcode vraag gedetecteerd, concept resolver overgeslagen.');
+  }
+
+  const conceptTerms = riasecDetected ? [] : extractConceptTerms(userQuery);
   let conceptContext = '';
   const resolvedConcepts: { term: string; resolved: string; type: string }[] = [];
   
   for (const { term, type } of conceptTerms) {
-    const result = await resolveConcept(term, type);
+    const result = await resolveConcept(term, type, {
+      questionContext: userQuery
+    });
     
     if (result) {
       if (result.needsDisambiguation && result.matches.length > 0) {
