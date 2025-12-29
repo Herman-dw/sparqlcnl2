@@ -927,7 +927,8 @@ app.post('/generate', async (req, res) => {
     question, 
     chatHistory = [], 
     domain,
-    resolvedConcepts = {}
+    resolvedConcepts = {},
+    variant = 'default'
   } = req.body;
 
   console.log(`[Generate] Vraag: "${question}"`);
@@ -938,6 +939,8 @@ app.post('/generate', async (req, res) => {
   let sparql = '';
   let response = '';
   let needsCount = false;
+  let needsList = false;
+  let listSparql = null;
   let detectedDomain = domain;
   let contextUsed = false;
 
@@ -960,6 +963,17 @@ app.post('/generate', async (req, res) => {
   if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('kwalificaties'))) {
     detectedDomain = 'education';
     needsCount = true;
+    needsList = true;
+    
+    listSparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?kwalificatie ?naam WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+  ?kwalificatie skos:prefLabel ?naam .
+}
+ORDER BY ?naam
+LIMIT 50`;
     
     // SCENARIO 3: "Hoeveel zijn er?" na MBO vraag
     if (isFollowUp && (q.includes('hoeveel') || q.match(/\ber\b/))) {
@@ -969,6 +983,11 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
   ?kwalificatie a ksmo:MboKwalificatie .
 }`;
       response = 'Ik tel het aantal MBO kwalificaties voor je...';
+    } else if (variant === 'list') {
+      sparql = listSparql;
+      response = 'Hier zijn de eerste 50 MBO kwalificaties:';
+      needsCount = false;
+      needsList = false;
     } else {
       sparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -977,7 +996,7 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
   ?kwalificatie a ksmo:MboKwalificatie .
 }
 `;
-      response = 'Er zijn in totaal 447 MBO kwalificaties. Wil je ze allemaal zien? Ik kan ze per 50 tonen.';
+      response = 'Er zijn in totaal 447 MBO kwalificaties. Wil je de eerste 50 zien?';
     }
   }
 
@@ -1154,6 +1173,8 @@ LIMIT 20`;
     sparql,
     response,
     needsCount,
+    needsList,
+    listSparql,
     domain: detectedDomain,
     contextUsed,
     isFollowUp

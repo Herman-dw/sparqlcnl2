@@ -24,7 +24,8 @@ export interface ValidationCheck {
   type: 'response_contains' | 'response_not_contains' | 'console_contains' | 
         'sparql_contains' | 'sparql_pattern' | 'domain_equals' | 
         'needs_disambiguation' | 'concept_resolved' | 'count_triggered' |
-        'context_used' | 'feedback_available' | 'has_matches';
+        'context_used' | 'feedback_available' | 'has_matches' |
+        'list_sparql_contains';
   value: string | RegExp | boolean | number;
   description: string;
 }
@@ -175,6 +176,11 @@ export const TEST_SCENARIOS: TestScenario[] = [
         type: 'response_contains',
         value: /\d+.*kwalificaties|kwalificaties.*\d+|447|resultaten/i,
         description: 'Response moet het aantal vermelden'
+      },
+      {
+        type: 'list_sparql_contains',
+        value: 'LIMIT 50',
+        description: 'List query voor eerste 50 resultaten moet aanwezig zijn'
       }
     ],
     expectedBehavior: 'Bij grote resultatensets moet het systeem het totaal aantal tonen.',

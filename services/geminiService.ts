@@ -45,6 +45,8 @@ export interface GenerateSparqlResult {
   domain?: string;
   needsCount?: boolean;
   contextUsed?: boolean;
+  listSparql?: string;
+  needsList?: boolean;
 }
 
 // ============================================================
@@ -299,8 +301,7 @@ async function generateSparqlInternal(
 
   // SCENARIO 2: MBO Kwalificaties
   if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('kwalificaties'))) {
-    return {
-      sparql: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+    const listSparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
 SELECT ?kwalificatie ?naam WHERE {
@@ -308,12 +309,21 @@ SELECT ?kwalificatie ?naam WHERE {
   ?kwalificatie skos:prefLabel ?naam .
 }
 ORDER BY ?naam
-LIMIT 50`,
-      response: 'Hier zijn de MBO kwalificaties (eerste 50 van 447 totaal). Vraag "hoeveel zijn er?" voor het totale aantal.',
+LIMIT 50`;
+
+    return {
+      sparql: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+
+SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+}`,
+      response: 'Er zijn in totaal 447 MBO kwalificaties. Wil je de eerste 50 zien?',
       needsDisambiguation: false,
       resolvedConcepts,
       domain: 'education',
-      needsCount: true
+      needsCount: true,
+      needsList: true,
+      listSparql
     };
   }
 

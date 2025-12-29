@@ -173,6 +173,26 @@ const App: React.FC = () => {
       // Clear disambiguation state
       setPendingDisambiguation(null);
 
+      // Count-only response with CTA for first 50 results
+      if (result.needsCount && result.listSparql) {
+        const assistantMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          text: result.response,
+          sparql: result.sparql || undefined,
+          timestamp: new Date(),
+          status: 'success',
+          needsList: true,
+          listSparql: result.listSparql,
+          sourceQuestion: text,
+          metadata: { needsList: true }
+        };
+        setMessages(prev => [...prev, assistantMsg]);
+        await persistMessage(assistantMsg);
+        setIsLoading(false);
+        return;
+      }
+
       // We have SPARQL - execute it
       if (result.sparql) {
         const validation = validateSparqlQuery(result.sparql, selectedGraphs);
@@ -223,6 +243,61 @@ const App: React.FC = () => {
   const handleQuickSelect = (index: number) => {
     if (pendingDisambiguation) {
       handleSend((index + 1).toString());
+    }
+  };
+
+  const handleShowList = async (message: Message) => {
+    const sourceQuestion = message.sourceQuestion || message.text || 'Toon alle MBO kwalificaties';
+    setIsLoading(true);
+
+    try {
+      const listResponse = await fetch(`${localBackendUrl}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: sourceQuestion,
+          chatHistory: getChatHistory(),
+          variant: 'list'
+        })
+      });
+
+      const listData = listResponse.ok ? await listResponse.json() : {};
+      const listSparql = listData.sparql || listData.listSparql || message.listSparql;
+
+      if (!listSparql) {
+        throw new Error('Geen SPARQL query beschikbaar voor de eerste 50 resultaten.');
+      }
+
+      const validation = validateSparqlQuery(listSparql, selectedGraphs);
+      if (!validation.valid) throw new Error(validation.error);
+
+      const results = await executeSparql(listSparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+      const summary = await summarizeResults(sourceQuestion, results);
+
+      const assistantMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        text: `${listData.response || 'Hier zijn de eerste 50 resultaten:'}\n\n${summary}`,
+        sparql: listSparql,
+        results,
+        timestamp: new Date(),
+        status: 'success'
+      };
+
+      setMessages(prev => [...prev, assistantMsg]);
+      await persistMessage(assistantMsg);
+    } catch (error: any) {
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        text: `Fout bij laden van resultaten: ${error.message}`,
+        timestamp: new Date(),
+        status: 'error'
+      };
+      setMessages(prev => [...prev, errorMsg]);
+      await persistMessage(errorMsg);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -470,6 +545,16 @@ const App: React.FC = () => {
                       </button>
                     ))}
                   </div>
+                )}
+
+                {msg.needsList && (
+                  <button
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-semibold hover:bg-indigo-600 hover:text-white transition-colors"
+                    onClick={() => handleShowList(msg)}
+                    disabled={isLoading}
+                  >
+                    📄 Toon eerste 50 resultaten
+                  </button>
                 )}
                 
                 {/* Results table */}
