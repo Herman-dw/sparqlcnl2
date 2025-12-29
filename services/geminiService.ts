@@ -45,6 +45,8 @@ export interface GenerateSparqlResult {
   domain?: string;
   needsCount?: boolean;
   contextUsed?: boolean;
+  listSparql?: string;
+  needsList?: boolean;
 }
 
 // ============================================================
@@ -60,6 +62,16 @@ const STOP_WORDS = [
 const OCCUPATION_SUFFIXES = ['er', 'eur', 'ist', 'ant', 'ent', 'aar', 'man', 'vrouw', 'meester', 'arts', 'kundige', 'loog', 'tect'];
 const STRONG_MATCH_TYPES = ['exact', 'preflabel', 'altlabel'];
 const STRONG_MATCH_THRESHOLD = 0.98;
+const RIASEC_KEYWORDS = ['riasec', 'hollandcode', 'holland code'];
+
+function isRiasecQuestionText(text?: string | null): boolean {
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  if (RIASEC_KEYWORDS.some(keyword => normalized.includes(keyword))) {
+    return true;
+  }
+  return /\briasec\s*[:\-]?\s*[riasec]\b/i.test(normalized);
+}
 
 // ============================================================
 // BACKEND API CALLS
@@ -82,13 +94,22 @@ async function classifyQuestion(question: string): Promise<any> {
   }
 }
 
-async function resolveConcept(searchTerm: string, conceptType: string): Promise<any> {
+async function resolveConcept(
+  searchTerm: string, 
+  conceptType: string,
+  options: { riasecSafeMode?: boolean; questionContext?: string } = {}
+): Promise<any> {
   try {
     console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}"`);
     const response = await fetch(`${BACKEND_URL}/concept/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ searchTerm, conceptType })
+      body: JSON.stringify({ 
+        searchTerm, 
+        conceptType,
+        riasecBypass: options.riasecSafeMode,
+        questionContext: options.questionContext
+      })
     });
     if (!response.ok) return null;
     return await response.json();
@@ -171,6 +192,7 @@ export async function generateSparqlWithDisambiguation(
   
   const resolvedConcepts: { term: string; resolved: string; type: string }[] = [];
   const q = userQuery.toLowerCase().trim();
+  const riasecDetected = isRiasecQuestionText(userQuery);
 
   // Handle pending disambiguation response
   if (pendingDisambiguation) {
@@ -217,7 +239,12 @@ export async function generateSparqlWithDisambiguation(
 
   // SCENARIO 2: Classify question for domain detection
   const classification = await classifyQuestion(userQuery);
-  const domain = classification?.primary?.domainKey || 'occupation';
+  const domain = classification?.primary?.domainKey || (riasecDetected ? 'taxonomy' : 'occupation');
+
+  if (riasecDetected) {
+    // RIASEC/Hollandcode vragen mogen niet door de concept resolver worden opgehouden.
+    console.log('[RIASEC] Hollandcode vraag gedetecteerd: concept resolver wordt overgeslagen.');
+  }
 
   // SCENARIO 1 & 4: Check for occupation terms and resolve
   const occupationTerm = extractOccupationTerm(userQuery);
@@ -318,8 +345,7 @@ async function generateSparqlInternal(
 
   // SCENARIO 2: MBO Kwalificaties
   if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('kwalificaties'))) {
-    return {
-      sparql: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+    const listSparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
 SELECT ?kwalificatie ?naam WHERE {
@@ -327,12 +353,21 @@ SELECT ?kwalificatie ?naam WHERE {
   ?kwalificatie skos:prefLabel ?naam .
 }
 ORDER BY ?naam
-LIMIT 50`,
-      response: 'Hier zijn de MBO kwalificaties (eerste 50 van 447 totaal). Vraag "hoeveel zijn er?" voor het totale aantal.',
+LIMIT 50`;
+
+    return {
+      sparql: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+
+SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+}`,
+      response: 'Er zijn in totaal 447 MBO kwalificaties. Wil je de eerste 50 zien?',
       needsDisambiguation: false,
       resolvedConcepts,
       domain: 'education',
-      needsCount: true
+      needsCount: true,
+      needsList: true,
+      listSparql
     };
   }
 

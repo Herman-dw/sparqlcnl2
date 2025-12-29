@@ -190,6 +190,15 @@ function ensureDisambiguationOptions(searchTerm, conceptType, config, matches) {
   return Array.from(bestPerUri.values()).sort((a, b) => b.confidence - a.confidence).slice(0, 12);
 }
 
+function isRiasecText(text = '') {
+  const normalized = text.toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('riasec') || normalized.includes('hollandcode') || normalized.includes('holland code')) {
+    return true;
+  }
+  return /\briasec\s*[:\-]?\s*[riasec]\b/i.test(normalized);
+}
+
 // =====================================================
 // BASIC ROUTES
 // =====================================================
@@ -268,19 +277,34 @@ app.post('/proxy/sparql', async (req, res) => {
  * SCENARIO 4: "loodgieter" → match naar officiële naam
  */
 app.post('/concept/resolve', async (req, res) => {
-  const { searchTerm, conceptType = 'occupation' } = req.body;
+  const { searchTerm, conceptType = 'occupation', riasecBypass = false, questionContext } = req.body;
 
   if (!searchTerm) {
     return res.status(400).json({ error: 'searchTerm is verplicht' });
   }
 
-  const config = CONCEPT_TYPES[conceptType];
+  const riasecDetected = riasecBypass || isRiasecText(questionContext) || isRiasecText(searchTerm);
+  const effectiveConceptType = riasecDetected && conceptType === 'occupation' ? 'capability' : conceptType;
+  const config = CONCEPT_TYPES[effectiveConceptType];
   if (!config) {
-    return res.status(400).json({ error: `Onbekend conceptType: ${conceptType}` });
+    return res.status(400).json({ error: `Onbekend conceptType: ${effectiveConceptType}` });
+  }
+
+  if (riasecDetected) {
+    console.log(`[Concept] RIASEC-detectie: oversla concept-resolve voor "${searchTerm}" (type ${effectiveConceptType}).`);
+    return res.json({
+      found: false,
+      exact: false,
+      searchTerm,
+      conceptType: effectiveConceptType,
+      matches: [],
+      needsDisambiguation: false,
+      bypassed: 'riasec_detection'
+    });
   }
 
   const normalized = searchTerm.toLowerCase().trim();
-  console.log(`[Concept] Resolving ${conceptType}: "${searchTerm}"`);
+  console.log(`[Concept] Resolving ${effectiveConceptType}: "${searchTerm}"`);
 
   try {
     // Stap 1: Zoek exacte en fuzzy matches
@@ -307,14 +331,14 @@ app.post('/concept/resolve', async (req, res) => {
 
     // Geen matches gevonden: bied generieke varianten aan voor verduidelijking
     if (rows.length === 0) {
-      const synthetic = ensureDisambiguationOptions(searchTerm, conceptType, config, []);
+      const synthetic = ensureDisambiguationOptions(searchTerm, effectiveConceptType, config, []);
       console.log(`[Concept] Geen directe matches voor "${searchTerm}". Bied ${synthetic.length} generieke varianten ter verduidelijking.`);
 
       return res.json({
         found: synthetic.length > 0,
         exact: false,
         searchTerm,
-        conceptType,
+        conceptType: effectiveConceptType,
         matches: synthetic,
         needsDisambiguation: synthetic.length > 1,
         disambiguationQuestion: synthetic.length > 1
@@ -333,7 +357,7 @@ app.post('/concept/resolve', async (req, res) => {
       matchedLabel: r.matchedLabel,
       matchType: r.matchType,
       confidence: parseFloat(r.confidence),
-      conceptType
+      conceptType: effectiveConceptType
     }));
 
     const uniqueUris = new Set(matches.map(m => m.uri));
@@ -373,7 +397,7 @@ app.post('/concept/resolve', async (req, res) => {
         found: true,
         exact: true,
         searchTerm,
-        conceptType,
+        conceptType: effectiveConceptType,
         matches: [selected],
         needsDisambiguation: false,
         resolvedUri: selected.uri,
@@ -385,7 +409,7 @@ app.post('/concept/resolve', async (req, res) => {
     // Groepeer per unieke URI en breid uit met generieke varianten indien nodig
     const disambiguationCandidates = ensureDisambiguationOptions(
       searchTerm,
-      conceptType,
+      effectiveConceptType,
       config,
       matches
     );
@@ -403,7 +427,7 @@ app.post('/concept/resolve', async (req, res) => {
       found: true,
       exact: false,
       searchTerm,
-      conceptType,
+      conceptType: effectiveConceptType,
       matches: disambiguationCandidates,
       needsDisambiguation: true,
       disambiguationQuestion,
@@ -952,7 +976,8 @@ app.post('/generate', async (req, res) => {
     question, 
     chatHistory = [], 
     domain,
-    resolvedConcepts = {}
+    resolvedConcepts = {},
+    variant = 'default'
   } = req.body;
 
   console.log(`[Generate] Vraag: "${question}"`);
@@ -963,6 +988,8 @@ app.post('/generate', async (req, res) => {
   let sparql = '';
   let response = '';
   let needsCount = false;
+  let needsList = false;
+  let listSparql = null;
   let detectedDomain = domain;
   let contextUsed = false;
 
@@ -985,6 +1012,17 @@ app.post('/generate', async (req, res) => {
   if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('kwalificaties'))) {
     detectedDomain = 'education';
     needsCount = true;
+    needsList = true;
+    
+    listSparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?kwalificatie ?naam WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie .
+  ?kwalificatie skos:prefLabel ?naam .
+}
+ORDER BY ?naam
+LIMIT 50`;
     
     // SCENARIO 3: "Hoeveel zijn er?" na MBO vraag
     if (isFollowUp && (q.includes('hoeveel') || q.match(/\ber\b/))) {
@@ -994,6 +1032,11 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
   ?kwalificatie a ksmo:MboKwalificatie .
 }`;
       response = 'Ik tel het aantal MBO kwalificaties voor je...';
+    } else if (variant === 'list') {
+      sparql = listSparql;
+      response = 'Hier zijn de eerste 50 MBO kwalificaties:';
+      needsCount = false;
+      needsList = false;
     } else {
       sparql = `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -1002,7 +1045,7 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
   ?kwalificatie a ksmo:MboKwalificatie .
 }
 `;
-      response = 'Er zijn in totaal 447 MBO kwalificaties. Wil je ze allemaal zien? Ik kan ze per 50 tonen.';
+      response = 'Er zijn in totaal 447 MBO kwalificaties. Wil je de eerste 50 zien?';
     }
   }
 
@@ -1179,6 +1222,8 @@ LIMIT 20`;
     sparql,
     response,
     needsCount,
+    needsList,
+    listSparql,
     domain: detectedDomain,
     contextUsed,
     isFollowUp

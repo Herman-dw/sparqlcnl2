@@ -447,7 +447,9 @@ export class TestRunner {
         response: 'Er zijn 447 MBO kwalificaties gevonden.',
         needsCount: true,
         domain: 'education',
-        contextUsed: this.chatHistory.length > 1
+        contextUsed: this.chatHistory.length > 1,
+        listSparql: `SELECT ?k ?label WHERE { ?k a ksmo:MboKwalificatie . ?k skos:prefLabel ?label } LIMIT 50`,
+        needsList: true
       };
     }
 
@@ -569,6 +571,13 @@ export class TestRunner {
             passed: context.countQueryTriggered === check.value,
             actualValue: String(context.countQueryTriggered)
           };
+
+        case 'list_sparql_contains':
+          return this.checkContains(
+            context.rawApiResponses.sparqlGenerate?.listSparql || '',
+            check.value,
+            check
+          );
 
         case 'context_used':
           return {

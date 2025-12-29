@@ -24,7 +24,8 @@ export interface ValidationCheck {
   type: 'response_contains' | 'response_not_contains' | 'console_contains' | 
         'sparql_contains' | 'sparql_pattern' | 'domain_equals' | 
         'needs_disambiguation' | 'concept_resolved' | 'count_triggered' |
-        'context_used' | 'feedback_available' | 'has_matches';
+        'context_used' | 'feedback_available' | 'has_matches' |
+        'list_sparql_contains';
   value: string | RegExp | boolean | number;
   description: string;
 }
@@ -175,6 +176,11 @@ export const TEST_SCENARIOS: TestScenario[] = [
         type: 'response_contains',
         value: /\d+.*kwalificaties|kwalificaties.*\d+|447|resultaten/i,
         description: 'Response moet het aantal vermelden'
+      },
+      {
+        type: 'list_sparql_contains',
+        value: 'LIMIT 50',
+        description: 'List query voor eerste 50 resultaten moet aanwezig zijn'
       }
     ],
     expectedBehavior: 'Bij grote resultatensets moet het systeem het totaal aantal tonen.',
@@ -300,6 +306,16 @@ export const TEST_SCENARIOS: TestScenario[] = [
         type: 'domain_equals',
         value: 'taxonomy',
         description: 'Domein moet taxonomy zijn'
+      },
+      {
+        type: 'response_contains',
+        value: /Vaardigheden met RIASEC code "R"|RIASEC code "R"/i,
+        description: 'Response moet direct over RIASEC-vaardigheden gaan'
+      },
+      {
+        type: 'needs_disambiguation',
+        value: false,
+        description: 'Geen disambiguatie prompt bij RIASEC vragen'
       }
     ],
     expectedBehavior: 'Het systeem moet vaardigheden ophalen die gemapt zijn op Hollandcode "R".',
