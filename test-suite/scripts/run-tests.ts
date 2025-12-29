@@ -160,6 +160,21 @@ const TEST_SCENARIOS: TestScenario[] = [
     tags: ['concept-resolver', 'synoniemen']
   },
   {
+    id: 'skills-huisarts-no-disambiguation',
+    name: 'Vaardigheden Huisarts zonder disambiguatie',
+    description: 'Vraag naar vaardigheden van huisarts moet direct een antwoord geven zonder disambiguatiekaart',
+    type: 'concept_resolution',
+    question: 'Welke vaardigheden heeft een huisarts?',
+    validations: [
+      { type: 'needs_disambiguation', value: false, description: 'Mag geen disambiguatie tonen' },
+      { type: 'sparql_contains', value: 'requiresHAT', description: 'Moet vaardigheden SPARQL genereren' },
+      { type: 'response_contains', value: 'vaardigheid', description: 'Antwoord bevat vaardigheden' }
+    ],
+    expectedBehavior: 'Direct skills-antwoord zonder disambiguatie',
+    priority: 1,
+    tags: ['concept-resolver', 'vaardigheden', 'occupation']
+  },
+  {
     id: 'education-skills-knowledge',
     name: 'Opleiding: Vaardigheden & Kennis',
     description: 'Test opleiding → vaardigheden/kennisgebieden',

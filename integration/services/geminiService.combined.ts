@@ -14,6 +14,8 @@ import { PromptOrchestrator, createPromptOrchestrator, AssembledPrompt, DomainMa
 const MODEL_NAME = 'gemini-2.0-flash';
 const SUMMARY_MODEL = 'gemini-2.0-flash';
 const BACKEND_URL = process.env.RAG_BACKEND_URL || 'http://localhost:3001';
+const STRONG_MATCH_TYPES = ['exact', 'preflabel', 'altlabel'];
+const STRONG_MATCH_THRESHOLD = 0.98;
 
 // ============================================================
 // TYPES
@@ -538,27 +540,54 @@ FILTER(CONTAINS(LCASE(?label), "${selectedOption.prefLabel.toLowerCase()}"))
     });
     
     if (result) {
-      if (result.needsDisambiguation && result.matches.length > 0) {
+      const matches = result.matches || [];
+      const normalizedTerm = term.toLowerCase();
+      let resolvedViaStrongMatch = false;
+      const strongMatches = matches.filter(m => 
+        STRONG_MATCH_TYPES.includes((m.matchType || '').toLowerCase()) &&
+        m.matchedLabel?.toLowerCase() === normalizedTerm &&
+        m.confidence >= STRONG_MATCH_THRESHOLD
+      );
+
+      if (strongMatches.length === 1) {
+        const selected = strongMatches[0];
+        console.log(`[Disambiguation] Sterke match gevonden: "${term}" → "${selected.prefLabel}"`);
+        resolvedConcepts.push({
+          term,
+          resolved: selected.prefLabel,
+          type
+        });
+        conceptContext += `
+### ${type.toUpperCase()} GEVONDEN
+- Zoekterm: "${term}"
+- Officiële naam: "${selected.prefLabel}"
+- Match type: ${selected.matchType}
+
+**GEBRUIK IN SPARQL:**
+FILTER(CONTAINS(LCASE(?label), "${selected.prefLabel.toLowerCase()}"))
+`;
+        resolvedViaStrongMatch = true;
+      } else if (result.needsDisambiguation && matches.length > 0) {
         // Multiple matches - need to ask user
-        console.log(`[Disambiguation] Needed for "${term}" - ${result.matches.length} options`);
+        console.log(`[Disambiguation] Needed for "${term}" - ${matches.length} options`);
         
         return {
           sparql: null,
-          response: result.disambiguationQuestion || generateDisambiguationQuestion(term, result.matches, type),
+          response: result.disambiguationQuestion || generateDisambiguationQuestion(term, matches, type),
           needsDisambiguation: true,
           disambiguationData: {
             pending: true,
             searchTerm: term,
             conceptType: type,
-            options: result.matches,
+            options: matches,
             originalQuestion: userQuery
           },
           resolvedConcepts: []
         };
       }
       
-      if (result.found && result.matches.length > 0) {
-        const bestMatch = result.matches[0];
+      if (!resolvedViaStrongMatch && result.found && matches.length > 0) {
+        const bestMatch = matches[0];
         resolvedConcepts.push({
           term,
           resolved: bestMatch.prefLabel,
