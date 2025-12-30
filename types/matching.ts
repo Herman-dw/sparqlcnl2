@@ -16,7 +16,7 @@ export interface MatchProfile {
 export interface ProfileItem {
   uri: string;
   label: string;
-  type: 'skill' | 'knowledge' | 'task';
+  type: 'skill' | 'knowledge' | 'task' | 'workCondition';
   source?: string;
   relevance?: 'essential' | 'important' | 'somewhat';
 }
