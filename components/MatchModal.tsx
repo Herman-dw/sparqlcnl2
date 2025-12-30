@@ -3,9 +3,9 @@
  * Modal voor profiel matching met skill selectie en resultaten weergave
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
-  X, Search, Target, Plus, Trash2, Loader2, 
+  X, Target, Plus, Trash2, Loader2, 
   ChevronDown, ChevronUp, AlertCircle, CheckCircle,
   Briefcase, GraduationCap, Sparkles, ArrowRight,
   Download, RefreshCcw
@@ -21,6 +21,56 @@ import {
   searchSkills, 
   searchKnowledge 
 } from '../services/matchingService';
+import SkillSearchInput from './SkillSearchInput';
+import { SessionProfile, ProfileSource } from '../types/profile';
+
+type SourceMap = Record<string, { label: string; sources: ProfileSource[] }>;
+const normalizeLabel = (label: string) => label.trim().toLowerCase();
+
+const mergeSourceEntry = (map: SourceMap, label: string, sources: ProfileSource[]): SourceMap => {
+  const key = normalizeLabel(label);
+  const existing = map[key];
+  const mergedSources = existing ? [...existing.sources] : [];
+
+  sources.forEach((source) => {
+    if (!mergedSources.find((s) => s.id === source.id)) {
+      mergedSources.push(source);
+    }
+  });
+
+  return {
+    ...map,
+    [key]: {
+      label,
+      sources: mergedSources
+    }
+  };
+};
+
+const buildSourceMap = (profile?: SessionProfile, fallbackSkills: string[] = []): SourceMap => {
+  let map: SourceMap = {};
+  const addItems = (items?: { label: string; sources?: ProfileSource[] }[]) => {
+    (items || []).forEach((item) => {
+      if (!item.label) return;
+      map = mergeSourceEntry(map, item.label, item.sources || []);
+    });
+  };
+
+  if (profile) {
+    addItems(profile.skills);
+    addItems(profile.knowledge);
+    addItems(profile.tasks);
+  }
+
+  if (fallbackSkills.length > 0) {
+    const riasecSource: ProfileSource = { id: 'riasec', label: 'RIASEC selectie', type: 'riasec' };
+    fallbackSkills.forEach((label) => {
+      map = mergeSourceEntry(map, label, [riasecSource]);
+    });
+  }
+
+  return map;
+};
 
 // ============================================================
 // PROPS
@@ -31,115 +81,8 @@ interface MatchModalProps {
   onClose: () => void;
   onMatchComplete?: (results: MatchResult[]) => void;
   initialSkills?: string[];  // Pre-selected skills (e.g., from RIASEC flow)
+  presetProfile?: SessionProfile;
 }
-
-// ============================================================
-// SKILL SEARCH INPUT COMPONENT
-// ============================================================
-
-interface SkillSearchInputProps {
-  placeholder: string;
-  onSelect: (item: SkillSearchResult) => void;
-  searchFn: (query: string) => Promise<{ success: boolean; results: SkillSearchResult[] }>;
-  disabled?: boolean;
-}
-
-const SkillSearchInput: React.FC<SkillSearchInputProps> = ({ 
-  placeholder, 
-  onSelect, 
-  searchFn,
-  disabled 
-}) => {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SkillSearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Debounced search
-  useEffect(() => {
-    if (query.length < 2) {
-      setResults([]);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      const response = await searchFn(query);
-      setResults(response.results);
-      setIsSearching(false);
-      setShowDropdown(true);
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [query, searchFn]);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleSelect = (item: SkillSearchResult) => {
-    onSelect(item);
-    setQuery('');
-    setResults([]);
-    setShowDropdown(false);
-    inputRef.current?.focus();
-  };
-
-  return (
-    <div className="relative" ref={dropdownRef}>
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => results.length > 0 && setShowDropdown(true)}
-          placeholder={placeholder}
-          disabled={disabled}
-          className="w-full pl-10 pr-10 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
-        />
-        {isSearching && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500 animate-spin" />
-        )}
-      </div>
-
-      {showDropdown && results.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-          {results.map((item, idx) => (
-            <button
-              key={item.uri || idx}
-              onClick={() => handleSelect(item)}
-              className="w-full px-4 py-3 text-left hover:bg-indigo-50 flex items-center justify-between border-b border-slate-100 last:border-0 transition-colors"
-            >
-              <span className="text-sm text-slate-700">{item.label}</span>
-              {item.category && (
-                <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                  {item.category}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {showDropdown && query.length >= 2 && results.length === 0 && !isSearching && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-4 text-center text-sm text-slate-500">
-          Geen resultaten gevonden
-        </div>
-      )}
-    </div>
-  );
-};
 
 // ============================================================
 // SELECTED ITEMS COMPONENT
@@ -149,9 +92,10 @@ interface SelectedItemsProps {
   items: string[];
   onRemove: (item: string) => void;
   color?: 'indigo' | 'emerald' | 'amber';
+  sourceMap?: SourceMap;
 }
 
-const SelectedItems: React.FC<SelectedItemsProps> = ({ items, onRemove, color = 'indigo' }) => {
+const SelectedItems: React.FC<SelectedItemsProps> = ({ items, onRemove, color = 'indigo', sourceMap }) => {
   const colors = {
     indigo: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200',
     emerald: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200',
@@ -163,17 +107,28 @@ const SelectedItems: React.FC<SelectedItemsProps> = ({ items, onRemove, color = 
   return (
     <div className="flex flex-wrap gap-2 mt-3">
       {items.map((item, idx) => (
-        <span
-          key={idx}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${colors[color]} transition-colors`}
-        >
-          {item}
-          <button
-            onClick={() => onRemove(item)}
-            className="hover:opacity-70 transition-opacity"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+        <span key={idx} className={`inline-flex flex-col gap-1 px-3 py-1.5 rounded-lg text-sm font-medium ${colors[color]} transition-colors`}>
+          <span className="flex items-center gap-1.5">
+            {item}
+            <button
+              onClick={() => onRemove(item)}
+              className="hover:opacity-70 transition-opacity"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </span>
+          {sourceMap && sourceMap[normalizeLabel(item)]?.sources?.length ? (
+            <div className="flex flex-wrap gap-1">
+              {sourceMap[normalizeLabel(item)]?.sources.map((source) => (
+                <span
+                  key={source.id}
+                  className="text-[10px] font-semibold bg-white/60 text-slate-600 px-2 py-0.5 rounded-full"
+                >
+                  {source.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </span>
       ))}
     </div>
@@ -224,10 +179,12 @@ interface MatchResultCardProps {
   rank: number;
   expanded: boolean;
   onToggle: () => void;
+  profileSources?: SourceMap;
 }
 
-const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expanded, onToggle }) => {
+const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expanded, onToggle, profileSources }) => {
   const { occupation, score, breakdown, gaps, matched } = result;
+  const hasProfileSources = profileSources && Object.keys(profileSources).length > 0;
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden hover:border-indigo-300 transition-colors">
@@ -337,6 +294,28 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
               </div>
             </div>
           )}
+
+          {hasProfileSources && (
+            <div>
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                Herkomst profielitems
+              </h4>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.values(profileSources || {}).map((item) => (
+                  <span
+                    key={item.label}
+                    className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded border border-slate-200"
+                    title={item.sources.map((s) => s.label).join(', ')}
+                  >
+                    {item.label}
+                    <span className="ml-1 text-[10px] text-slate-500">
+                      ({item.sources.map((s) => s.label).join(', ')})
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -347,7 +326,7 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
 // MAIN MODAL COMPONENT
 // ============================================================
 
-const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplete, initialSkills }) => {
+const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplete, initialSkills, presetProfile }) => {
   // State
   const [view, setView] = useState<MatchModalView>('builder');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
@@ -359,26 +338,60 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   const [isLoading, setIsLoading] = useState(false);
   const [expandedResult, setExpandedResult] = useState<number | null>(0);
   const [executionTime, setExecutionTime] = useState<number>(0);
+  const [profileSourceMap, setProfileSourceMap] = useState<SourceMap>({});
+
+  const manualSource: ProfileSource = useMemo(
+    () => ({ id: 'manual', label: 'Handmatig toegevoegd', type: 'manual' }),
+    []
+  );
+
+  const uniqueStrings = useCallback((items: string[]) => {
+    return Array.from(new Set(items.filter(Boolean)));
+  }, []);
+
+  const selectedProfileSources = useMemo(() => {
+    const active = [...selectedSkills, ...selectedKnowledge, ...selectedTasks];
+    return active.reduce<SourceMap>((acc, label) => {
+      const info = profileSourceMap[normalizeLabel(label)];
+      if (info) {
+        acc[normalizeLabel(label)] = info;
+      }
+      return acc;
+    }, {});
+  }, [profileSourceMap, selectedKnowledge, selectedSkills, selectedTasks]);
 
   // Reset state when modal opens, and load initial skills if provided
   useEffect(() => {
     if (isOpen) {
       setView('builder');
       setError(null);
+      const initialSourceMap = buildSourceMap(presetProfile, initialSkills || []);
+      setProfileSourceMap(initialSourceMap);
       
       // Load initial skills if provided (e.g., from RIASEC flow)
-      if (initialSkills && initialSkills.length > 0) {
-        setSelectedSkills(initialSkills);
+      const baseSkills = presetProfile?.skills?.map((item) => item.label) || [];
+      const mergedSkills = uniqueStrings([...(initialSkills || []), ...baseSkills]);
+      if (mergedSkills.length > 0) {
+        setSelectedSkills(mergedSkills);
+      } else {
+        setSelectedSkills([]);
       }
+
+      const baseKnowledge = presetProfile?.knowledge?.map((item) => item.label) || [];
+      setSelectedKnowledge(uniqueStrings(baseKnowledge));
+
+      const baseTasks = presetProfile?.tasks?.map((item) => item.label) || [];
+      setSelectedTasks(uniqueStrings(baseTasks));
     }
-  }, [isOpen, initialSkills]);
+  }, [initialSkills, isOpen, presetProfile, uniqueStrings]);
 
   // Handle skill selection
   const handleSelectSkill = useCallback((item: SkillSearchResult) => {
     if (!selectedSkills.includes(item.label)) {
       setSelectedSkills(prev => [...prev, item.label]);
+      setProfileSourceMap((current) => mergeSourceEntry(current, item.label, [manualSource]));
     }
-  }, [selectedSkills]);
+  }, [manualSource, selectedSkills]);
 
   const handleRemoveSkill = useCallback((skill: string) => {
     setSelectedSkills(prev => prev.filter(s => s !== skill));
@@ -388,8 +401,9 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   const handleSelectKnowledge = useCallback((item: SkillSearchResult) => {
     if (!selectedKnowledge.includes(item.label)) {
       setSelectedKnowledge(prev => [...prev, item.label]);
+      setProfileSourceMap((current) => mergeSourceEntry(current, item.label, [manualSource]));
     }
-  }, [selectedKnowledge]);
+  }, [manualSource, selectedKnowledge]);
 
   const handleRemoveKnowledge = useCallback((knowledge: string) => {
     setSelectedKnowledge(prev => prev.filter(k => k !== knowledge));
@@ -510,6 +524,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                 <SelectedItems 
                   items={selectedSkills} 
                   onRemove={handleRemoveSkill}
+                  sourceMap={profileSourceMap}
                   color="indigo"
                 />
                 {selectedSkills.length === 0 && (
@@ -542,6 +557,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                   <SelectedItems 
                     items={selectedKnowledge} 
                     onRemove={handleRemoveKnowledge}
+                    sourceMap={profileSourceMap}
                     color="emerald"
                   />
                 </div>
@@ -599,10 +615,26 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
               </div>
 
               {/* Profile summary */}
-              <div className="text-sm text-slate-500">
-                <span className="font-medium">Profiel:</span>{' '}
-                {selectedSkills.join(', ')}
-                {selectedKnowledge.length > 0 && ` â€¢ ${selectedKnowledge.join(', ')}`}
+              <div className="text-sm text-slate-500 space-y-2">
+                <div>
+                  <span className="font-medium">Profiel:</span>{' '}
+                  {[...selectedSkills, ...selectedKnowledge, ...selectedTasks].join(', ')}
+                </div>
+                {Object.keys(selectedProfileSources).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.values(selectedProfileSources).map((item) => (
+                      <span
+                        key={item.label}
+                        className="text-[11px] bg-slate-100 text-slate-700 px-2 py-1 rounded border border-slate-200"
+                      >
+                        {item.label}
+                        <span className="ml-1 text-[10px] text-slate-500">
+                          {item.sources.map((s) => s.label).join(', ')}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Results list */}
@@ -626,6 +658,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                       rank={idx + 1}
                       expanded={expandedResult === idx}
                       onToggle={() => setExpandedResult(expandedResult === idx ? null : idx)}
+                      profileSources={selectedProfileSources}
                     />
                   ))
                 )}
@@ -700,4 +733,5 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   );
 };
 
+export { MatchResultCard };
 export default MatchModal;

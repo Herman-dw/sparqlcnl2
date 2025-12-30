@@ -3,11 +3,11 @@
  * Met concept disambiguatie EN profiel matching
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { 
   Send, Database, Download, Filter, Info, Trash2, Loader2,
   Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
-  HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target
+  HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target, ListChecks
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS, EXAMPLES } from './constants';
@@ -23,6 +23,9 @@ import TestPage from './test-suite/components/TestPage';
 import RiasecTest, { RiasecResult } from './components/RiasecTest';
 import RiasecSkillSelector, { SelectedCapability } from './components/RiasecSkillSelector';
 import MatchModal from './components/MatchModal';
+import ProfileHistoryWizard from './components/ProfileHistoryWizard';
+import { useProfileStore } from './state/profileStore';
+import { ProfileItemWithSource, SessionProfile } from './types/profile';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
@@ -52,6 +55,30 @@ const getRiasecFallbackResults = (letter: string | null) => {
     { skill: `urn:riasec:${safeLetter.toLowerCase()}:2`, skillLabel: `Voorbeeldvaardigheid ${safeLetter} 2` },
     { skill: `urn:riasec:${safeLetter.toLowerCase()}:3`, skillLabel: `Voorbeeldvaardigheid ${safeLetter} 3` },
   ];
+};
+
+const mergeProfileLists = (
+  existing: ProfileItemWithSource[],
+  incoming: ProfileItemWithSource[]
+): ProfileItemWithSource[] => {
+  const map = new Map<string, ProfileItemWithSource>();
+  existing.forEach((item) => map.set(item.label.toLowerCase(), item));
+  incoming.forEach((item) => {
+    const key = item.label.toLowerCase();
+    const current = map.get(key);
+    if (!current) {
+      map.set(key, { ...item, sources: [...item.sources] });
+    } else {
+      const mergedSources = [...current.sources];
+      item.sources.forEach((source) => {
+        if (!mergedSources.find((s) => s.id === source.id)) {
+          mergedSources.push(source);
+        }
+      });
+      map.set(key, { ...current, ...item, sources: mergedSources });
+    }
+  });
+  return Array.from(map.values());
 };
 
 const App: React.FC = () => {
@@ -89,6 +116,39 @@ const App: React.FC = () => {
 
   // Match Modal state
   const [showMatchModal, setShowMatchModal] = useState(false);
+  const [showProfileWizard, setShowProfileWizard] = useState(false);
+
+  const { profile, mergeProfile } = useProfileStore();
+
+  const riasecProfileItems = useMemo<ProfileItemWithSource[]>(() => {
+    return riasecSelectedCapabilities.map((cap) => ({
+      uri: cap.uri,
+      label: cap.label,
+      type: 'skill',
+      sources: [
+        {
+          id: `riasec-${cap.uri || cap.label}`,
+          label: 'RIASEC selectie',
+          type: 'riasec'
+        }
+      ]
+    }));
+  }, [riasecSelectedCapabilities]);
+
+  const combinedProfile = useMemo<SessionProfile>(() => {
+    return {
+      skills: mergeProfileLists(profile.skills, riasecProfileItems),
+      knowledge: profile.knowledge,
+      tasks: profile.tasks,
+      workConditions: profile.workConditions
+    };
+  }, [profile, riasecProfileItems]);
+
+  const totalProfileItems =
+    combinedProfile.skills.length +
+    combinedProfile.knowledge.length +
+    combinedProfile.tasks.length +
+    combinedProfile.workConditions.length;
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -555,6 +615,16 @@ const App: React.FC = () => {
               riasecResult={riasecResult}
               onBack={() => setActivePage('riasec')}
               onSkillsSelected={(capabilities) => {
+                mergeProfile({
+                  skills: capabilities.map((cap) => ({
+                    uri: cap.uri,
+                    label: cap.label,
+                    type: 'skill',
+                    sources: [
+                      { id: `riasec-${cap.uri || cap.label}`, label: 'RIASEC selectie', type: 'riasec' }
+                    ]
+                  }))
+                });
                 setRiasecSelectedCapabilities(capabilities);
                 // Open de MatchModal met de geselecteerde capabilities
                 setShowMatchModal(true);
@@ -612,6 +682,13 @@ const App: React.FC = () => {
               <Target className="w-3 h-3" /> Matching
             </h3>
             <button
+              onClick={() => setShowProfileWizard(true)}
+              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-4 py-3 rounded-xl hover:bg-indigo-100 transition-all"
+            >
+              <ListChecks className="w-4 h-4" />
+              Bouw profiel (werk/opleiding)
+            </button>
+            <button
               onClick={() => setShowMatchModal(true)}
               className="w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/25"
             >
@@ -619,7 +696,7 @@ const App: React.FC = () => {
               Match mijn Profiel
             </button>
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              Selecteer vaardigheden en ontdek welke beroepen bij je passen.
+              Selecteer vaardigheden en ontdek welke beroepen bij je passen. Actief profiel: {totalProfileItems} items.
             </p>
           </div>
 
@@ -921,6 +998,12 @@ const App: React.FC = () => {
           console.log('Match complete:', results.length, 'beroepen gevonden');
         }}
         initialSkills={riasecSelectedCapabilities.map(cap => cap.label)}
+        presetProfile={combinedProfile}
+      />
+      <ProfileHistoryWizard
+        isOpen={showProfileWizard}
+        onClose={() => setShowProfileWizard(false)}
+        onProfileReady={() => setShowMatchModal(true)}
       />
     </div>
   );
