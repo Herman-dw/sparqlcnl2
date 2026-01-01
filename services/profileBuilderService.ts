@@ -61,7 +61,7 @@ async function fetchOccupationProfile(uri: string) {
 
   const query = `
     PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-    PREFIX cnluwv: <https://linkeddata.competentnl.nl/def/uwv#>
+    PREFIX cnluwvo: <https://linkeddata.competentnl.nl/def/uwv-ontology#>
     PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
     SELECT DISTINCT ?capability ?capLabel ?knowledge ?knowledgeLabel ?task ?taskLabel ?condition ?conditionLabel WHERE {
       BIND(<${uri}> AS ?occ)
@@ -77,11 +77,11 @@ async function fetchOccupationProfile(uri: string) {
                   skos:prefLabel ?knowledgeLabel .
       }
       OPTIONAL {
-        ?occ cnluwv:isCharacterizedByOccupationTask_Essential|cnluwv:isCharacterizedByOccupationTask_Important ?task .
+        ?occ cnluwvo:isCharacterizedByOccupationTask_Essential|cnluwvo:isCharacterizedByOccupationTask_Optional ?task .
         ?task skos:prefLabel ?taskLabel .
       }
       OPTIONAL {
-        ?occ cnlo:hasWorkingCondition|cnlo:hasWorkContext ?condition .
+        ?occ cnluwvo:hasWorkCondition ?condition .
         ?condition skos:prefLabel ?conditionLabel .
       }
     }
