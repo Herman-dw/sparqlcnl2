@@ -162,6 +162,8 @@ const App: React.FC = () => {
   const [speechLang, setSpeechLang] = useState<'nl-NL' | 'en-US'>('nl-NL');
   const [capturedTranscript, setCapturedTranscript] = useState('');
   const [shouldContinueListening, setShouldContinueListening] = useState(false);
+  const userStoppedRef = useRef(false);
+  const silenceStopRef = useRef(false);
   const handleSendRef = useRef<(text?: string) => Promise<void>>(async () => {});
 
   useEffect(() => {
@@ -517,6 +519,8 @@ const App: React.FC = () => {
     setSpeechError('');
     setCapturedTranscript('');
     setInterimTranscript('');
+    silenceStopRef.current = false;
+    userStoppedRef.current = false;
     if (speechSupport !== 'supported') {
       setSpeechError('Spraakherkenning niet beschikbaar. Gebruik Chrome of Edge met microfoon ingeschakeld.');
       return;
@@ -529,6 +533,7 @@ const App: React.FC = () => {
   const stopListening = () => {
     speechServiceRef.current?.stop();
     setShouldContinueListening(false);
+    userStoppedRef.current = true;
     setIsListening(false);
     setSpeechStatus('');
     setInterimTranscript('');
@@ -541,6 +546,7 @@ const App: React.FC = () => {
     setSpeechStatus('');
     setIsListening(false);
     setShouldContinueListening(false);
+    userStoppedRef.current = true;
     speechServiceRef.current?.abort();
   };
 
@@ -558,7 +564,7 @@ const App: React.FC = () => {
         setSpeechError('');
       },
       onEnd: () => {
-        if (!shouldContinueListening) {
+        if (!shouldContinueListening || userStoppedRef.current || silenceStopRef.current) {
           setIsListening(false);
           setSpeechStatus('');
           setInterimTranscript('');
@@ -585,10 +591,15 @@ const App: React.FC = () => {
           errorMessage = 'Opname gestopt. Je kunt opnieuw beginnen met dicteren.';
         }
         setSpeechError(errorMessage);
+      },
+      onSilenceTimeout: () => {
+        silenceStopRef.current = true;
+        setSpeechStatus('Opname gepauzeerd na stilte. Hervat om verder te dicteren of bevestig de tekst.');
       }
       ,
       shouldRestart: () => shouldContinueListening
-    });
+    },
+    12000);
 
     speechServiceRef.current = service;
     return () => service?.abort();
