@@ -109,7 +109,17 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [activeEntryId, setActiveEntryId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<
-    Record<string, { loading: boolean; error?: string | null; hasLoaded?: boolean }>
+    Record<
+      string,
+      {
+        loading: boolean;
+        error?: string | null;
+        hasLoaded?: boolean;
+        resolvedLabel?: string;
+        resolvedMatchLabel?: string;
+        resolvedUri?: string;
+      }
+    >
   >({});
   const [entrySelections, setEntrySelections] = useState<Record<string, SessionProfile>>({});
   const [suggestedProfiles, setSuggestedProfiles] = useState<Record<string, SessionProfile>>({});
@@ -270,7 +280,14 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
     if (!entry.title && !entry.description) return;
     setSuggestions((prev) => ({
       ...prev,
-      [entry.id]: { loading: true, error: null, hasLoaded: prev[entry.id]?.hasLoaded }
+      [entry.id]: {
+        loading: true,
+        error: null,
+        hasLoaded: prev[entry.id]?.hasLoaded,
+        resolvedLabel: prev[entry.id]?.resolvedLabel,
+        resolvedMatchLabel: prev[entry.id]?.resolvedMatchLabel,
+        resolvedUri: prev[entry.id]?.resolvedUri
+      }
     }));
 
     try {
@@ -284,7 +301,14 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
 
       setSuggestions((prev) => ({
         ...prev,
-        [entry.id]: { loading: false, error: response.error, hasLoaded: true }
+        [entry.id]: {
+          loading: false,
+          error: response.error,
+          hasLoaded: true,
+          resolvedLabel: response.resolvedLabel,
+          resolvedMatchLabel: response.resolvedMatchLabel,
+          resolvedUri: response.resolvedUri
+        }
       }));
 
       if (response.success && activeSource) {
@@ -301,7 +325,11 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
     } catch (error) {
       setSuggestions((prev) => ({
         ...prev,
-        [entry.id]: { loading: false, error: error instanceof Error ? error.message : 'Onbekende fout', hasLoaded: true }
+        [entry.id]: {
+          loading: false,
+          error: error instanceof Error ? error.message : 'Onbekende fout',
+          hasLoaded: true
+        }
       }));
     }
   };
@@ -472,12 +500,31 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
         )}
 
         {state?.hasLoaded && !state?.loading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {renderGroup('Vaardigheden', 'skills', 'Nog geen voorgestelde vaardigheden', suggestionData.skills)}
-            {renderGroup('Kennis', 'knowledge', 'Nog geen voorgestelde kennisgebieden', suggestionData.knowledge)}
-            {renderGroup('Werkomstandigheden', 'workConditions', 'Nog geen werkomstandigheden', suggestionData.workConditions)}
-            {renderGroup('Taken', 'tasks', 'Nog geen taken gevonden', suggestionData.tasks)}
-          </div>
+          <>
+            {(state.resolvedLabel || state.resolvedMatchLabel) && (
+              <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm text-emerald-800 flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Gevonden in CompetentNL</p>
+                  <p className="text-sm">
+                    {state.resolvedLabel}
+                    {state.resolvedMatchLabel && state.resolvedMatchLabel !== state.resolvedLabel
+                      ? ` (gevonden via: ${state.resolvedMatchLabel})`
+                      : ''}
+                  </p>
+                  {state.resolvedUri && (
+                    <p className="text-xs text-emerald-700 break-all">{state.resolvedUri}</p>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {renderGroup('Vaardigheden', 'skills', 'Nog geen voorgestelde vaardigheden', suggestionData.skills)}
+              {renderGroup('Kennis', 'knowledge', 'Nog geen voorgestelde kennisgebieden', suggestionData.knowledge)}
+              {renderGroup('Werkomstandigheden', 'workConditions', 'Nog geen werkomstandigheden', suggestionData.workConditions)}
+              {renderGroup('Taken', 'tasks', 'Nog geen taken gevonden', suggestionData.tasks)}
+            </div>
+          </>
         )}
       </div>
     );

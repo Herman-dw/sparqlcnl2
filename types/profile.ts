@@ -50,6 +50,9 @@ export interface ProfileSuggestionsResponse {
   knowledge: ProfileSuggestion[];
   workConditions: ProfileSuggestion[];
   tasks: ProfileSuggestion[];
+  resolvedLabel?: string;
+  resolvedUri?: string;
+  resolvedMatchLabel?: string;
   meta?: {
     cached?: boolean;
     durationMs?: number;
