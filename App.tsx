@@ -4,10 +4,11 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { 
+import {
   Send, Database, Download, Filter, Info, Trash2, Loader2,
   Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
-  HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target, ListChecks
+  HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target, ListChecks,
+  Mic, MicOff, InfoIcon
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS, EXAMPLES } from './constants';
@@ -19,6 +20,7 @@ import {
 import { executeSparql, validateSparqlQuery, ProxyType } from './services/sparqlService';
 import { downloadAsExcel } from './services/excelService';
 import { saveFeedback, sendFeedbackToBackend } from './services/feedbackService';
+import { createSpeechService, getSpeechSupport, SpeechService } from './services/speech';
 import TestPage from './test-suite/components/TestPage';
 import RiasecTest, { RiasecResult } from './components/RiasecTest';
 import RiasecSkillSelector, { SelectedCapability } from './components/RiasecSkillSelector';
@@ -151,6 +153,14 @@ const App: React.FC = () => {
     combinedProfile.workConditions.length;
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const speechServiceRef = useRef<SpeechService | null>(null);
+  const [speechSupport, setSpeechSupport] = useState<'checking' | 'supported' | 'unsupported'>('checking');
+  const [isListening, setIsListening] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [speechError, setSpeechError] = useState('');
+  const [speechStatus, setSpeechStatus] = useState('');
+  const [speechLang, setSpeechLang] = useState<'nl-NL' | 'en-US'>('nl-NL');
+  const handleSendRef = useRef<(text?: string) => Promise<void>>(async () => {});
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -196,6 +206,11 @@ const App: React.FC = () => {
   useEffect(() => {
     loadConversation();
   }, [loadConversation]);
+
+  useEffect(() => {
+    const support = getSpeechSupport();
+    setSpeechSupport(support);
+  }, []);
 
   const checkConnectivity = async () => {
     setApiStatus('checking');
@@ -432,6 +447,7 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
+  handleSendRef.current = handleSend;
 
   // Quick selection buttons for disambiguation
   const handleQuickSelect = (index: number) => {
@@ -494,6 +510,70 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  const startListening = () => {
+    setSpeechError('');
+    if (speechSupport !== 'supported') {
+      setSpeechError('Spraakherkenning niet beschikbaar. Gebruik Chrome of Edge met microfoon ingeschakeld.');
+      return;
+    }
+    setSpeechStatus('Microfoon activeren...');
+    speechServiceRef.current?.start();
+  };
+
+  const stopListening = () => {
+    speechServiceRef.current?.stop();
+    setIsListening(false);
+    setSpeechStatus('');
+    setInterimTranscript('');
+  };
+
+  useEffect(() => {
+    if (speechSupport !== 'supported') {
+      speechServiceRef.current = null;
+      return;
+    }
+
+    speechServiceRef.current?.abort();
+    const service = createSpeechService(speechLang, {
+      onStart: () => {
+        setIsListening(true);
+        setSpeechStatus('Luisteren...');
+        setSpeechError('');
+      },
+      onEnd: () => {
+        setIsListening(false);
+        setSpeechStatus('');
+        setInterimTranscript('');
+      },
+      onInterim: (text) => setInterimTranscript(text),
+      onFinal: async (text) => {
+        setInterimTranscript('');
+        setInputText(text);
+        await handleSendRef.current(text);
+      },
+      onError: (event) => {
+        console.warn('Spraakherkenning fout', event);
+        setIsListening(false);
+        setSpeechStatus('');
+        setInterimTranscript('');
+        let errorMessage = 'Er ging iets mis met spraakherkenning. Probeer het opnieuw.';
+        if (event.error === 'no-speech') {
+          errorMessage = 'Geen spraak gedetecteerd. Controleer je microfoon of probeer opnieuw.';
+        } else if (event.error === 'audio-capture') {
+          errorMessage = 'Geen microfoon gevonden. Sluit een microfoon aan of controleer de instellingen.';
+        } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          errorMessage = 'Toegang tot de microfoon is geweigerd. Sta microfoontoegang toe om te dicteren.';
+        } else if (event.error === 'aborted') {
+          errorMessage = 'Opname gestopt. Je kunt opnieuw beginnen met dicteren.';
+        }
+        setSpeechError(errorMessage);
+      }
+    });
+
+    speechServiceRef.current = service;
+    return () => service?.abort();
+  }, [speechSupport, speechLang]);
 
   const handleClearChat = async () => {
     setMessages([]);
@@ -954,23 +1034,93 @@ const App: React.FC = () => {
           
           <div className="max-w-4xl mx-auto relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-[2rem] blur opacity-20 group-focus-within:opacity-40 transition duration-1000"></div>
-            <div className="relative flex items-end gap-3 bg-white border border-slate-200 rounded-[2rem] p-3 shadow-2xl">
-              <textarea
-                className="flex-1 p-4 text-base bg-transparent outline-none resize-none max-h-40 min-h-[56px] text-slate-800"
-                placeholder={pendingDisambiguation ? "Typ je keuze (nummer of naam)..." : apiStatus === 'offline' ? "Wacht op verbinding..." : "Stel een vraag..."}
-                value={inputText}
-                onChange={e => setInputText(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-                rows={1}
-                disabled={apiStatus === 'offline' || isLoading}
-              />
-              <button
-                disabled={isLoading || !inputText.trim() || apiStatus === 'offline'}
-                onClick={() => handleSend()}
-                className="bg-indigo-600 text-white p-4.5 rounded-2xl hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 transition-all flex items-center justify-center min-w-[56px] h-[56px]"
-              >
-                {isLoading ? <RefreshCcw className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
-              </button>
+            <div className="relative flex flex-col gap-3 bg-white border border-slate-200 rounded-[2rem] p-3 shadow-2xl">
+              <div className="flex items-end gap-3">
+                <textarea
+                  className="flex-1 p-4 text-base bg-transparent outline-none resize-none max-h-40 min-h-[56px] text-slate-800"
+                  placeholder={pendingDisambiguation ? "Typ je keuze (nummer of naam)..." : apiStatus === 'offline' ? "Wacht op verbinding..." : "Stel een vraag of gebruik dicteren..."}
+                  value={inputText}
+                  onChange={e => setInputText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                  rows={1}
+                  disabled={apiStatus === 'offline' || isLoading}
+                />
+                <div className="flex flex-col items-end gap-2">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={startListening}
+                      disabled={isListening || apiStatus === 'offline' || speechSupport !== 'supported'}
+                      className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors border ${
+                        isListening
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                      } ${speechSupport !== 'supported' ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      <Mic className="w-4 h-4" />
+                      {isListening ? 'Luistert...' : 'Dicteer'}
+                    </button>
+                    {isListening && (
+                      <button
+                        type="button"
+                        onClick={stopListening}
+                        className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors border bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                      >
+                        <MicOff className="w-4 h-4" />
+                        Stop
+                      </button>
+                    )}
+                    <button
+                      disabled={isLoading || !inputText.trim() || apiStatus === 'offline'}
+                      onClick={() => handleSend()}
+                      className="bg-indigo-600 text-white p-4.5 rounded-2xl hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 transition-all flex items-center justify-center min-w-[56px] h-[56px]"
+                    >
+                      {isLoading ? <RefreshCcw className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <label className="font-semibold text-slate-600">Taal</label>
+                    <select
+                      value={speechLang}
+                      onChange={(e) => setSpeechLang(e.target.value as 'nl-NL' | 'en-US')}
+                      className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white"
+                    >
+                      <option value="nl-NL">Nederlands (nl-NL)</option>
+                      <option value="en-US">English (en-US)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              {(speechStatus || interimTranscript) && (
+                <div className="px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-sm text-indigo-800 flex items-start gap-2">
+                  <Loader2 className="w-4 h-4 mt-0.5 text-indigo-500 animate-spin" />
+                  <div className="space-y-1">
+                    <div className="font-semibold">{speechStatus || 'Live transcriptie'}</div>
+                    {interimTranscript && <div className="text-slate-700">{interimTranscript}</div>}
+                  </div>
+                </div>
+              )}
+              {speechError && (
+                <div className="px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800 flex items-start gap-2">
+                  <ShieldAlert className="w-4 h-4 mt-0.5" />
+                  <div>{speechError}</div>
+                </div>
+              )}
+              {speechSupport === 'unsupported' && (
+                <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-start gap-2">
+                  <InfoIcon className="w-4 h-4 mt-0.5" />
+                  <div>
+                    Spraakherkenning wordt niet ondersteund in deze browser. Gebruik Chrome of Edge en activeer microfoontoegang.
+                  </div>
+                </div>
+              )}
+              <div className="flex items-start gap-2 text-[11px] text-slate-500">
+                <InfoIcon className="w-4 h-4 mt-0.5 text-slate-400" />
+                <p>
+                  Audio via de Web Speech API blijft in je browser en wordt niet naar onze servers gestuurd. Mocht later een externe fallback
+                  beschikbaar komen, dan krijg je eerst expliciet toestemming om audio naar de server of API te verzenden.
+                </p>
+              </div>
             </div>
           </div>
         </div>
