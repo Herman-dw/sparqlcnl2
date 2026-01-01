@@ -160,6 +160,8 @@ const App: React.FC = () => {
   const [speechError, setSpeechError] = useState('');
   const [speechStatus, setSpeechStatus] = useState('');
   const [speechLang, setSpeechLang] = useState<'nl-NL' | 'en-US'>('nl-NL');
+  const [capturedTranscript, setCapturedTranscript] = useState('');
+  const [shouldContinueListening, setShouldContinueListening] = useState(false);
   const handleSendRef = useRef<(text?: string) => Promise<void>>(async () => {});
 
   useEffect(() => {
@@ -513,19 +515,33 @@ const App: React.FC = () => {
 
   const startListening = () => {
     setSpeechError('');
+    setCapturedTranscript('');
+    setInterimTranscript('');
     if (speechSupport !== 'supported') {
       setSpeechError('Spraakherkenning niet beschikbaar. Gebruik Chrome of Edge met microfoon ingeschakeld.');
       return;
     }
+    setShouldContinueListening(true);
     setSpeechStatus('Microfoon activeren...');
     speechServiceRef.current?.start();
   };
 
   const stopListening = () => {
     speechServiceRef.current?.stop();
+    setShouldContinueListening(false);
     setIsListening(false);
     setSpeechStatus('');
     setInterimTranscript('');
+  };
+  const confirmTranscript = () => {
+    if (!capturedTranscript.trim()) return;
+    setInputText((prev) => (prev ? `${prev.trim()} ${capturedTranscript.trim()}` : capturedTranscript.trim()));
+    setCapturedTranscript('');
+    setInterimTranscript('');
+    setSpeechStatus('');
+    setIsListening(false);
+    setShouldContinueListening(false);
+    speechServiceRef.current?.abort();
   };
 
   useEffect(() => {
@@ -542,15 +558,16 @@ const App: React.FC = () => {
         setSpeechError('');
       },
       onEnd: () => {
-        setIsListening(false);
-        setSpeechStatus('');
-        setInterimTranscript('');
+        if (!shouldContinueListening) {
+          setIsListening(false);
+          setSpeechStatus('');
+          setInterimTranscript('');
+        }
       },
       onInterim: (text) => setInterimTranscript(text),
       onFinal: async (text) => {
         setInterimTranscript('');
-        setInputText(text);
-        await handleSendRef.current(text);
+        setCapturedTranscript((prev) => (prev ? `${prev} ${text}` : text));
       },
       onError: (event) => {
         console.warn('Spraakherkenning fout', event);
@@ -569,11 +586,13 @@ const App: React.FC = () => {
         }
         setSpeechError(errorMessage);
       }
+      ,
+      shouldRestart: () => shouldContinueListening
     });
 
     speechServiceRef.current = service;
     return () => service?.abort();
-  }, [speechSupport, speechLang]);
+  }, [speechSupport, speechLang, shouldContinueListening]);
 
   const handleClearChat = async () => {
     setMessages([]);
@@ -1067,7 +1086,17 @@ const App: React.FC = () => {
                         className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors border bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
                       >
                         <MicOff className="w-4 h-4" />
-                        Stop
+                        Pauzeer
+                      </button>
+                    )}
+                    {!isListening && capturedTranscript && (
+                      <button
+                        type="button"
+                        onClick={startListening}
+                        className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                      >
+                        <Mic className="w-4 h-4" />
+                        Hervat
                       </button>
                     )}
                     <button
@@ -1091,11 +1120,16 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-              {(speechStatus || interimTranscript) && (
+              {(speechStatus || interimTranscript || capturedTranscript) && (
                 <div className="px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-sm text-indigo-800 flex items-start gap-2">
-                  <Loader2 className="w-4 h-4 mt-0.5 text-indigo-500 animate-spin" />
+                  <Loader2 className={`w-4 h-4 mt-0.5 text-indigo-500 ${isListening ? 'animate-spin' : ''}`} />
                   <div className="space-y-1">
                     <div className="font-semibold">{speechStatus || 'Live transcriptie'}</div>
+                    {capturedTranscript && (
+                      <div className="text-slate-700">
+                        <strong>Ingesproken:</strong> {capturedTranscript}
+                      </div>
+                    )}
                     {interimTranscript && <div className="text-slate-700">{interimTranscript}</div>}
                   </div>
                 </div>
@@ -1112,6 +1146,28 @@ const App: React.FC = () => {
                   <div>
                     Spraakherkenning wordt niet ondersteund in deze browser. Gebruik Chrome of Edge en activeer microfoontoegang.
                   </div>
+                </div>
+              )}
+              {capturedTranscript && (
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={confirmTranscript}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors border bg-emerald-600 text-white hover:bg-emerald-700"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Bevestig transcriptie naar invoerveld
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCapturedTranscript('');
+                      setInterimTranscript('');
+                    }}
+                    className="text-xs font-semibold text-slate-500 hover:text-rose-600"
+                  >
+                    Wis transcriptie
+                  </button>
                 </div>
               )}
               <div className="flex items-start gap-2 text-[11px] text-slate-500">

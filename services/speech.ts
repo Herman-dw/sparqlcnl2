@@ -15,6 +15,7 @@ export type SpeechCallbacks = {
   onInterim?: (text: string) => void;
   onFinal?: (text: string) => void;
   onError?: (error: SpeechRecognitionErrorEvent) => void;
+  shouldRestart?: () => boolean;
 };
 
 export type SpeechService = {
@@ -43,11 +44,16 @@ export const createSpeechService = (
   const recognition = new SpeechRecognitionCtor();
   recognition.lang = lang;
   recognition.interimResults = true;
-  recognition.continuous = false;
+  recognition.continuous = true;
   recognition.maxAlternatives = 1;
 
   recognition.onstart = () => callbacks.onStart?.();
-  recognition.onend = () => callbacks.onEnd?.();
+  recognition.onend = () => {
+    callbacks.onEnd?.();
+    if (callbacks.shouldRestart?.()) {
+      recognition.start();
+    }
+  };
   recognition.onerror = (event) => callbacks.onError?.(event);
   recognition.onresult = (event: SpeechRecognitionEvent) => {
     let finalText = '';
