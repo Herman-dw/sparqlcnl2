@@ -67,6 +67,8 @@ async function fetchOccupationProfile(uri: string) {
       BIND(<${uri}> AS ?occ)
       OPTIONAL {
         ?occ cnlo:requiresHATEssential|cnlo:requiresHATImportant|cnlo:requiresHATSomewhat ?capability .
+        ?capability a cnlo:HumanCapability .
+        FILTER NOT EXISTS { ?capability a cnlo:KnowledgeArea }
         ?capability skos:prefLabel ?capLabel .
       }
       OPTIONAL {
