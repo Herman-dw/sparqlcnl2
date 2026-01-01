@@ -32,7 +32,7 @@ const buildSource = (label: string): ProfileSource => ({
 async function resolveConcept(
   searchTerm: string,
   conceptType: 'occupation' | 'education'
-): Promise<{ uri: string; label: string } | null> {
+): Promise<{ uri: string; prefLabel: string; matchedLabel?: string } | null> {
   const backendUrl = getBackendUrl();
   const response = await fetch(`${backendUrl}/concept/resolve`, {
     method: 'POST',
@@ -48,7 +48,11 @@ async function resolveConcept(
   const firstMatch = (data.matches || [])[0];
   if (!firstMatch?.uri) return null;
 
-  return { uri: firstMatch.uri, label: firstMatch.prefLabel || firstMatch.matchedLabel || searchTerm };
+  return {
+    uri: firstMatch.uri,
+    prefLabel: firstMatch.prefLabel || firstMatch.matchedLabel || searchTerm,
+    matchedLabel: firstMatch.matchedLabel
+  };
 }
 
 async function fetchOccupationProfile(uri: string) {
@@ -63,6 +67,8 @@ async function fetchOccupationProfile(uri: string) {
       BIND(<${uri}> AS ?occ)
       OPTIONAL {
         ?occ cnlo:requiresHATEssential|cnlo:requiresHATImportant|cnlo:requiresHATSomewhat ?capability .
+        ?capability a cnlo:HumanCapability .
+        FILTER NOT EXISTS { ?capability a cnlo:KnowledgeArea }
         ?capability skos:prefLabel ?capLabel .
       }
       OPTIONAL {
@@ -156,7 +162,7 @@ export async function fetchProfileSuggestions(
       };
     }
 
-    const source = buildSource(resolved.label);
+    const source = buildSource(resolved.prefLabel);
     const occProfile = await fetchOccupationProfile(resolved.uri);
 
     const mapCategory = (items: ProfileItem[]): ProfileItemWithSource[] =>
@@ -171,6 +177,9 @@ export async function fetchProfileSuggestions(
       knowledge: mapCategory(occProfile.knowledge),
       workConditions: mapCategory(occProfile.workConditions),
       tasks: mapCategory(occProfile.tasks),
+      resolvedLabel: resolved.prefLabel,
+      resolvedMatchLabel: resolved.matchedLabel,
+      resolvedUri: resolved.uri,
       meta: {
         cached: false
       }

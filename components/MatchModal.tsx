@@ -60,6 +60,7 @@ const buildSourceMap = (profile?: SessionProfile, fallbackSkills: string[] = [])
     addItems(profile.skills);
     addItems(profile.knowledge);
     addItems(profile.tasks);
+    addItems(profile.workConditions);
   }
 
   if (fallbackSkills.length > 0) {
@@ -91,7 +92,7 @@ interface MatchModalProps {
 interface SelectedItemsProps {
   items: string[];
   onRemove: (item: string) => void;
-  color?: 'indigo' | 'emerald' | 'amber';
+  color?: 'indigo' | 'emerald' | 'amber' | 'purple';
   sourceMap?: SourceMap;
 }
 
@@ -99,7 +100,8 @@ const SelectedItems: React.FC<SelectedItemsProps> = ({ items, onRemove, color = 
   const colors = {
     indigo: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200',
     emerald: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200',
-    amber: 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+    amber: 'bg-amber-100 text-amber-700 hover:bg-amber-200',
+    purple: 'bg-purple-100 text-purple-700 hover:bg-purple-200'
   };
 
   if (items.length === 0) return null;
@@ -332,6 +334,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedKnowledge, setSelectedKnowledge] = useState<string[]>([]);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  const [selectedWorkConditions, setSelectedWorkConditions] = useState<string[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [results, setResults] = useState<MatchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -350,7 +353,12 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   }, []);
 
   const selectedProfileSources = useMemo(() => {
-    const active = [...selectedSkills, ...selectedKnowledge, ...selectedTasks];
+    const active = [
+      ...selectedSkills,
+      ...selectedKnowledge,
+      ...selectedTasks,
+      ...selectedWorkConditions
+    ];
     return active.reduce<SourceMap>((acc, label) => {
       const info = profileSourceMap[normalizeLabel(label)];
       if (info) {
@@ -382,6 +390,9 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
 
       const baseTasks = presetProfile?.tasks?.map((item) => item.label) || [];
       setSelectedTasks(uniqueStrings(baseTasks));
+
+      const baseWorkConditions = presetProfile?.workConditions?.map((item) => item.label) || [];
+      setSelectedWorkConditions(uniqueStrings(baseWorkConditions));
     }
   }, [initialSkills, isOpen, presetProfile, uniqueStrings]);
 
@@ -407,6 +418,15 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
 
   const handleRemoveKnowledge = useCallback((knowledge: string) => {
     setSelectedKnowledge(prev => prev.filter(k => k !== knowledge));
+  }, []);
+
+  // Handle tasks selection (pre-filled only)
+  const handleRemoveTask = useCallback((task: string) => {
+    setSelectedTasks((prev) => prev.filter((t) => t !== task));
+  }, []);
+
+  const handleRemoveWorkCondition = useCallback((condition: string) => {
+    setSelectedWorkConditions((prev) => prev.filter((c) => c !== condition));
   }, []);
 
   // Handle matching
@@ -563,6 +583,46 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                 </div>
               )}
 
+              {/* Pre-filled tasks */}
+              {selectedTasks.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-bold text-slate-700">
+                      Taken <span className="text-slate-400">(uit profiel)</span>
+                    </label>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-widest">
+                      {selectedTasks.length} geselecteerd
+                    </span>
+                  </div>
+                  <SelectedItems
+                    items={selectedTasks}
+                    onRemove={handleRemoveTask}
+                    sourceMap={profileSourceMap}
+                    color="purple"
+                  />
+                </div>
+              )}
+
+              {/* Pre-filled work conditions */}
+              {selectedWorkConditions.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-bold text-slate-700">
+                      Werkomstandigheden <span className="text-slate-400">(uit profiel)</span>
+                    </label>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-widest">
+                      {selectedWorkConditions.length} geselecteerd
+                    </span>
+                  </div>
+                  <SelectedItems
+                    items={selectedWorkConditions}
+                    onRemove={handleRemoveWorkCondition}
+                    sourceMap={profileSourceMap}
+                    color="amber"
+                  />
+                </div>
+              )}
+
               {/* Error message */}
               {error && (
                 <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex gap-3">
@@ -616,9 +676,19 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
 
               {/* Profile summary */}
               <div className="text-sm text-slate-500 space-y-2">
-                <div>
-                  <span className="font-medium">Profiel:</span>{' '}
-                  {[...selectedSkills, ...selectedKnowledge, ...selectedTasks].join(', ')}
+                <div className="flex flex-wrap gap-3">
+                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100 text-xs font-semibold">
+                    Vaardigheden: {selectedSkills.length}
+                  </span>
+                  <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 text-xs font-semibold">
+                    Kennisgebieden: {selectedKnowledge.length}
+                  </span>
+                  <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full border border-purple-100 text-xs font-semibold">
+                    Taken: {selectedTasks.length}
+                  </span>
+                  <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full border border-amber-100 text-xs font-semibold">
+                    Werkomstandigheden: {selectedWorkConditions.length}
+                  </span>
                 </div>
                 {Object.keys(selectedProfileSources).length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
@@ -697,7 +767,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
         {view === 'builder' && (
           <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
             <p className="text-xs text-slate-500">
-              {selectedSkills.length + selectedKnowledge.length} items geselecteerd
+              {selectedSkills.length + selectedKnowledge.length + selectedTasks.length + selectedWorkConditions.length} items geselecteerd
             </p>
             <div className="flex gap-3">
               <button
