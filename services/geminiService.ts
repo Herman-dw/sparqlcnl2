@@ -132,6 +132,44 @@ async function resolveConcept(
   }
 }
 
+async function mapToUwvOccupationUri(
+  concept: { term: string; resolved: string; type: string; uri?: string } | undefined,
+  originalQuestion?: string
+): Promise<{ uri?: string; matches: ConceptMatch[] }> {
+  if (!concept || concept.type !== 'occupation') {
+    return { matches: [] };
+  }
+
+  const existingUri = concept.uri;
+  if (existingUri && existingUri.includes('/uwv/')) {
+    return { uri: existingUri, matches: [] };
+  }
+
+  const searchTerm = concept.resolved || concept.term;
+  if (!searchTerm) {
+    return { matches: [] };
+  }
+
+  try {
+    const resolved = await resolveConcept(searchTerm, 'occupation', {
+      questionContext: originalQuestion || searchTerm
+    });
+    const matches: ConceptMatch[] = resolved?.matches || [];
+    const uwvMatch = matches.find(m => m.uri?.includes('/uwv/'));
+
+    if (uwvMatch?.uri) {
+      console.log(`[Concept] ✓ UWV URI gevonden voor "${searchTerm}": ${uwvMatch.uri}`);
+      return { uri: uwvMatch.uri, matches };
+    }
+
+    console.warn(`[Concept] Geen UWV URI gevonden voor "${searchTerm}" via resolver`);
+    return { matches };
+  } catch (error) {
+    console.warn('[Concept] UWV mapping mislukt:', error);
+    return { matches: [] };
+  }
+}
+
 async function generateViaBackend(question: string, chatHistory: ChatMessage[]): Promise<GenerateSparqlResult | null> {
   try {
     const response = await fetch(`${BACKEND_URL}/generate`, {
@@ -449,6 +487,19 @@ async function generateSparqlInternal(
   const q = userQuery.toLowerCase().trim();
   const classification = await classifyQuestion(userQuery);
   const domain = classification?.primary?.domainKey || 'occupation';
+  const resolvedOccupation = resolvedConcepts.find(c => c.type === 'occupation');
+  const uwvResolution = await mapToUwvOccupationUri(resolvedOccupation, userQuery);
+  const resolvedConceptsForQuery = resolvedConcepts.map(concept => {
+    if (concept.type !== 'occupation') return concept;
+    if (uwvResolution.uri) {
+      return { ...concept, uri: uwvResolution.uri };
+    }
+    if (concept.uri && concept.uri.includes('/uwv/')) {
+      return concept;
+    }
+    return { ...concept, uri: undefined };
+  });
+  const resolvedOccupationForQuery = resolvedConceptsForQuery.find(c => c.type === 'occupation' && c.uri);
   
   // Check for follow-up question (SCENARIO 3)
   const isFollowUp = chatHistory.length > 0 && (
@@ -478,7 +529,7 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
 }`,
       response: 'Er zijn in totaal 447 MBO kwalificaties. Wil je de eerste 50 zien?',
       needsDisambiguation: false,
-      resolvedConcepts,
+      resolvedConcepts: resolvedConceptsForQuery,
       domain: 'education',
       needsCount: true,
       needsList: true,
@@ -503,7 +554,7 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
 }`,
         response: 'Ik tel het aantal MBO kwalificaties...',
         needsDisambiguation: false,
-        resolvedConcepts,
+        resolvedConcepts: resolvedConceptsForQuery,
         domain: 'education',
         contextUsed: true
       };
@@ -537,7 +588,7 @@ ORDER BY ?type ?itemLabel
 LIMIT 100`,
       response: 'Bij de opleiding werkvoorbereider installaties leer je de volgende vaardigheden en kennisgebieden:',
       needsDisambiguation: false,
-      resolvedConcepts,
+      resolvedConcepts: resolvedConceptsForQuery,
       domain: 'education'
     };
   }
@@ -571,14 +622,14 @@ SELECT ?skill ?skillLabel WHERE {
 ORDER BY ?skillLabel`,
       response: `Vaardigheden met RIASEC code "${letter}" - ${riasecNames[letter]}:`,
       needsDisambiguation: false,
-      resolvedConcepts,
+      resolvedConcepts: resolvedConceptsForQuery,
       domain: 'taxonomy'
     };
   }
 
   // SCENARIO 4: Vaardigheden van beroep (met resolved concept)
-  if ((q.includes('vaardighe') || q.includes('skill')) && resolvedConcepts.length > 0) {
-    const resolved = resolvedConcepts[0];
+  if ((q.includes('vaardighe') || q.includes('skill')) && resolvedConceptsForQuery.length > 0) {
+    const resolved = resolvedConceptsForQuery[0];
     return {
       sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -600,7 +651,7 @@ ORDER BY ?importance ?skillLabel
 LIMIT 100`,
       response: `Dit zijn de vereiste vaardigheden voor ${resolved.resolved}:`,
       needsDisambiguation: false,
-      resolvedConcepts,
+      resolvedConcepts: resolvedConceptsForQuery,
       domain: 'skill'
     };
   }
@@ -611,18 +662,39 @@ LIMIT 100`,
   // Als we een URI hebben EN het is een bekende query type, genereer direct
   
   console.log(`[Direct] userQuery: "${userQuery}"`);
-  console.log(`[Direct] resolvedConcepts:`, JSON.stringify(resolvedConcepts, null, 2));
+  console.log(`[Direct] resolvedConcepts:`, JSON.stringify(resolvedConceptsForQuery, null, 2));
   
-  const resolved = resolvedConcepts.find(c => c.uri && c.type === 'occupation');
+  const wantsTasks = q.includes('taak') || q.includes('taken') || q.includes('werkzaamhed');
+  if (wantsTasks && resolvedOccupation && !resolvedOccupationForQuery?.uri) {
+    if (uwvResolution.matches.length > 0) {
+      console.log('[Direct] Geen UWV URI gevonden, vraag opnieuw om disambiguatie voor taken');
+      return {
+        sparql: null,
+        response: 'Ik vond geen UWV-URI voor dit beroep. Kies het juiste beroep zodat ik de taken kan ophalen:',
+        needsDisambiguation: true,
+        disambiguationData: {
+          pending: true,
+          searchTerm: resolvedOccupation.term,
+          conceptType: 'occupation',
+          options: uwvResolution.matches,
+          originalQuestion: userQuery
+        },
+        resolvedConcepts: [],
+        domain
+      };
+    }
+    console.warn('[Direct] Geen UWV URI voor takenquery, schakel over op AI-pad');
+  }
+
+  const resolved = resolvedOccupationForQuery;
   console.log(`[Direct] Found resolved with URI:`, resolved ? JSON.stringify(resolved) : 'GEEN');
   
   if (resolved?.uri) {
-    const q = userQuery.toLowerCase();
     console.log(`[Direct] Checking query type for: "${q}"`);
     console.log(`[Direct] URI to use: ${resolved.uri}`);
     
     // TAKEN query - directe generatie
-    if (q.includes('taak') || q.includes('taken') || q.includes('werkzaamhed')) {
+    if (wantsTasks) {
       console.log(`[Direct] ✓ Genereer TAKEN query met URI: ${resolved.uri}`);
       const sparql = `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -640,7 +712,7 @@ LIMIT 50`;
         sparql,
         response: `Dit zijn de taken voor ${resolved.resolved}:`,
         needsDisambiguation: false,
-        resolvedConcepts,
+        resolvedConcepts: resolvedConceptsForQuery,
         domain: 'task'
       };
     }
@@ -668,7 +740,7 @@ ORDER BY ?importance ?skillLabel
 LIMIT 100`,
         response: `Dit zijn de vaardigheden voor ${resolved.resolved}:`,
         needsDisambiguation: false,
-        resolvedConcepts,
+        resolvedConcepts: resolvedConceptsForQuery,
         domain: 'skill'
       };
     }
@@ -690,7 +762,7 @@ ORDER BY ?knowledgeLabel
 LIMIT 50`,
         response: `Dit zijn de kennisgebieden voor ${resolved.resolved}:`,
         needsDisambiguation: false,
-        resolvedConcepts,
+        resolvedConcepts: resolvedConceptsForQuery,
         domain: 'knowledge'
       };
     }
@@ -698,7 +770,7 @@ LIMIT 50`,
 
   // Default: Use Gemini AI (alleen als geen directe query mogelijk is)
   console.log(`[Gemini] Geen directe query mogelijk, gebruik AI`);
-  return await generateWithGemini(userQuery, filters, chatHistory, resolvedConcepts, domain, sessionId);
+  return await generateWithGemini(userQuery, filters, chatHistory, resolvedConceptsForQuery, domain, sessionId);
 }
 
 async function generateWithGemini(
