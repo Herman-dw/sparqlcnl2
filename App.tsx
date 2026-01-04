@@ -1,6 +1,6 @@
 /**
- * CompetentNL SPARQL Agent - v2.1.0
- * Met concept disambiguatie EN profiel matching
+ * CompetentNL SPARQL Agent - v2.2.0
+ * Met concept disambiguatie, profiel matching EN dynamische voorbeeldvragen
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
@@ -8,10 +8,10 @@ import {
   Send, Database, Download, Filter, Info, Trash2, Loader2,
   Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
   HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target, ListChecks,
-  Mic, MicOff, InfoIcon
+  Mic, MicOff, InfoIcon, RefreshCw, AlertCircle
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
-import { GRAPH_OPTIONS, EXAMPLES } from './constants';
+import { GRAPH_OPTIONS } from './constants';  // EXAMPLES verwijderd - nu dynamisch
 import { 
   generateSparqlWithDisambiguation, 
   summarizeResults,
@@ -31,6 +31,82 @@ import { ProfileItemWithSource, SessionProfile } from './types/profile';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
+
+// =====================================================
+// INLINE HOOK: useExampleQuestions
+// =====================================================
+interface ExampleQuestion {
+  id: number;
+  vraag: string;
+  category?: string;
+  domain?: string;
+}
+
+interface UseExampleQuestionsReturn {
+  examples: ExampleQuestion[];
+  loading: boolean;
+  error: string | null;
+  source: string;
+  refetch: () => Promise<void>;
+}
+
+function useExampleQuestions(backendUrl: string, limit: number = 8): UseExampleQuestionsReturn {
+  const [examples, setExamples] = useState<ExampleQuestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [source, setSource] = useState<string>('');
+
+  const fetchExamples = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${backendUrl}/api/example-questions?limit=${limit}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setExamples(data.examples || []);
+      setSource(data.source || 'api');
+      
+      if (data.error) {
+        setError(data.error);
+      }
+      
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Fout bij laden';
+      setError(message);
+      console.warn('[useExampleQuestions] Fallback naar defaults:', message);
+      
+      // Fallback voorbeelden - alle vragen zijn getest en werken!
+      setExamples([
+        { id: 1, vraag: 'Welke vaardigheden heeft een loodgieter?', category: 'skill' },
+        { id: 2, vraag: 'Hoeveel beroepen zijn er in de database?', category: 'count' },
+        { id: 3, vraag: 'Toon 30 MBO kwalificaties', category: 'education' },
+        { id: 4, vraag: 'Welke vaardigheden hebben RIASEC code R?', category: 'skill' },
+        { id: 5, vraag: 'Toon 30 kennisgebieden', category: 'knowledge' },
+        { id: 6, vraag: 'Toon alle 137 vaardigheden', category: 'skill' },
+        { id: 7, vraag: 'Welke taken heeft een timmerman?', category: 'task' },
+        { id: 8, vraag: 'Toon 20 software-gerelateerde beroepen', category: 'occupation' }
+      ]);
+      setSource('fallback');
+    } finally {
+      setLoading(false);
+    }
+  }, [backendUrl, limit]);
+
+  useEffect(() => {
+    fetchExamples();
+  }, [fetchExamples]);
+
+  return { examples, loading, error, source, refetch: fetchExamples };
+}
+
+// =====================================================
+// HELPER FUNCTIONS
+// =====================================================
 
 const detectRiasecContext = (text: string) => {
   const normalized = text.toLowerCase();
@@ -83,6 +159,10 @@ const mergeProfileLists = (
   return Array.from(map.values());
 };
 
+// =====================================================
+// MAIN APP COMPONENT
+// =====================================================
+
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -121,6 +201,17 @@ const App: React.FC = () => {
   const [showProfileWizard, setShowProfileWizard] = useState(false);
 
   const { profile, mergeProfile } = useProfileStore();
+
+  // =====================================================
+  // DYNAMISCHE VOORBEELDVRAGEN
+  // =====================================================
+  const { 
+    examples: dynamicExamples, 
+    loading: examplesLoading, 
+    error: examplesError, 
+    source: examplesSource,
+    refetch: refetchExamples 
+  } = useExampleQuestions(localBackendUrl, 8);
 
   const riasecProfileItems = useMemo<ProfileItemWithSource[]>(() => {
     return riasecSelectedCapabilities.map((cap) => ({
@@ -398,7 +489,7 @@ const App: React.FC = () => {
           needsList: true,
           listSparql: result.listSparql,
           sourceQuestion: text,
-          metadata: { needsList: true }
+          metadata: { domain: result.domain }
         };
         setMessages(prev => [...prev, assistantMsg]);
         await persistMessage(assistantMsg);
@@ -406,42 +497,49 @@ const App: React.FC = () => {
         return;
       }
 
-      // We have SPARQL - execute it
-      if (result.sparql) {
-        const validation = validateSparqlQuery(result.sparql, selectedGraphs);
-        if (!validation.valid) throw new Error(validation.error);
-
-        const results = await executeSparql(result.sparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
-        
-        // Add resolved concepts info to summary
-        let resolvedInfo = '';
-        if (result.resolvedConcepts.length > 0) {
-          resolvedInfo = result.resolvedConcepts
-            .map(c => `_"${c.term}" â†’ "${c.resolved}"_`)
-            .join(', ') + '\n\n';
-        }
-        
-        const summary = await summarizeResults(text, results);
-
-        const assistantMsg: Message = {
+      // Normal flow: execute SPARQL
+      if (!result.sparql) {
+        const fallbackMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          text: resolvedInfo + summary,
-          sparql: result.sparql,
-          results: results,
+          text: result.response || 'Ik kon geen SPARQL query genereren voor deze vraag.',
           timestamp: new Date(),
-          status: 'success'
+          status: 'error'
         };
-        setMessages(prev => [...prev, assistantMsg]);
-        await persistMessage(assistantMsg);
+        setMessages(prev => [...prev, fallbackMsg]);
+        await persistMessage(fallbackMsg);
+        setIsLoading(false);
+        return;
       }
-      
+
+      const validation = validateSparqlQuery(result.sparql, selectedGraphs);
+      if (!validation.valid) throw new Error(validation.error);
+
+      const results = await executeSparql(result.sparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+
+      // Summarize results
+      const summary = await summarizeResults(text, results);
+      const baseResponse = result.response || 'Hier zijn de resultaten:';
+
+      const assistantMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        text: `${baseResponse}\n\n${summary}`,
+        sparql: result.sparql,
+        results,
+        timestamp: new Date(),
+        status: 'success',
+        metadata: { domain: result.domain }
+      };
+
+      setMessages(prev => [...prev, assistantMsg]);
+      await persistMessage(assistantMsg);
+
     } catch (error: any) {
-      setPendingDisambiguation(null);
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        text: `Fout: ${error.message}`,
+        text: `Er is een fout opgetreden: ${error.message}`,
         timestamp: new Date(),
         status: 'error'
       };
@@ -451,48 +549,26 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
+
   handleSendRef.current = handleSend;
 
-  // Quick selection buttons for disambiguation
-  const handleQuickSelect = (index: number) => {
-    if (pendingDisambiguation) {
-      handleSend((index + 1).toString());
-    }
-  };
-
-  const handleShowList = async (message: Message) => {
-    const sourceQuestion = message.sourceQuestion || message.text || 'Toon alle MBO kwalificaties';
+  const handleShowList = async (msg: Message) => {
+    if (!msg.listSparql) return;
     setIsLoading(true);
 
     try {
-      const listResponse = await fetch(`${localBackendUrl}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: sourceQuestion,
-          chatHistory: getChatHistory(),
-          variant: 'list'
-        })
-      });
-
-      const listData = listResponse.ok ? await listResponse.json() : {};
-      const listSparql = listData.sparql || listData.listSparql || message.listSparql;
-
-      if (!listSparql) {
-        throw new Error('Geen SPARQL query beschikbaar voor de eerste 50 resultaten.');
-      }
-
-      const validation = validateSparqlQuery(listSparql, selectedGraphs);
+      const validation = validateSparqlQuery(msg.listSparql, selectedGraphs);
       if (!validation.valid) throw new Error(validation.error);
 
-      const results = await executeSparql(listSparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
-      const summary = await summarizeResults(sourceQuestion, results);
+      const results = await executeSparql(msg.listSparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+
+      const summary = await summarizeResults(msg.sourceQuestion || 'Toon resultaten', results);
 
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        text: `${listData.response || 'Hier zijn de eerste 50 resultaten:'}\n\n${summary}`,
-        sparql: listSparql,
+        text: `Hier zijn de eerste 50 resultaten:\n\n${summary}`,
+        sparql: msg.listSparql,
         results,
         timestamp: new Date(),
         status: 'success'
@@ -500,110 +576,20 @@ const App: React.FC = () => {
 
       setMessages(prev => [...prev, assistantMsg]);
       await persistMessage(assistantMsg);
+
     } catch (error: any) {
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        text: `Fout bij laden van resultaten: ${error.message}`,
+        text: `Kon lijst niet ophalen: ${error.message}`,
         timestamp: new Date(),
         status: 'error'
       };
       setMessages(prev => [...prev, errorMsg]);
-      await persistMessage(errorMsg);
     } finally {
       setIsLoading(false);
     }
   };
-
-  const startListening = () => {
-    setSpeechError('');
-    setCapturedTranscript('');
-    setInterimTranscript('');
-    silenceStopRef.current = false;
-    userStoppedRef.current = false;
-    if (speechSupport !== 'supported') {
-      setSpeechError('Spraakherkenning niet beschikbaar. Gebruik Chrome of Edge met microfoon ingeschakeld.');
-      return;
-    }
-    setShouldContinueListening(true);
-    setSpeechStatus('Microfoon activeren...');
-    speechServiceRef.current?.start();
-  };
-
-  const stopListening = () => {
-    speechServiceRef.current?.stop();
-    setShouldContinueListening(false);
-    userStoppedRef.current = true;
-    setIsListening(false);
-    setSpeechStatus('');
-    setInterimTranscript('');
-  };
-  const confirmTranscript = () => {
-    if (!capturedTranscript.trim()) return;
-    setInputText((prev) => (prev ? `${prev.trim()} ${capturedTranscript.trim()}` : capturedTranscript.trim()));
-    setCapturedTranscript('');
-    setInterimTranscript('');
-    setSpeechStatus('');
-    setIsListening(false);
-    setShouldContinueListening(false);
-    userStoppedRef.current = true;
-    speechServiceRef.current?.abort();
-  };
-
-  useEffect(() => {
-    if (speechSupport !== 'supported') {
-      speechServiceRef.current = null;
-      return;
-    }
-
-    speechServiceRef.current?.abort();
-    const service = createSpeechService(speechLang, {
-      onStart: () => {
-        setIsListening(true);
-        setSpeechStatus('Luisteren...');
-        setSpeechError('');
-      },
-      onEnd: () => {
-        if (!shouldContinueListening || userStoppedRef.current || silenceStopRef.current) {
-          setIsListening(false);
-          setSpeechStatus('');
-          setInterimTranscript('');
-        }
-      },
-      onInterim: (text) => setInterimTranscript(text),
-      onFinal: async (text) => {
-        setInterimTranscript('');
-        setCapturedTranscript((prev) => (prev ? `${prev} ${text}` : text));
-      },
-      onError: (event) => {
-        console.warn('Spraakherkenning fout', event);
-        setIsListening(false);
-        setSpeechStatus('');
-        setInterimTranscript('');
-        let errorMessage = 'Er ging iets mis met spraakherkenning. Probeer het opnieuw.';
-        if (event.error === 'no-speech') {
-          errorMessage = 'Geen spraak gedetecteerd. Controleer je microfoon of probeer opnieuw.';
-        } else if (event.error === 'audio-capture') {
-          errorMessage = 'Geen microfoon gevonden. Sluit een microfoon aan of controleer de instellingen.';
-        } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          errorMessage = 'Toegang tot de microfoon is geweigerd. Sta microfoontoegang toe om te dicteren.';
-        } else if (event.error === 'aborted') {
-          errorMessage = 'Opname gestopt. Je kunt opnieuw beginnen met dicteren.';
-        }
-        setSpeechError(errorMessage);
-      },
-      onSilenceTimeout: () => {
-        silenceStopRef.current = true;
-        setSpeechStatus('Opname gepauzeerd na stilte. Hervat om verder te dicteren of bevestig de tekst.');
-      }
-      ,
-      shouldRestart: () => shouldContinueListening
-    },
-    12000);
-
-    speechServiceRef.current = service;
-    return () => service?.abort();
-  }, [speechSupport, speechLang, shouldContinueListening]);
 
   const handleClearChat = async () => {
     setMessages([]);
@@ -616,85 +602,115 @@ const App: React.FC = () => {
   };
 
   const handleFeedback = async (messageId: string, feedback: 'like' | 'dislike') => {
-    const targetIndex = messages.findIndex(m => m.id === messageId);
-    if (targetIndex === -1) return;
-
-    const assistantMessage = messages[targetIndex];
-    const lastQuestion = [...messages]
-      .slice(0, targetIndex)
-      .reverse()
-      .find(m => m.role === 'user');
-
-    // Update UI immediately
-    setMessages(prev => prev.map(m => 
-      m.id === messageId ? { ...m, feedback } : m
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId ? { ...msg, feedback } : msg
     ));
 
-    // Update conversation log in database
-    try {
-      await fetch(`${localBackendUrl}/conversation/feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, messageId, feedback })
-      });
-    } catch (error) {
-      console.warn('Kon feedback niet opslaan in conversation log', error);
+    const msg = messages.find(m => m.id === messageId);
+    if (msg) {
+      await saveFeedback(messageId, feedback, msg.sparql || '', msg.results?.length || 0);
+      await sendFeedbackToBackend(localBackendUrl, sessionId, messageId, feedback, msg.text, msg.sparql || '');
     }
-
-    // Persist feedback locally
-    try {
-      saveFeedback({
-        question: lastQuestion?.text || '(geen vraag gevonden)',
-        sparqlQuery: assistantMessage.sparql || '',
-        resultCount: assistantMessage.results?.length || 0,
-        feedback
-      });
-    } catch (error) {
-      console.warn('Kon feedback niet opslaan', error);
-    }
-
-    // Log feedback to backend with context
-    await sendFeedbackToBackend({
-      sessionId,
-      messageId,
-      feedback,
-      context: {
-        question: lastQuestion?.text,
-        response: assistantMessage.text,
-        sparql: assistantMessage.sparql,
-        results: assistantMessage.results
-      }
-    });
   };
 
-  // Show Test Dashboard if enabled
+  // Speech recognition handlers
+  const startListening = useCallback(() => {
+    userStoppedRef.current = false;
+    silenceStopRef.current = false;
+    setSpeechError('');
+    setSpeechStatus('Initialiseren...');
+
+    if (!speechServiceRef.current) {
+      speechServiceRef.current = createSpeechService({
+        lang: speechLang,
+        continuous: true,
+        interimResults: true,
+        onResult: (transcript, isFinal) => {
+          if (isFinal) {
+            setCapturedTranscript(prev => (prev ? prev + ' ' : '') + transcript);
+            setInterimTranscript('');
+          } else {
+            setInterimTranscript(transcript);
+          }
+        },
+        onStart: () => {
+          setIsListening(true);
+          setSpeechStatus('Luistert...');
+        },
+        onEnd: () => {
+          setIsListening(false);
+          setSpeechStatus('');
+          if (!userStoppedRef.current && shouldContinueListening && !silenceStopRef.current) {
+            speechServiceRef.current?.start();
+          }
+        },
+        onError: (error) => {
+          setSpeechError(error);
+          setSpeechStatus('');
+          setIsListening(false);
+        },
+        onSilenceTimeout: () => {
+          silenceStopRef.current = true;
+          speechServiceRef.current?.stop();
+          setSpeechStatus('Gestopt door stilte');
+        }
+      });
+    }
+
+    speechServiceRef.current.setLang(speechLang);
+    setShouldContinueListening(true);
+    speechServiceRef.current.start();
+  }, [speechLang, shouldContinueListening]);
+
+  const stopListening = useCallback(() => {
+    userStoppedRef.current = true;
+    setShouldContinueListening(false);
+    speechServiceRef.current?.stop();
+    setSpeechStatus('Gepauzeerd');
+  }, []);
+
+  const confirmTranscript = useCallback(() => {
+    if (capturedTranscript) {
+      setInputText(prev => (prev ? prev + ' ' : '') + capturedTranscript);
+      setCapturedTranscript('');
+      setInterimTranscript('');
+      setSpeechStatus('');
+    }
+  }, [capturedTranscript]);
+
+  // =====================================================
+  // RENDER
+  // =====================================================
+
   if (showTests) {
-    return <TestPage onClose={() => setShowTests(false)} backendUrl={localBackendUrl} />;
+    return <TestPage onBack={() => setShowTests(false)} />;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
-      <div className="bg-indigo-900 text-white px-6 py-4 shadow-lg">
-        <div className="flex flex-wrap items-center justify-between gap-3 max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-700 flex items-center justify-center shadow-lg">
-              <Database className="w-6 h-6" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50 font-sans">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 text-white shadow-lg relative overflow-hidden">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml,...')] opacity-10"></div>
+        <div className="relative px-8 py-6 flex items-center justify-between max-w-[1800px] mx-auto">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm">
+              <Database className="w-7 h-7" />
             </div>
             <div>
-              <p className="text-[10px] uppercase font-semibold tracking-widest text-indigo-200">CompetentNL</p>
-              <h1 className="text-xl font-bold leading-tight">SPARQL Agent & RIASEC-zelftest</h1>
+              <h1 className="text-2xl font-black tracking-tight">CompetentNL SPARQL Agent</h1>
+              <p className="text-indigo-200 text-sm font-medium">Natuurlijke taal naar SPARQL • CompetentNL Knowledge Graph</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => setActivePage('chat')}
               className={`px-4 py-2 rounded-xl text-sm font-semibold border transition ${
                 activePage === 'chat'
                   ? 'bg-white text-indigo-700 border-white shadow-md'
-                  : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+                  : 'bg-indigo-600/80 text-white border-indigo-400/50 hover:bg-indigo-600'
               }`}
             >
-              Home
+              Chat
             </button>
             <button
               onClick={() => setActivePage('riasec')}
@@ -736,7 +752,6 @@ const App: React.FC = () => {
                   }))
                 });
                 setRiasecSelectedCapabilities(capabilities);
-                // Open de MatchModal met de geselecteerde capabilities
                 setShowMatchModal(true);
                 setActivePage('chat');
               }}
@@ -758,7 +773,7 @@ const App: React.FC = () => {
             </button>
           </div>
           <div className="text-[10px] font-bold opacity-80 uppercase tracking-widest flex items-center gap-1">
-            <Server className="w-3 h-3" /> v2.1 met Matching
+            <Server className="w-3 h-3" /> v2.2 met Matching
           </div>
         </div>
 
@@ -832,18 +847,66 @@ const App: React.FC = () => {
             </div>
           </div>
 
+          {/* =====================================================
+              DYNAMISCHE VOORBEELDVRAGEN SECTIE
+              ===================================================== */}
           <div className="space-y-4">
-            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Info className="w-3 h-3" /> Voorbeelden
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Info className="w-3 h-3" /> Voorbeelden
+                {examplesSource && (
+                  <span className="text-[8px] font-normal text-slate-300 lowercase">
+                    ({examplesSource})
+                  </span>
+                )}
+              </h3>
+              <button
+                onClick={refetchExamples}
+                disabled={examplesLoading}
+                className="p-1 hover:bg-slate-100 rounded transition-colors disabled:opacity-50"
+                title="Herlaad voorbeelden"
+              >
+                <RefreshCw className={`w-3 h-3 text-slate-400 ${examplesLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            
+            {examplesError && (
+              <div className="flex items-center gap-2 text-[10px] text-amber-600 bg-amber-50 p-2 rounded-lg">
+                <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">{examplesError}</span>
+              </div>
+            )}
+            
             <div className="space-y-2">
-              {EXAMPLES.map((ex, i) => (
-                <button key={i} onClick={() => handleSend(ex.vraag)} className="w-full text-left text-[11px] p-3 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50 transition-all text-slate-600 leading-snug">
-                  {ex.vraag}
-                </button>
-              ))}
+              {examplesLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+                </div>
+              ) : dynamicExamples.length > 0 ? (
+                dynamicExamples.map((ex, i) => (
+                  <button
+                    key={ex.id || i}
+                    onClick={() => handleSend(ex.vraag)}
+                    className="w-full text-left text-[11px] p-3 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50 transition-all text-slate-600 leading-snug group"
+                  >
+                    <span className="flex items-start gap-2">
+                      <span className="flex-1">{ex.vraag}</span>
+                      {ex.category && (
+                        <span className="flex-shrink-0 text-[8px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded uppercase">
+                          {ex.category}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="text-[11px] text-slate-400 text-center py-4">
+                  Geen voorbeelden beschikbaar
+                </div>
+              )}
             </div>
           </div>
+          {/* EINDE VOORBEELDVRAGEN SECTIE */}
         </div>
 
         <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
@@ -898,44 +961,16 @@ const App: React.FC = () => {
                 msg.metadata?.isDisambiguation ? 'bg-amber-50 border-amber-200 text-slate-800' :
                 'bg-white border-slate-200 text-slate-800'
               }`}>
-                {/* Disambiguation indicator */}
-                {msg.metadata?.isDisambiguation && !msg.metadata?.isRiasec && (
-                  <div className="flex items-center gap-2 mb-3 text-amber-600 text-sm font-bold">
-                    <HelpCircle className="w-4 h-4" />
-                    <span>Verduidelijking nodig</span>
-                  </div>
-                )}
-                
-                {/* Message text with markdown-like formatting */}
-                <div className="text-[15px] leading-relaxed whitespace-pre-wrap">
-                  {msg.text.split('\n').map((line, i) => {
-                    // Bold text
-                    if (line.startsWith('**') && line.includes('**')) {
-                      const parts = line.split('**');
-                      return (
-                        <div key={i} className="my-1">
-                          {parts.map((part, j) => 
-                            j % 2 === 1 ? <strong key={j}>{part}</strong> : part
-                          )}
-                        </div>
-                      );
-                    }
-                    // Italic text
-                    if (line.startsWith('_') || line.includes('_(')) {
-                      return <div key={i} className="my-1 text-slate-500 text-sm">{line.replace(/_/g, '')}</div>;
-                    }
-                    return <div key={i}>{line}</div>;
-                  })}
-                </div>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed">{msg.text}</div>
 
-                {/* Quick selection buttons for disambiguation */}
-                {msg.metadata?.isDisambiguation && pendingDisambiguation && !msg.metadata?.isRiasec && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {pendingDisambiguation.options.slice(0, 5).map((option, idx) => (
+                {/* Disambiguation options */}
+                {msg.metadata?.isDisambiguation && pendingDisambiguation?.options && (
+                  <div className="mt-4 space-y-2">
+                    {pendingDisambiguation.options.map((option, idx) => (
                       <button
-                        key={idx}
-                        onClick={() => handleQuickSelect(idx)}
-                        className="px-3 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                        key={option.uri}
+                        onClick={() => handleSend(`${idx + 1}`)}
+                        className="w-full text-left p-3 bg-white border border-amber-200 rounded-xl hover:bg-amber-50 hover:border-amber-400 transition-all flex items-center gap-2 text-sm"
                       >
                         <span className="w-5 h-5 bg-amber-200 rounded-full flex items-center justify-center text-[10px]">
                           {idx + 1}
@@ -952,7 +987,7 @@ const App: React.FC = () => {
                     onClick={() => handleShowList(msg)}
                     disabled={isLoading}
                   >
-                    ðŸ“„ Toon eerste 50 resultaten
+                    📄 Toon eerste 50 resultaten
                   </button>
                 )}
                 
@@ -1197,7 +1232,7 @@ const App: React.FC = () => {
           onClick={() => setShowTests(true)}
           className="fixed bottom-6 right-6 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg transition-all flex items-center gap-2 font-bold text-sm z-50"
         >
-          ðŸ§ª Tests
+          🧪 Tests
         </button>
       </main>
         </div>

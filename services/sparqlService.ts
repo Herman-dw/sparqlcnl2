@@ -99,6 +99,15 @@ const processBindings = (data: any): any[] => {
 export const validateSparqlQuery = (query: string, selectedGraphs: string[]): { valid: boolean; error?: string } => {
   const upper = query.toUpperCase();
   if (/\b(INSERT|DELETE|UPDATE|DROP|CLEAR)\b/.test(upper)) return { valid: false, error: "Alleen lees-queries toegestaan." };
-  if (!upper.includes('LIMIT') && !upper.includes('ASK')) return { valid: false, error: "LIMIT is verplicht." };
+  
+  // COUNT queries hoeven geen LIMIT - ze geven altijd maar 1 rij terug
+  const hasCount = upper.includes('COUNT(') || upper.includes('COUNT (');
+  const hasLimit = upper.includes('LIMIT');
+  const hasAsk = upper.includes('ASK');
+  
+  if (!hasLimit && !hasAsk && !hasCount) {
+    return { valid: false, error: "LIMIT is verplicht." };
+  }
+  
   return { valid: true };
 };

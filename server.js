@@ -3,14 +3,14 @@
  * ====================================
  * Complete implementatie voor alle 6 test scenarios:
  * 
- * 1. Disambiguatie: "Welke vaardigheden heeft een architect?" â†’ Vraagt om verduidelijking
+ * 1. Disambiguatie: "Welke vaardigheden heeft een architect?" Ã¢â€ â€™ Vraagt om verduidelijking
  * 1a. Feedback: Na disambiguatie moet feedback mogelijk zijn
- * 2. Domein-detectie: "Toon alle MBO kwalificaties" â†’ Console: [Orchestrator] Domein: education
- * 2a. Aantallen: Bij 50+ resultaten â†’ COUNT query + mogelijkheid alle op te halen
- * 3. Vervolgvraag: "Hoeveel zijn er?" â†’ Moet context gebruiken
- * 4. Concept resolver: "Vaardigheden van loodgieter" â†’ Resolven naar officiÃ«le naam
- * 5. Opleiding: "Wat leer jij bij de opleiding werkvoorbereider installaties?" â†’ vaardigheden + kennisgebieden
- * 6. RIASEC: "geef alle vaardigheden die een relatie hebben met R" â†’ hasRIASEC predicaat
+ * 2. Domein-detectie: "Toon alle MBO kwalificaties" Ã¢â€ â€™ Console: [Orchestrator] Domein: education
+ * 2a. Aantallen: Bij 50+ resultaten Ã¢â€ â€™ COUNT query + mogelijkheid alle op te halen
+ * 3. Vervolgvraag: "Hoeveel zijn er?" Ã¢â€ â€™ Moet context gebruiken
+ * 4. Concept resolver: "Vaardigheden van loodgieter" Ã¢â€ â€™ Resolven naar officiÃƒÂ«le naam
+ * 5. Opleiding: "Wat leer jij bij de opleiding werkvoorbereider installaties?" Ã¢â€ â€™ vaardigheden + kennisgebieden
+ * 6. RIASEC: "geef alle vaardigheden die een relatie hebben met R" Ã¢â€ â€™ hasRIASEC predicaat
  */
 
 import fs from 'fs';
@@ -69,16 +69,16 @@ const promptsPool = mysql.createPool({
 async function testDatabaseConnections() {
   try {
     await ragPool.execute('SELECT 1');
-    console.log('[DB] âœ“ competentnl_rag connected');
+    console.log('[DB] Ã¢Å“â€œ competentnl_rag connected');
   } catch (e) {
-    console.warn('[DB] âœ— competentnl_rag not available:', e.message);
+    console.warn('[DB] Ã¢Å“â€” competentnl_rag not available:', e.message);
   }
   
   try {
     await promptsPool.execute('SELECT 1');
-    console.log('[DB] âœ“ competentnl_prompts connected');
+    console.log('[DB] Ã¢Å“â€œ competentnl_prompts connected');
   } catch (e) {
-    console.warn('[DB] âœ— competentnl_prompts not available (orchestrator disabled):', e.message);
+    console.warn('[DB] Ã¢Å“â€” competentnl_prompts not available (orchestrator disabled):', e.message);
   }
 }
 
@@ -214,6 +214,121 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', version: '4.0.0' });
   });
 
+// =====================================================
+// BEKENDE PREFIXES VOOR AUTOMATISCHE FIX
+// =====================================================
+const KNOWN_PREFIXES = {
+  'cnlo': 'https://linkeddata.competentnl.nl/def/competentnl#',
+  'cnluwvo': 'https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#',
+  'skos': 'http://www.w3.org/2004/02/skos/core#',
+  'skosxl': 'http://www.w3.org/2008/05/skos-xl#',
+  'ksmo': 'https://data.s-bb.nl/ksm/ont/ksmo#',
+  'rdfs': 'http://www.w3.org/2000/01/rdf-schema#',
+  'rdf': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+  'dct': 'http://purl.org/dc/terms/',
+  'owl': 'http://www.w3.org/2002/07/owl#'
+};
+
+/**
+ * Voeg ontbrekende prefixes toe aan een SPARQL query
+ */
+function fixMissingPrefixes(query) {
+  if (!query) return query;
+  
+  // Vind welke prefixes gebruikt worden (bijv. cnlo:, skos:)
+  const usedPrefixes = [...new Set(
+    (query.match(/\b(\w+):/g) || [])
+      .map(m => m.replace(':', ''))
+      .filter(p => !['http', 'https', 'urn'].includes(p))
+  )];
+  
+  // Vind welke prefixes al gedefinieerd zijn
+  const definedPrefixes = (query.match(/PREFIX\s+(\w+)\s*:/gi) || [])
+    .map(m => m.replace(/PREFIX\s+/i, '').replace(/\s*:/, '').toLowerCase());
+  
+  // Voeg ontbrekende prefixes toe
+  const missingPrefixes = [];
+  for (const prefix of usedPrefixes) {
+    const lowerPrefix = prefix.toLowerCase();
+    if (!definedPrefixes.includes(lowerPrefix) && KNOWN_PREFIXES[lowerPrefix]) {
+      missingPrefixes.push(`PREFIX ${lowerPrefix}: <${KNOWN_PREFIXES[lowerPrefix]}>`);
+    }
+  }
+  
+  if (missingPrefixes.length > 0) {
+    console.log('[SPARQL] Ontbrekende prefixes toegevoegd:', missingPrefixes.map(p => p.split(':')[0].replace('PREFIX ', '')).join(', '));
+    return missingPrefixes.join('\n') + '\n' + query;
+  }
+  
+  return query;
+}
+
+/**
+ * Fix incorrect occupation URIs in SPARQL query
+ * De AI construeert soms zelf URIs zoals /id/occupation/kapper-2
+ * Deze moeten worden opgezocht in de database en vervangen door de echte URI
+ */
+async function fixIncorrectOccupationUri(query) {
+  if (!query) return query;
+  
+  // Patroon: <https://linkeddata.competentnl.nl/id/occupation/naam-eventueel-nummer>
+  // Dit is een VERKEERDE URI (mist /uwv/)
+  const incorrectUriPattern = /<https:\/\/linkeddata\.competentnl\.nl\/id\/occupation\/([^>]+)>/gi;
+  
+  const match = query.match(incorrectUriPattern);
+  if (!match || match.length === 0) {
+    // Geen verkeerde URI gevonden, of URI is al correct
+    return query;
+  }
+  
+  // Extract de "naam" uit de verkeerde URI
+  const incorrectUri = match[0];
+  const nameMatch = incorrectUri.match(/\/occupation\/([^>]+)>/);
+  if (!nameMatch) {
+    return query;
+  }
+  
+  // Naam uit URI halen en opschonen (bijv. "kapper-2" -> "kapper")
+  let searchName = nameMatch[1]
+    .replace(/-\d+$/, '')  // Verwijder trailing -nummer
+    .replace(/-/g, ' ')    // Vervang - door spatie
+    .toLowerCase()
+    .trim();
+  
+  console.log(`[URI-Fix] Verkeerde URI gedetecteerd: ${incorrectUri}`);
+  console.log(`[URI-Fix] Zoeken naar: "${searchName}"`);
+  
+  try {
+    // Zoek de correcte URI in de database
+    const [rows] = await ragPool.execute(`
+      SELECT occupation_uri, pref_label, label
+      FROM occupation_labels 
+      WHERE LOWER(label) LIKE ? OR LOWER(pref_label) LIKE ?
+      ORDER BY 
+        CASE WHEN LOWER(label) = ? THEN 0 ELSE 1 END,
+        LENGTH(label) ASC
+      LIMIT 1
+    `, [`%${searchName}%`, `%${searchName}%`, searchName]);
+    
+    if (rows.length > 0) {
+      const correctUri = rows[0].occupation_uri;
+      console.log(`[URI-Fix] ✓ Correcte URI gevonden: ${correctUri}`);
+      console.log(`[URI-Fix]   (${rows[0].pref_label})`);
+      
+      // Vervang de verkeerde URI door de correcte URI
+      const fixedQuery = query.replace(incorrectUriPattern, `<${correctUri}>`);
+      
+      console.log(`[URI-Fix] Query gecorrigeerd!`);
+      return fixedQuery;
+    } else {
+      console.log(`[URI-Fix] ⚠ Geen match gevonden voor "${searchName}"`);
+      return query;
+    }
+  } catch (error) {
+    console.error('[URI-Fix] Database error:', error.message);
+    return query;
+  }
+}
 
 // =====================================================
 // SPARQL PROXY
@@ -221,12 +336,19 @@ app.get('/health', (req, res) => {
 
 app.post('/proxy/sparql', async (req, res) => {
   const endpoint = process.env.COMPETENTNL_ENDPOINT || req.body.endpoint;
-  const query = req.body.query;
+  let query = req.body.query;
   const key = process.env.COMPETENTNL_API_KEY || req.body.key;
 
   if (!endpoint || !query) {
     return res.status(400).json({ error: 'Endpoint en query zijn verplicht.' });
   }
+
+  // Automatisch ontbrekende prefixes toevoegen
+  query = fixMissingPrefixes(query);
+  
+  // FIX: Corrigeer verkeerde occupation URIs die door de AI zijn geconstrueerd
+  // Patroon: /id/occupation/naam-nummer moet worden /uwv/id/occupation/HASH
+  query = await fixIncorrectOccupationUri(query);
 
   try {
     const params = new URLSearchParams();
@@ -277,8 +399,8 @@ app.post('/proxy/sparql', async (req, res) => {
  * POST /concept/resolve
  * Resolveert een zoekterm naar concept(en) in de knowledge graph
  * 
- * SCENARIO 1: "architect" â†’ meerdere matches â†’ disambiguatie
- * SCENARIO 4: "loodgieter" â†’ match naar officiÃ«le naam
+ * SCENARIO 1: "architect" Ã¢â€ â€™ meerdere matches Ã¢â€ â€™ disambiguatie
+ * SCENARIO 4: "loodgieter" Ã¢â€ â€™ match naar officiÃƒÂ«le naam
  */
 app.post('/concept/resolve', async (req, res) => {
   const { searchTerm, conceptType = 'occupation', riasecBypass = false, questionContext, question } = req.body;
@@ -333,6 +455,16 @@ app.post('/concept/resolve', async (req, res) => {
       LIMIT 20
     `, [normalized, `${normalized}%`, `%${normalized}%`, `%${normalized}%`, normalized]);
 
+    // DEBUG: Log database resultaten
+    console.log(`[Concept] Database query voor "${searchTerm}" retourneerde ${rows.length} rijen`);
+    if (rows.length > 0) {
+      console.log(`[Concept] Eerste 3 resultaten:`, rows.slice(0, 3).map(r => ({ 
+        uri: r.uri, 
+        prefLabel: r.prefLabel,
+        label: r.matchedLabel 
+      })));
+    }
+
     // Geen matches gevonden: bied generieke varianten aan voor verduidelijking
     if (rows.length === 0) {
       const synthetic = ensureDisambiguationOptions(searchTerm, effectiveConceptType, config, []);
@@ -375,7 +507,8 @@ app.post('/concept/resolve', async (req, res) => {
 
     if (strongMatches.length === 1) {
       const selected = strongMatches[0];
-      console.log(`[Concept] âœ“ Sterke exacte match: "${searchTerm}" â†’ "${selected.prefLabel}" (confidence ${selected.confidence})`);
+      console.log(`[Concept] ✓ Sterke exacte match: "${searchTerm}" -> "${selected.prefLabel}"`);
+      console.log(`[Concept]   URI: ${selected.uri}`);
       return res.json({
         found: true,
         exact: true,
@@ -393,10 +526,11 @@ app.post('/concept/resolve', async (req, res) => {
       m.matchedLabel.toLowerCase() === normalized && m.confidence >= STRONG_MATCH_THRESHOLD
     );
 
-    // SCENARIO 4: Loodgieter â†’ Exacte match of 1 uniek concept
+    // SCENARIO 4: Loodgieter Ã¢â€ â€™ Exacte match of 1 uniek concept
     if (exactMatch || uniqueUris.size === 1) {
       const selected = exactMatch || matches[0];
-      console.log(`[Concept] âœ“ Exact match: "${searchTerm}" â†’ "${selected.prefLabel}"`);
+      console.log(`[Concept] ✓ Exact match: "${searchTerm}" -> "${selected.prefLabel}"`);
+      console.log(`[Concept]   URI: ${selected.uri}`);
       return res.json({
         found: true,
         exact: true,
@@ -417,8 +551,15 @@ app.post('/concept/resolve', async (req, res) => {
       config,
       matches
     );
+    
+    // DEBUG: Log de disambiguatie candidates met URIs
+    console.log(`[Concept] Disambiguatie candidates (${disambiguationCandidates.length}):`);
+    disambiguationCandidates.slice(0, 5).forEach((c, i) => {
+      console.log(`  ${i+1}. "${c.prefLabel}" - URI: ${c.uri}`);
+    });
 
-    console.log(`[Concept] âš  Disambiguatie nodig: ${disambiguationCandidates.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
+    console.log(`[Concept] Disambiguatie matches:`, matches.slice(0,3).map(m => ({ label: m.prefLabel, uri: m.uri })));
+    console.log(`[Concept] Ã¢Å¡Â  Disambiguatie nodig: ${disambiguationCandidates.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
 
     // Genereer disambiguatie vraag
     const disambiguationQuestion = generateDisambiguationQuestion(
@@ -481,7 +622,7 @@ app.post('/concept/confirm', async (req, res) => {
     return res.status(400).json({ error: 'searchTerm en selectedUri zijn verplicht' });
   }
 
-  console.log(`[Concept] âœ“ Bevestigd: "${searchTerm}" â†’ "${selectedLabel}" (${selectedUri})`);
+  console.log(`[Concept] Ã¢Å“â€œ Bevestigd: "${searchTerm}" Ã¢â€ â€™ "${selectedLabel}" (${selectedUri})`);
 
   try {
     // Log de selectie voor learning
@@ -715,7 +856,7 @@ app.delete('/conversation/:sessionId', async (req, res) => {
  * POST /orchestrator/classify
  * Classificeer een vraag naar domein
  * 
- * SCENARIO 2: "Toon alle MBO kwalificaties" â†’ education domein
+ * SCENARIO 2: "Toon alle MBO kwalificaties" Ã¢â€ â€™ education domein
  */
 app.post('/orchestrator/classify', async (req, res) => {
   const { question } = req.body;
@@ -887,13 +1028,13 @@ app.post('/orchestrator/classify', async (req, res) => {
  */
 app.get('/orchestrator/domains', async (req, res) => {
   res.json([
-    { domain_key: 'occupation', domain_name: 'Beroepen', description: 'Vragen over beroepen en functies', icon: 'ðŸ‘”', priority: 1 },
-    { domain_key: 'skill', domain_name: 'Vaardigheden', description: 'Vragen over vaardigheden en competenties', icon: 'ðŸŽ¯', priority: 2 },
-    { domain_key: 'education', domain_name: 'Opleidingen', description: 'Vragen over opleidingen en kwalificaties', icon: 'ðŸŽ“', priority: 3 },
-    { domain_key: 'knowledge', domain_name: 'Kennisgebieden', description: 'Vragen over kennisgebieden', icon: 'ðŸ“š', priority: 4 },
-    { domain_key: 'taxonomy', domain_name: 'Taxonomie', description: 'Vragen over RIASEC, hiÃ«rarchieÃ«n, etc.', icon: 'ðŸ·ï¸', priority: 5 },
-    { domain_key: 'comparison', domain_name: 'Vergelijkingen', description: 'Vergelijkingen tussen concepten', icon: 'âš–ï¸', priority: 6 },
-    { domain_key: 'task', domain_name: 'Taken', description: 'Vragen over taken en werkzaamheden', icon: 'ðŸ“‹', priority: 7 }
+    { domain_key: 'occupation', domain_name: 'Beroepen', description: 'Vragen over beroepen en functies', icon: 'Ã°Å¸â€˜â€', priority: 1 },
+    { domain_key: 'skill', domain_name: 'Vaardigheden', description: 'Vragen over vaardigheden en competenties', icon: 'Ã°Å¸Å½Â¯', priority: 2 },
+    { domain_key: 'education', domain_name: 'Opleidingen', description: 'Vragen over opleidingen en kwalificaties', icon: 'Ã°Å¸Å½â€œ', priority: 3 },
+    { domain_key: 'knowledge', domain_name: 'Kennisgebieden', description: 'Vragen over kennisgebieden', icon: 'Ã°Å¸â€œÅ¡', priority: 4 },
+    { domain_key: 'taxonomy', domain_name: 'Taxonomie', description: 'Vragen over RIASEC, hiÃƒÂ«rarchieÃƒÂ«n, etc.', icon: 'Ã°Å¸ÂÂ·Ã¯Â¸Â', priority: 5 },
+    { domain_key: 'comparison', domain_name: 'Vergelijkingen', description: 'Vergelijkingen tussen concepten', icon: 'Ã¢Å¡â€“Ã¯Â¸Â', priority: 6 },
+    { domain_key: 'task', domain_name: 'Taken', description: 'Vragen over taken en werkzaamheden', icon: 'Ã°Å¸â€œâ€¹', priority: 7 }
   ]);
 });
 
@@ -972,8 +1113,8 @@ SELECT ?occupation ?skill ?skillLabel WHERE {
  * POST /generate
  * Genereer SPARQL query op basis van vraag, context en domein
  * 
- * SCENARIO 2a: Bij 50+ resultaten â†’ COUNT query
- * SCENARIO 3: "Hoeveel zijn er?" â†’ Gebruik context
+ * SCENARIO 2a: Bij 50+ resultaten Ã¢â€ â€™ COUNT query
+ * SCENARIO 3: "Hoeveel zijn er?" Ã¢â€ â€™ Gebruik context
  */
 app.post('/generate', async (req, res) => {
   const { 
@@ -1014,10 +1155,10 @@ app.post('/generate', async (req, res) => {
 
   if (isFollowUp && chatHistory.length > 0) {
     contextUsed = true;
-    console.log(`[Generate] âœ“ Vervolgvraag gedetecteerd, gebruik context`);
+    console.log(`[Generate] Ã¢Å“â€œ Vervolgvraag gedetecteerd, gebruik context`);
   }
 
-  // SCENARIO 2: MBO Kwalificaties â†’ Education domein
+  // SCENARIO 2: MBO Kwalificaties Ã¢â€ â€™ Education domein
   if (q.includes('mbo') && (q.includes('kwalificatie') || q.includes('kwalificaties'))) {
     detectedDomain = 'education';
     needsCount = true;
@@ -1058,7 +1199,7 @@ SELECT (COUNT(DISTINCT ?kwalificatie) as ?aantal) WHERE {
     }
   }
 
-  // SCENARIO 5: Opleiding â†’ Vaardigheden EN Kennisgebieden
+  // SCENARIO 5: Opleiding Ã¢â€ â€™ Vaardigheden EN Kennisgebieden
   else if ((q.includes('leer') || q.includes('opleiding')) && 
            (q.includes('vaardighe') || q.includes('kennis') || q.includes('werkvoorbereider'))) {
     detectedDomain = 'education';
@@ -1184,7 +1325,7 @@ ORDER BY ?relatietype`;
       occupationFilter = `VALUES ?occupation { <${resolvedUri}> }`;
     } else {
       // Probeer beroep uit vraag te halen
-      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zÃ©Ã«Ã¯Ã¶Ã¼Ã¡Ã Ã¢Ã¤Ã¨ÃªÃ®Ã´Ã»Ã§\-]+)/i);
+      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zÃƒÂ©ÃƒÂ«ÃƒÂ¯ÃƒÂ¶ÃƒÂ¼ÃƒÂ¡ÃƒÂ ÃƒÂ¢ÃƒÂ¤ÃƒÂ¨ÃƒÂªÃƒÂ®ÃƒÂ´ÃƒÂ»ÃƒÂ§\-]+)/i);
       if (occupationMatch) {
         const occName = occupationMatch[1];
         occupationFilter = `?occupation skos:prefLabel ?occLabel . FILTER(CONTAINS(LCASE(?occLabel), "${occName}"))`;
@@ -1259,6 +1400,308 @@ app.get('/rag/examples', async (req, res) => {
     res.json([]);
   }
 });
+/**
+ * VERBETERDE SERVER PATCH: Voorbeeldvragen Endpoints
+ * ===================================================
+ * Voeg dit toe aan server.js NA het /rag/examples endpoint (rond regel 1261)
+ * 
+ * Deze versie:
+ * - Werkt ook als 'domain' kolom niet bestaat
+ * - Heeft betere fallback voorbeelden met LIMIT
+ * - Geeft duidelijke foutmeldingen
+ */
+
+// =====================================================
+// HOMEPAGE VOORBEELDVRAGEN ENDPOINT
+// =====================================================
+
+app.get('/api/example-questions', async (req, res) => {
+  const limit = parseInt(req.query.limit) || 10;
+  
+  try {
+    // Probeer eerst met alle kolommen
+    let rows;
+    try {
+      const [result] = await ragPool.execute(`
+        SELECT 
+          id, 
+          question as vraag, 
+          sparql_query,
+          category,
+          domain,
+          usage_count,
+          success_rate
+        FROM question_embeddings
+        ORDER BY usage_count DESC, id ASC
+        LIMIT ?
+      `, [limit]);
+      rows = result;
+    } catch (columnError) {
+      // Als 'domain' kolom niet bestaat, probeer zonder
+      console.warn('[API] domain kolom niet gevonden, probeer zonder:', columnError.message);
+      const [result] = await ragPool.execute(`
+        SELECT 
+          id, 
+          question as vraag, 
+          sparql_query,
+          category,
+          usage_count
+        FROM question_embeddings
+        ORDER BY usage_count DESC, id ASC
+        LIMIT ?
+      `, [limit]);
+      rows = result;
+    }
+    
+    if (rows && rows.length > 0) {
+      console.log(`[API] âœ“ Loaded ${rows.length} example questions from question_embeddings`);
+      return res.json({
+        source: 'question_embeddings',
+        count: rows.length,
+        examples: rows
+      });
+    }
+    
+    // Fallback naar rag_examples tabel
+    try {
+      const [ragRows] = await ragPool.execute(`
+        SELECT 
+          id, 
+          question as vraag, 
+          sparql_query,
+          category,
+          feedback_score
+        FROM rag_examples
+        WHERE is_active = TRUE
+        ORDER BY feedback_score DESC, created_at DESC
+        LIMIT ?
+      `, [limit]);
+      
+      if (ragRows && ragRows.length > 0) {
+        console.log(`[API] âœ“ Loaded ${ragRows.length} example questions from rag_examples`);
+        return res.json({
+          source: 'rag_examples',
+          count: ragRows.length,
+          examples: ragRows
+        });
+      }
+    } catch (ragError) {
+      console.warn('[API] rag_examples tabel niet beschikbaar:', ragError.message);
+    }
+    
+    // Als beide tabellen leeg zijn, geef werkende defaults
+    console.log('[API] âš  Geen voorbeelden in database, gebruik defaults');
+    res.json({
+      source: 'defaults',
+      count: 8,
+      examples: getDefaultExamples()
+    });
+    
+  } catch (error) {
+    console.error('[API] âœ— Error loading example questions:', error.message);
+    res.json({
+      source: 'defaults_error',
+      error: error.message,
+      count: 8,
+      examples: getDefaultExamples()
+    });
+  }
+});
+
+// Helper functie met WERKENDE voorbeelden (alle queries hebben LIMIT!)
+function getDefaultExamples() {
+  return [
+    { 
+      id: 1, 
+      vraag: 'Welke vaardigheden heeft een loodgieter?', 
+      category: 'skill',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?skillLabel WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel .
+  FILTER(CONTAINS(LCASE(?occLabel), "loodgieter"))
+  ?occupation cnlo:requiresHATEssential ?skill .
+  ?skill skos:prefLabel ?skillLabel .
+  FILTER(LANG(?skillLabel) = "nl")
+}
+LIMIT 30`
+    },
+    { 
+      id: 2, 
+      vraag: 'Hoeveel beroepen zijn er in de database?', 
+      category: 'count',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+
+SELECT (COUNT(DISTINCT ?occupation) AS ?aantal) WHERE {
+  ?occupation a cnlo:Occupation .
+}
+LIMIT 1`
+    },
+    { 
+      id: 3, 
+      vraag: 'Toon 30 MBO kwalificaties', 
+      category: 'education',
+      sparql_query: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?naam WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie ;
+                skos:prefLabel ?naam .
+  FILTER(LANG(?naam) = "nl")
+}
+ORDER BY ?naam
+LIMIT 30`
+    },
+    { 
+      id: 4, 
+      vraag: 'Welke vaardigheden hebben RIASEC code R?', 
+      category: 'skill',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?skillLabel WHERE {
+  ?skill a cnlo:HumanCapability ;
+         cnlo:hasRIASEC "R" ;
+         skos:prefLabel ?skillLabel .
+  FILTER(LANG(?skillLabel) = "nl")
+}
+ORDER BY ?skillLabel
+LIMIT 50`
+    },
+    { 
+      id: 5, 
+      vraag: 'Toon 30 kennisgebieden', 
+      category: 'knowledge',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?label WHERE {
+  ?area a cnlo:KnowledgeArea ;
+        skos:prefLabel ?label .
+  FILTER(LANG(?label) = "nl")
+}
+ORDER BY ?label
+LIMIT 30`
+    },
+    { 
+      id: 6, 
+      vraag: 'Toon alle 137 vaardigheden', 
+      category: 'skill',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?label WHERE {
+  ?skill a cnlo:HumanCapability ;
+         skos:prefLabel ?label .
+  FILTER(LANG(?label) = "nl")
+}
+ORDER BY ?label
+LIMIT 150`
+    },
+    { 
+      id: 7, 
+      vraag: 'Welke taken heeft een timmerman?', 
+      category: 'task',
+      sparql_query: `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?taskLabel WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel .
+  FILTER(CONTAINS(LCASE(?occLabel), "timmerman"))
+  ?occupation cnluwvo:isCharacterizedByOccupationTask_Essential ?task .
+  ?task skos:prefLabel ?taskLabel .
+  FILTER(LANG(?taskLabel) = "nl")
+}
+LIMIT 30`
+    },
+    { 
+      id: 8, 
+      vraag: 'Toon 20 software-gerelateerde beroepen', 
+      category: 'occupation',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?label WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?label .
+  FILTER(LANG(?label) = "nl")
+  FILTER(CONTAINS(LCASE(?label), "software"))
+}
+ORDER BY ?label
+LIMIT 20`
+    }
+  ];
+}
+
+// =====================================================
+// TEST VOORBEELDVRAAG ENDPOINT
+// =====================================================
+
+app.post('/api/test-example-question', async (req, res) => {
+  const { question } = req.body;
+  
+  if (!question) {
+    return res.status(400).json({ error: 'Question is required' });
+  }
+  
+  const startTime = Date.now();
+  
+  try {
+    // Genereer SPARQL via het normale /generate endpoint
+    const generateRes = await fetch(`http://${HOST}:${PORT}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, chatHistory: [] })
+    });
+    
+    const generateResult = await generateRes.json();
+    
+    if (!generateResult.sparql) {
+      return res.json({
+        question,
+        success: false,
+        error: 'No SPARQL generated',
+        duration: Date.now() - startTime
+      });
+    }
+    
+    // Voer SPARQL uit
+    const sparqlRes = await fetch(`http://${HOST}:${PORT}/proxy/sparql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: generateResult.sparql })
+    });
+    
+    const sparqlResult = await sparqlRes.json();
+    
+    const duration = Date.now() - startTime;
+    const resultCount = sparqlResult.results?.bindings?.length || 0;
+    
+    res.json({
+      question,
+      success: true,
+      domain: generateResult.domain,
+      sparql: generateResult.sparql,
+      resultCount,
+      hasResults: resultCount > 0,
+      duration,
+      needsDisambiguation: generateResult.needsDisambiguation || false
+    });
+    
+  } catch (error) {
+    res.json({
+      question,
+      success: false,
+      error: error.message,
+      duration: Date.now() - startTime
+    });
+  }
+});
+
 
 app.post('/rag/log', async (req, res) => {
   const { sessionId, question, sparql, resultCount, executionTimeMs } = req.body;
@@ -1272,6 +1715,159 @@ app.post('/rag/log', async (req, res) => {
     res.json({ success: false });
   }
 });
+
+// =====================================================
+// HOMEPAGE VOORBEELDVRAGEN ENDPOINT
+// =====================================================
+
+app.get('/api/example-questions', async (req, res) => {
+  const limit = parseInt(req.query.limit) || 8;
+  
+  try {
+    // Eerst proberen uit question_embeddings (primaire bron)
+    const [questionRows] = await ragPool.execute(`
+      SELECT 
+        id, 
+        question as vraag, 
+        sparql_query,
+        category,
+        domain,
+        usage_count,
+        success_rate
+      FROM question_embeddings
+      ORDER BY usage_count DESC, success_rate DESC, created_at DESC
+      LIMIT ?
+    `, [limit]);
+    
+    if (questionRows.length > 0) {
+      console.log(`[API] Loaded ${questionRows.length} example questions from question_embeddings`);
+      return res.json({
+        source: 'question_embeddings',
+        count: questionRows.length,
+        examples: questionRows
+      });
+    }
+    
+    // Fallback naar rag_examples
+    const [ragRows] = await ragPool.execute(`
+      SELECT 
+        id, 
+        question as vraag, 
+        sparql_query,
+        category,
+        feedback_score
+      FROM rag_examples
+      WHERE is_active = TRUE
+      ORDER BY feedback_score DESC, created_at DESC
+      LIMIT ?
+    `, [limit]);
+    
+    if (ragRows.length > 0) {
+      console.log(`[API] Loaded ${ragRows.length} example questions from rag_examples (fallback)`);
+      return res.json({
+        source: 'rag_examples',
+        count: ragRows.length,
+        examples: ragRows
+      });
+    }
+    
+    // Als beide tabellen leeg zijn, geef hardcoded defaults
+    console.log('[API] No examples in database, using defaults');
+    res.json({
+      source: 'defaults',
+      count: 6,
+      examples: [
+        { id: 1, vraag: 'Welke vaardigheden heeft een loodgieter?', category: 'skill' },
+        { id: 2, vraag: 'Hoeveel beroepen zijn er in de database?', category: 'count' },
+        { id: 3, vraag: 'Toon alle MBO kwalificaties', category: 'education' },
+        { id: 4, vraag: 'Vergelijk timmerman met metselaar', category: 'comparison' },
+        { id: 5, vraag: 'Welke kennisgebieden hoort bij ICT?', category: 'knowledge' },
+        { id: 6, vraag: 'Geef vaardigheden met RIASEC code R', category: 'skill' }
+      ]
+    });
+    
+  } catch (error) {
+    console.error('[API] Error loading example questions:', error.message);
+    // Bij error, geef defaults terug
+    res.json({
+      source: 'defaults_error',
+      error: error.message,
+      count: 4,
+      examples: [
+        { id: 1, vraag: 'Welke vaardigheden heeft een loodgieter?', category: 'skill' },
+        { id: 2, vraag: 'Hoeveel beroepen zijn er?', category: 'count' },
+        { id: 3, vraag: 'Toon alle MBO kwalificaties', category: 'education' },
+        { id: 4, vraag: 'Vergelijk twee beroepen', category: 'comparison' }
+      ]
+    });
+  }
+});
+
+// =====================================================
+// TEST VOORBEELDVRAGEN ENDPOINT
+// =====================================================
+
+app.post('/api/test-example-question', async (req, res) => {
+  const { question } = req.body;
+  
+  if (!question) {
+    return res.status(400).json({ error: 'Question is required' });
+  }
+  
+  const startTime = Date.now();
+  
+  try {
+    // Genereer SPARQL via het normale /generate endpoint
+    const generateRes = await fetch(`http://${HOST}:${PORT}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, chatHistory: [] })
+    });
+    
+    const generateResult = await generateRes.json();
+    
+    if (!generateResult.sparql) {
+      return res.json({
+        question,
+        success: false,
+        error: 'No SPARQL generated',
+        duration: Date.now() - startTime
+      });
+    }
+    
+    // Voer SPARQL uit
+    const sparqlRes = await fetch(`http://${HOST}:${PORT}/proxy/sparql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: generateResult.sparql })
+    });
+    
+    const sparqlResult = await sparqlRes.json();
+    
+    const duration = Date.now() - startTime;
+    const resultCount = sparqlResult.results?.bindings?.length || 0;
+    
+    res.json({
+      question,
+      success: true,
+      domain: generateResult.domain,
+      sparql: generateResult.sparql,
+      resultCount,
+      hasResults: resultCount > 0,
+      duration,
+      needsDisambiguation: generateResult.needsDisambiguation || false
+    });
+    
+  } catch (error) {
+    res.json({
+      question,
+      success: false,
+      error: error.message,
+      duration: Date.now() - startTime
+    });
+  }
+});
+
 
 // =====================================================
 // RIASEC CAPABILITIES API
@@ -1540,7 +2136,7 @@ app.post('/test/scenario', async (req, res) => {
   results.steps.push({ step: 'classify', result: classification });
 
   // Step 2: Extract occupation term if present
-  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zÃ©Ã«Ã¯Ã¶Ã¼Ã¡Ã Ã¢Ã¤Ã¨ÃªÃ®Ã´Ã»Ã§\-]+)/i);
+  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zÃƒÂ©ÃƒÂ«ÃƒÂ¯ÃƒÂ¶ÃƒÂ¼ÃƒÂ¡ÃƒÂ ÃƒÂ¢ÃƒÂ¤ÃƒÂ¨ÃƒÂªÃƒÂ®ÃƒÂ´ÃƒÂ»ÃƒÂ§\-]+)/i);
   if (occMatch) {
     const resolveRes = await fetch(`http://${HOST}:${PORT}/concept/resolve`, {
       method: 'POST',
@@ -1576,53 +2172,53 @@ app.post('/test/scenario', async (req, res) => {
 testDatabaseConnections().then(async () => {
   
   // Preload matching cache voor snelle eerste requests
-  console.log('ðŸ”„ Preloading matching cache...');
+  console.log('Ã°Å¸â€â€ž Preloading matching cache...');
   const cacheStart = Date.now();
   
   try {
     await preloadCache();
     const cacheDuration = ((Date.now() - cacheStart) / 1000).toFixed(1);
-    console.log(`âœ… Matching cache ready (${cacheDuration}s)`);
+    console.log(`Ã¢Å“â€¦ Matching cache ready (${cacheDuration}s)`);
   } catch (err) {
-    console.warn('âš ï¸ Matching cache preload failed:', err.message);
+    console.warn('Ã¢Å¡Â Ã¯Â¸Â Matching cache preload failed:', err.message);
     console.warn('   Cache wordt opgebouwd bij eerste request');
   }
   
   app.listen(PORT, HOST, () => {
     console.log(`
-  â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
-  â•‘  CompetentNL Server v4.1.0 - All Scenarios + Matching     â•‘
-  â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
-  â•‘  Host:     ${HOST}                                        â•‘
-  â•‘  Port:     ${PORT}                                        â•‘
-  â•‘  URL:      http://${HOST}:${PORT}                         â•‘
-  â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
-  â•‘  Test Scenarios:                                          â•‘
-  â•‘  1.  Disambiguatie:    architect â†’ meerdere opties        â•‘
-  â•‘  1a. Feedback:         na disambiguatie                   â•‘
-  â•‘  2.  Domein-detectie:  MBO kwalificaties â†’ education      â•‘
-  â•‘  2a. Aantallen:        50+ resultaten â†’ COUNT query       â•‘
-  â•‘  3.  Vervolgvraag:     "Hoeveel zijn er?" met context     â•‘
-  â•‘  4.  Concept resolver: loodgieter â†’ officiÃ«le naam        â•‘
-  â•‘  5.  Opleiding:        vaardigheden + kennisgebieden      â•‘
-  â•‘  6.  RIASEC:           Hollandcode R â†’ hasRIASEC          â•‘
-  â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
-  â•‘  Bestaande Endpoints:                                     â•‘
-  â•‘  â€¢ POST /concept/resolve      - Concept disambiguatie     â•‘
-  â•‘  â€¢ POST /concept/confirm      - Bevestig keuze            â•‘
-  â•‘  â€¢ POST /feedback             - Algemene feedback         â•‘
-  â•‘  â€¢ POST /orchestrator/classify - Domein-detectie          â•‘
-  â•‘  â€¢ POST /generate             - SPARQL generatie          â•‘
-  â•‘  â€¢ GET  /test/health          - Test status               â•‘
-  â•‘  â€¢ POST /test/scenario        - Run test scenario         â•‘
-  â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
-  â•‘  Nieuwe Matching Endpoints:                               â•‘
-  â•‘  â€¢ POST /api/match-profile         - Match profiel        â•‘
-  â•‘  â€¢ POST /api/match-profile/preload - Herlaad cache        â•‘
-  â•‘  â€¢ DELETE /api/match-profile/cache - Wis cache            â•‘
-  â•‘  â€¢ GET  /api/match-profile/health  - Health check         â•‘
-  â•‘  â€¢ GET  /api/idf-weights           - Bekijk IDF weights   â•‘
-  â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  Ã¢â€¢â€Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢â€”
+  Ã¢â€¢â€˜  CompetentNL Server v4.1.0 - All Scenarios + Matching     Ã¢â€¢â€˜
+  Ã¢â€¢Â Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â£
+  Ã¢â€¢â€˜  Host:     ${HOST}                                        Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Port:     ${PORT}                                        Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  URL:      http://${HOST}:${PORT}                         Ã¢â€¢â€˜
+  Ã¢â€¢Â Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â£
+  Ã¢â€¢â€˜  Test Scenarios:                                          Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  1.  Disambiguatie:    architect Ã¢â€ â€™ meerdere opties        Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  1a. Feedback:         na disambiguatie                   Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  2.  Domein-detectie:  MBO kwalificaties Ã¢â€ â€™ education      Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  2a. Aantallen:        50+ resultaten Ã¢â€ â€™ COUNT query       Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  3.  Vervolgvraag:     "Hoeveel zijn er?" met context     Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  4.  Concept resolver: loodgieter Ã¢â€ â€™ officiÃƒÂ«le naam        Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  5.  Opleiding:        vaardigheden + kennisgebieden      Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  6.  RIASEC:           Hollandcode R Ã¢â€ â€™ hasRIASEC          Ã¢â€¢â€˜
+  Ã¢â€¢Â Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â£
+  Ã¢â€¢â€˜  Bestaande Endpoints:                                     Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /concept/resolve      - Concept disambiguatie     Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /concept/confirm      - Bevestig keuze            Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /feedback             - Algemene feedback         Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /orchestrator/classify - Domein-detectie          Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /generate             - SPARQL generatie          Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ GET  /test/health          - Test status               Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /test/scenario        - Run test scenario         Ã¢â€¢â€˜
+  Ã¢â€¢Â Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â£
+  Ã¢â€¢â€˜  Nieuwe Matching Endpoints:                               Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /api/match-profile         - Match profiel        Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /api/match-profile/preload - Herlaad cache        Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ DELETE /api/match-profile/cache - Wis cache            Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ GET  /api/match-profile/health  - Health check         Ã¢â€¢â€˜
+  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ GET  /api/idf-weights           - Bekijk IDF weights   Ã¢â€¢â€˜
+  Ã¢â€¢Å¡Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     `);
   });
 });

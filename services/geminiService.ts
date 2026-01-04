@@ -41,7 +41,7 @@ export interface GenerateSparqlResult {
   response: string;
   needsDisambiguation: boolean;
   disambiguationData?: DisambiguationData;
-  resolvedConcepts: { term: string; resolved: string; type: string }[];
+  resolvedConcepts: { term: string; resolved: string; type: string; uri?: string }[];
   domain?: string;
   needsCount?: boolean;
   contextUsed?: boolean;
@@ -167,9 +167,9 @@ function extractOccupationTerm(question: string): string | null {
   
   // Pattern matching
   const patterns = [
-    /(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+?)(?:\s+nodig|\s+heeft|\?|$)/i,
-    /vaardigheden\s+(?:van\s+)?(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+)/i,
-    /(?:beroep|als)\s+([a-zéëïöüáàâäèêîôûç\-]+)/i,
+    /(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zÃƒÂ©ÃƒÂ«ÃƒÂ¯ÃƒÂ¶ÃƒÂ¼ÃƒÂ¡ÃƒÂ ÃƒÂ¢ÃƒÂ¤ÃƒÂ¨ÃƒÂªÃƒÂ®ÃƒÂ´ÃƒÂ»ÃƒÂ§\-]+?)(?:\s+nodig|\s+heeft|\?|$)/i,
+    /vaardigheden\s+(?:van\s+)?(?:een\s+)?([a-zÃƒÂ©ÃƒÂ«ÃƒÂ¯ÃƒÂ¶ÃƒÂ¼ÃƒÂ¡ÃƒÂ ÃƒÂ¢ÃƒÂ¤ÃƒÂ¨ÃƒÂªÃƒÂ®ÃƒÂ´ÃƒÂ»ÃƒÂ§\-]+)/i,
+    /(?:beroep|als)\s+([a-zÃƒÂ©ÃƒÂ«ÃƒÂ¯ÃƒÂ¶ÃƒÂ¼ÃƒÂ¡ÃƒÂ ÃƒÂ¢ÃƒÂ¤ÃƒÂ¨ÃƒÂªÃƒÂ®ÃƒÂ´ÃƒÂ»ÃƒÂ§\-]+)/i,
   ];
   
   for (const pattern of patterns) {
@@ -216,6 +216,47 @@ function fixSparqlQuery(sparql: string): string {
   return fixed;
 }
 
+/**
+ * Fix incorrect occupation URIs in SPARQL query
+ * De AI construeert soms zelf URIs zoals /id/occupation/kapper-2
+ * Deze moeten vervangen worden door de echte URI uit de database
+ */
+function fixOccupationUri(sparql: string, correctUri: string | undefined): string {
+  if (!correctUri) {
+    console.log('[URI-Fix] Geen correcte URI beschikbaar, query ongewijzigd');
+    return sparql;
+  }
+  
+  console.log(`[URI-Fix] Correcte URI: ${correctUri}`);
+  
+  let fixed = sparql;
+  const original = sparql;
+  
+  // Pattern 1: VALUES ?occupation { <any-uri> }
+  // Dit vangt zowel correcte als incorrecte URIs
+  fixed = fixed.replace(
+    /VALUES\s+\?occupation\s*\{\s*<[^>]+>\s*\}/gi,
+    `VALUES ?occupation { <${correctUri}> }`
+  );
+  
+  // Pattern 2: Incorrecte URIs (zonder /uwv/) in andere contexten
+  // Match: <https://linkeddata.competentnl.nl/id/occupation/anything>
+  // Niet: <https://linkeddata.competentnl.nl/uwv/id/occupation/...>
+  fixed = fixed.replace(
+    /<https:\/\/linkeddata\.competentnl\.nl\/id\/occupation\/[^>]+>/gi,
+    `<${correctUri}>`
+  );
+  
+  if (fixed !== original) {
+    console.log(`[URI-Fix] ✓ URI gecorrigeerd in query`);
+    console.log(`[URI-Fix] Nieuwe URI in query: ${correctUri}`);
+  } else {
+    console.log(`[URI-Fix] Query bevat geen occupation URI om te vervangen`);
+  }
+  
+  return fixed;
+}
+
 // ============================================================
 // MAIN FUNCTION: generateSparqlWithDisambiguation
 // (Compatible met App.tsx)
@@ -229,7 +270,7 @@ export async function generateSparqlWithDisambiguation(
   sessionId: string = 'default'
 ): Promise<GenerateSparqlResult> {
   
-  const resolvedConcepts: { term: string; resolved: string; type: string }[] = [];
+  const resolvedConcepts: { term: string; resolved: string; type: string; uri?: string }[] = [];
   const q = userQuery.toLowerCase().trim();
   const riasecDetected = isRiasecQuestionText(userQuery);
 
@@ -259,11 +300,27 @@ export async function generateSparqlWithDisambiguation(
     }
     
     if (selectedOption) {
+      // DEBUG: Log alle details van de geselecteerde optie
+      console.log(`[Concept] DEBUG selectedOption:`, JSON.stringify(selectedOption, null, 2));
+      console.log(`[Concept] DEBUG selectedOption.uri:`, selectedOption.uri);
+      console.log(`[Concept] DEBUG typeof uri:`, typeof selectedOption.uri);
+      
+      // URI meegeven voor nauwkeurige queries (filter synthetische URIs)
+      const resolvedUri = selectedOption.uri && !selectedOption.uri.startsWith('synthetic:') 
+        ? selectedOption.uri 
+        : undefined;
+      
+      console.log(`[Concept] DEBUG resolvedUri na filter:`, resolvedUri);
+      
       resolvedConcepts.push({
         term: pendingDisambiguation.searchTerm,
         resolved: selectedOption.prefLabel,
-        type: pendingDisambiguation.conceptType
+        type: pendingDisambiguation.conceptType,
+        uri: resolvedUri
       });
+      
+      console.log(`[Concept] Disambiguatie opgelost: "${pendingDisambiguation.searchTerm}" -> "${selectedOption.prefLabel}"`);
+      console.log(`[Concept] URI: ${resolvedUri || 'GEEN URI!'}`);
       
       // Generate SPARQL with resolved concept
       return await generateSparqlInternal(
@@ -311,16 +368,20 @@ export async function generateSparqlWithDisambiguation(
     
     if (strongMatches.length === 1) {
       const selected = strongMatches[0];
-      console.log(`[Concept] ✓ Sterke match gekozen: "${occupationTerm}" → "${selected.prefLabel}"`);
+      const resolvedUri = selected.uri && !selected.uri.startsWith('synthetic:') 
+        ? selected.uri 
+        : undefined;
+      console.log(`[Concept] Sterke match: "${occupationTerm}" -> "${selected.prefLabel}"${resolvedUri ? ' (URI)' : ''}`);
       resolvedConcepts.push({
         term: occupationTerm,
         resolved: selected.prefLabel,
-        type: 'occupation'
+        type: 'occupation',
+        uri: resolvedUri
       });
       occupationResolved = true;
     } else if (conceptResult?.needsDisambiguation && conceptResult.matches?.length > 1) {
       // SCENARIO 1: Disambiguation needed
-      console.log(`[Concept] ⚠ Disambiguatie nodig voor: "${occupationTerm}"`);
+      console.log(`[Concept] Ã¢Å¡Â  Disambiguatie nodig voor: "${occupationTerm}"`);
       
       return {
         sparql: null,
@@ -340,11 +401,16 @@ export async function generateSparqlWithDisambiguation(
     
     // SCENARIO 4: Concept resolved
     if (!occupationResolved && conceptResult?.found && conceptResult.resolvedLabel) {
-      console.log(`[Concept] ✓ Resolved: "${occupationTerm}" → "${conceptResult.resolvedLabel}"`);
+      const resolvedUri = conceptResult.resolvedUri || undefined;
+      console.log(`[Concept] SCENARIO 4 resolved:`);
+      console.log(`  - term: "${occupationTerm}"`);
+      console.log(`  - label: "${conceptResult.resolvedLabel}"`);
+      console.log(`  - URI: ${resolvedUri || 'GEEN URI!'}`);
       resolvedConcepts.push({
         term: occupationTerm,
         resolved: conceptResult.resolvedLabel,
-        type: 'occupation'
+        type: 'occupation',
+        uri: resolvedUri
       });
     }
   }
@@ -376,7 +442,7 @@ async function generateSparqlInternal(
   userQuery: string,
   filters: { graphs: string[], type: string, status: string },
   chatHistory: ChatMessage[],
-  resolvedConcepts: { term: string; resolved: string; type: string }[],
+  resolvedConcepts: { term: string; resolved: string; type: string; uri?: string }[],
   sessionId: string
 ): Promise<GenerateSparqlResult> {
   
@@ -539,7 +605,99 @@ LIMIT 100`,
     };
   }
 
-  // Default: Use Gemini AI
+  // ============================================================
+  // DIRECTE QUERY GENERATIE MET URI (zonder AI)
+  // ============================================================
+  // Als we een URI hebben EN het is een bekende query type, genereer direct
+  
+  console.log(`[Direct] userQuery: "${userQuery}"`);
+  console.log(`[Direct] resolvedConcepts:`, JSON.stringify(resolvedConcepts, null, 2));
+  
+  const resolved = resolvedConcepts.find(c => c.uri && c.type === 'occupation');
+  console.log(`[Direct] Found resolved with URI:`, resolved ? JSON.stringify(resolved) : 'GEEN');
+  
+  if (resolved?.uri) {
+    const q = userQuery.toLowerCase();
+    console.log(`[Direct] Checking query type for: "${q}"`);
+    console.log(`[Direct] URI to use: ${resolved.uri}`);
+    
+    // TAKEN query - directe generatie
+    if (q.includes('taak') || q.includes('taken') || q.includes('werkzaamhed')) {
+      console.log(`[Direct] ✓ Genereer TAKEN query met URI: ${resolved.uri}`);
+      const sparql = `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?taskLabel WHERE {
+  VALUES ?occupation { <${resolved.uri}> }
+  ?occupation cnluwvo:isCharacterizedByOccupationTask_Essential ?task .
+  ?task skos:prefLabel ?taskLabel .
+  FILTER(LANG(?taskLabel) = "nl")
+}
+ORDER BY ?taskLabel
+LIMIT 50`;
+      console.log(`[Direct] Generated SPARQL:\n${sparql}`);
+      return {
+        sparql,
+        response: `Dit zijn de taken voor ${resolved.resolved}:`,
+        needsDisambiguation: false,
+        resolvedConcepts,
+        domain: 'task'
+      };
+    }
+    
+    // VAARDIGHEDEN query - directe generatie  
+    if (q.includes('vaardig') || q.includes('skill') || q.includes('competen')) {
+      console.log(`[Direct] Genereer vaardigheden query met URI: ${resolved.uri}`);
+      return {
+        sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?skillLabel ?importance WHERE {
+  VALUES ?occupation { <${resolved.uri}> }
+  {
+    ?occupation cnlo:requiresHATEssential ?skill .
+    BIND("essentieel" AS ?importance)
+  } UNION {
+    ?occupation cnlo:requiresHATImportant ?skill .
+    BIND("belangrijk" AS ?importance)
+  }
+  ?skill skos:prefLabel ?skillLabel .
+  FILTER(LANG(?skillLabel) = "nl")
+}
+ORDER BY ?importance ?skillLabel
+LIMIT 100`,
+        response: `Dit zijn de vaardigheden voor ${resolved.resolved}:`,
+        needsDisambiguation: false,
+        resolvedConcepts,
+        domain: 'skill'
+      };
+    }
+    
+    // KENNIS query - directe generatie
+    if (q.includes('kennis') || q.includes('knowledge')) {
+      console.log(`[Direct] Genereer kennis query met URI: ${resolved.uri}`);
+      return {
+        sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?knowledgeLabel WHERE {
+  VALUES ?occupation { <${resolved.uri}> }
+  ?occupation cnlo:requiresKnowledge ?knowledge .
+  ?knowledge skos:prefLabel ?knowledgeLabel .
+  FILTER(LANG(?knowledgeLabel) = "nl")
+}
+ORDER BY ?knowledgeLabel
+LIMIT 50`,
+        response: `Dit zijn de kennisgebieden voor ${resolved.resolved}:`,
+        needsDisambiguation: false,
+        resolvedConcepts,
+        domain: 'knowledge'
+      };
+    }
+  }
+
+  // Default: Use Gemini AI (alleen als geen directe query mogelijk is)
+  console.log(`[Gemini] Geen directe query mogelijk, gebruik AI`);
   return await generateWithGemini(userQuery, filters, chatHistory, resolvedConcepts, domain, sessionId);
 }
 
@@ -547,7 +705,7 @@ async function generateWithGemini(
   userQuery: string,
   filters: { graphs: string[], type: string, status: string },
   chatHistory: ChatMessage[],
-  resolvedConcepts: { term: string; resolved: string; type: string }[],
+  resolvedConcepts: { term: string; resolved: string; type: string; uri?: string }[],
   domain: string,
   sessionId: string
 ): Promise<GenerateSparqlResult> {
@@ -559,18 +717,29 @@ async function generateWithGemini(
 
   const ai = new GoogleGenAI({ apiKey });
 
-  // Build resolved concepts context
+  // Build resolved concepts context - inclusief URI voor nauwkeurige queries
   let conceptContext = '';
+  let hasUri = false;
+  let uriForQuery = '';
   if (resolvedConcepts.length > 0) {
-    conceptContext = resolvedConcepts.map(c => 
-      `- "${c.term}" → Officiële naam: "${c.resolved}"`
-    ).join('\n');
+    conceptContext = resolvedConcepts.map(c => {
+      if (c.uri) {
+        hasUri = true;
+        uriForQuery = c.uri;
+        console.log(`[Gemini] ✓ URI beschikbaar voor "${c.term}": ${c.uri}`);
+        return `- "${c.term}" wordt: "${c.resolved}"\n  👉 GEBRUIK DEZE URI IN JE QUERY: <${c.uri}>`;
+      }
+      console.log(`[Gemini] ✗ GEEN URI voor "${c.term}" -> "${c.resolved}"`);
+      return `- "${c.term}" wordt: "${c.resolved}" (gebruik CONTAINS als fallback)`;
+    }).join('\n\n');
+    console.log(`[Gemini] Concept context:\n${conceptContext}`);
   }
 
   const systemInstruction = `Je bent een SPARQL query generator voor CompetentNL.
 
 BELANGRIJKE PREFIXES:
 PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
 
@@ -580,30 +749,82 @@ BELANGRIJKE CLASSES:
 - cnlo:KnowledgeArea - Kennisgebieden
 - cnlo:EducationalNorm - Opleidingsnormen
 - ksmo:MboKwalificatie - MBO kwalificaties
+- cnluwvo:OccupationTask - Taken/werkzaamheden
 
 BELANGRIJKE PREDICATEN:
 - cnlo:requiresHATEssential/Important - Beroep vereist vaardigheid
 - cnlo:prescribesHATEssential - Opleiding schrijft vaardigheid voor
 - cnlo:prescribesKnowledge - Opleiding schrijft kennisgebied voor
 - cnlo:hasRIASEC - RIASEC/Hollandcode letter (R, I, A, S, E, C)
+- cnluwvo:isCharacterizedByOccupationTask_Essential - Beroep heeft essentiÃ«le taak
+- cnluwvo:isCharacterizedByOccupationTask_Optional - Beroep heeft optionele taak
 - skos:prefLabel - Naam van concept
 
-${conceptContext ? `OPGELOSTE CONCEPTEN:\n${conceptContext}` : ''}
+${conceptContext ? `OPGELOSTE CONCEPTEN:
+${conceptContext}
+
+⚠️ KRITIEK - URI GEBRUIK - LEES DIT ZORGVULDIG:
+1. Hierboven staat een URI tussen < en >
+2. KOPIEER DEZE URI EXACT - letter voor letter, inclusief de hash-code aan het einde
+3. De URI eindigt op een code zoals "ABC123DEF4", NIET op een leesbare naam
+4. MAAK NOOIT ZELF EEN URI - gebruik ALLEEN de gegeven URI
+
+ALS JE EEN URI KRIJGT ZOALS: <https://linkeddata.competentnl.nl/uwv/id/occupation/7F9A2BC3D1>
+DAN MOET JE QUERY ER ZO UITZIEN:
+
+SELECT DISTINCT ?taskLabel WHERE {
+  VALUES ?occupation { <https://linkeddata.competentnl.nl/uwv/id/occupation/7F9A2BC3D1> }
+  ?occupation cnluwvo:isCharacterizedByOccupationTask_Essential ?task .
+  ?task skos:prefLabel ?taskLabel .
+  FILTER(LANG(?taskLabel) = "nl")
+}
+ORDER BY ?taskLabel
+LIMIT 50
+
+Let op: De URI in VALUES moet EXACT overeenkomen met de gegeven URI hierboven!` : ''}
+
+VOORBEELD ZONDER URI (fallback met CONTAINS):
+PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?taskLabel WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "zoekterm"))
+  ?occupation cnluwvo:isCharacterizedByOccupationTask_Essential ?task .
+  ?task skos:prefLabel ?taskLabel .
+  FILTER(LANG(?taskLabel) = "nl")
+}
+ORDER BY ?taskLabel
+LIMIT 50
 
 REGELS:
-1. Gebruik CONTAINS(LCASE(?label), "zoekterm") voor flexibele matching
-2. Voeg ALTIJD LIMIT 50 toe (behalve bij COUNT)
-3. Gebruik NOOIT FROM <graph> clauses
-4. Retourneer ALLEEN de SPARQL query`;
+1. Als een URI beschikbaar is: KOPIEER DE VOLLEDIGE URI EXACT naar VALUES - construeer NOOIT zelf een URI!
+2. URIs bevatten hash-codes (bijv. ABC123DEF4), GEEN leesbare namen zoals "kapper-2"
+3. Gebruik CONTAINS alleen als fallback wanneer GEEN URI beschikbaar is
+4. Voeg ALTIJD LIMIT 50 toe (behalve bij COUNT)
+5. Gebruik NOOIT FROM <graph> clauses
+6. Gebruik FILTER(LANG(?label) = "nl") voor Nederlandse labels
+7. Voor TAKEN gebruik ALTIJD cnluwvo:isCharacterizedByOccupationTask_Essential (NIET cnlo:hasTask)
+8. Retourneer ALLEEN de SPARQL query`;
 
   const chatContext = chatHistory.length > 0 
     ? '\nEerdere context:\n' + chatHistory.map(m => `${m.role}: ${m.content}`).join('\n') + '\n\n'
     : '';
 
+  // Als we een URI hebben, voeg deze expliciet toe aan de query
+  let queryWithUri = userQuery;
+  if (hasUri && uriForQuery) {
+    queryWithUri = `${userQuery}\n\n[BELANGRIJK: Gebruik voor dit beroep EXACT deze URI: <${uriForQuery}>]`;
+    console.log(`[Gemini] Query met URI instructie: ${queryWithUri}`);
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
-      contents: chatContext + userQuery,
+      contents: chatContext + queryWithUri,
       config: {
         systemInstruction,
         temperature: 0.1,
@@ -611,7 +832,20 @@ REGELS:
     });
 
     let sparql = response.text || '';
+    
+    // DEBUG: Log de ruwe AI response
+    console.log(`[Gemini] AI genereerde query:\n${sparql}`);
+    
     sparql = fixSparqlQuery(sparql);
+    
+    // FIX: Vervang verkeerde URIs met de correcte URI uit de database
+    // Dit is nodig omdat de AI soms zelf URIs construeert (bijv. kapper-2)
+    if (uriForQuery) {
+      sparql = fixOccupationUri(sparql, uriForQuery);
+    }
+    
+    // DEBUG: Log na alle fixes
+    console.log(`[Gemini] Query na alle fixes:\n${sparql}`);
 
     return {
       sparql,
