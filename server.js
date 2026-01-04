@@ -142,6 +142,10 @@ function slugify(text) {
     .replace(/(^-|-$)/g, '');
 }
 
+function isUwvUri(uri = '') {
+  return uri.includes('/uwv/');
+}
+
 /**
  * Bouw generieke synthetische matches zodat we altijd meerdere opties kunnen bieden
  * voor bekende synoniemen/homoniemen (zonder per term te hardcoden).
@@ -486,13 +490,23 @@ app.post('/concept/resolve', async (req, res) => {
       });
     }
 
+    const preferUwvUris = effectiveConceptType === 'occupation';
+    const uwvRows = preferUwvUris ? rows.filter(r => isUwvUri(r.uri || '')) : [];
+    const prioritizedRows = preferUwvUris && uwvRows.length > 0
+      ? [...uwvRows, ...rows.filter(r => !isUwvUri(r.uri || ''))]
+      : rows;
+
+    if (preferUwvUris && uwvRows.length > 0) {
+      console.log(`[Concept] ✓ UWV-URI voorkeur geactiveerd (${uwvRows.length}/${rows.length} resultaten)`);
+    }
+
     // Bepaal matches (op basis van URI) en breid generiek uit voor synoniemen/homoniemen
-    const matches = rows.map(r => ({
+    const matches = prioritizedRows.map(r => ({
       uri: r.uri,
       prefLabel: r.prefLabel,
       matchedLabel: r.matchedLabel,
       matchType: r.matchType,
-      confidence: parseFloat(r.confidence),
+      confidence: parseFloat(r.confidence) + (preferUwvUris && isUwvUri(r.uri || '') ? 0.05 : 0),
       conceptType: effectiveConceptType
     }));
 
@@ -505,8 +519,10 @@ app.post('/concept/resolve', async (req, res) => {
       m.confidence >= STRONG_MATCH_THRESHOLD
     );
 
-    if (strongMatches.length === 1) {
-      const selected = strongMatches[0];
+    const uwvStrongMatches = preferUwvUris ? strongMatches.filter(m => isUwvUri(m.uri || '')) : [];
+
+    if (strongMatches.length === 1 || (preferUwvUris && uwvStrongMatches.length === 1)) {
+      const selected = strongMatches.length === 1 ? strongMatches[0] : uwvStrongMatches[0];
       console.log(`[Concept] ✓ Sterke exacte match: "${searchTerm}" -> "${selected.prefLabel}"`);
       console.log(`[Concept]   URI: ${selected.uri}`);
       return res.json({
@@ -523,6 +539,8 @@ app.post('/concept/resolve', async (req, res) => {
 
     // Check voor exacte match
     const exactMatch = matches.find(m => 
+      m.matchedLabel.toLowerCase() === normalized && m.confidence >= STRONG_MATCH_THRESHOLD && (!preferUwvUris || isUwvUri(m.uri || ''))
+    ) || matches.find(m => 
       m.matchedLabel.toLowerCase() === normalized && m.confidence >= STRONG_MATCH_THRESHOLD
     );
 
