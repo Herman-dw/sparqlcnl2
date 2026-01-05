@@ -12,10 +12,12 @@ import {
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS } from './constants';  // EXAMPLES verwijderd - nu dynamisch
-import { 
+import {
   generateSparqlWithDisambiguation, 
   summarizeResults,
-  DisambiguationData
+  DisambiguationData,
+  generateCountQuery,
+  generateExpandedQuery
 } from './services/geminiService';
 import { executeSparql, validateSparqlQuery, ProxyType } from './services/sparqlService';
 import { downloadAsExcel } from './services/excelService';
@@ -522,8 +524,40 @@ const App: React.FC = () => {
 
       const results = await executeSparql(result.sparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
 
+      // Determine limits and counts for full retrieval
+      const limitMatch = result.sparql.match(/LIMIT\s+(\d+)/i);
+      const limitUsed = limitMatch ? parseInt(limitMatch[1], 10) : undefined;
+      const shouldCheckCount = (limitUsed && results.length >= limitUsed) || results.length >= 50 || /toon\s+alle/i.test(text) || /toon\s+\d+/i.test(text);
+
+      let totalCount: number | undefined;
+      let countQuery: string | undefined;
+      let fullResultSparql: string | undefined;
+      let resultsTruncated = false;
+
+      if (shouldCheckCount) {
+        try {
+          countQuery = generateCountQuery(result.sparql);
+          const countResults = await executeSparql(countQuery, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+          const countValue = countResults[0]?.total || countResults[0]?.aantal || countResults[0]?.count;
+          const parsed = typeof countValue === 'string' ? parseInt(countValue, 10) : Number(countValue);
+          if (!isNaN(parsed)) {
+            totalCount = parsed;
+            resultsTruncated = parsed > results.length;
+            fullResultSparql = generateExpandedQuery(result.sparql, parsed);
+          }
+        } catch (err) {
+          console.warn('Kon count query niet uitvoeren', err);
+        }
+      }
+
+      if (!fullResultSparql) {
+        const targetLimit = totalCount || (limitUsed ? limitUsed * 4 : 200);
+        fullResultSparql = generateExpandedQuery(result.sparql, targetLimit);
+        resultsTruncated = resultsTruncated || (limitUsed ? results.length >= limitUsed : false);
+      }
+
       // Summarize results
-      const summary = await summarizeResults(text, results);
+      const summary = await summarizeResults(text, results, totalCount);
       const baseResponse = result.response || 'Hier zijn de resultaten:';
 
       const assistantMsg: Message = {
@@ -534,7 +568,15 @@ const App: React.FC = () => {
         results,
         timestamp: new Date(),
         status: 'success',
-        metadata: { ...(baseMetadata || {}), domain: result.domain }
+        metadata: { 
+          ...(baseMetadata || {}), 
+          domain: result.domain,
+          limitUsed,
+          totalCount,
+          countQuery,
+          fullResultSparql,
+          resultsTruncated
+        }
       };
 
       setMessages(prev => [...prev, assistantMsg]);
@@ -567,8 +609,35 @@ const App: React.FC = () => {
       if (!validation.valid) throw new Error(validation.error);
 
       const results = await executeSparql(msg.listSparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+      const limitMatch = msg.listSparql.match(/LIMIT\s+(\d+)/i);
+      const limitUsed = limitMatch ? parseInt(limitMatch[1], 10) : undefined;
 
-      const summary = await summarizeResults(msg.sourceQuestion || 'Toon resultaten', results);
+      let totalCount: number | undefined;
+      let countQuery: string | undefined;
+      let fullResultSparql: string | undefined;
+      let resultsTruncated = false;
+
+      try {
+        countQuery = generateCountQuery(msg.listSparql);
+        const countResults = await executeSparql(countQuery, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+        const countValue = countResults[0]?.total || countResults[0]?.aantal || countResults[0]?.count;
+        const parsed = typeof countValue === 'string' ? parseInt(countValue, 10) : Number(countValue);
+        if (!isNaN(parsed)) {
+          totalCount = parsed;
+          resultsTruncated = parsed > results.length;
+          fullResultSparql = generateExpandedQuery(msg.listSparql, parsed);
+        }
+      } catch (err) {
+        console.warn('Kon count query niet uitvoeren voor lijst', err);
+      }
+
+      if (!fullResultSparql) {
+        const targetLimit = totalCount || (limitUsed ? limitUsed * 4 : 200);
+        fullResultSparql = generateExpandedQuery(msg.listSparql, targetLimit);
+        resultsTruncated = resultsTruncated || (limitUsed ? results.length >= limitUsed : false);
+      }
+
+      const summary = await summarizeResults(msg.sourceQuestion || 'Toon resultaten', results, totalCount);
 
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -577,7 +646,14 @@ const App: React.FC = () => {
         sparql: msg.listSparql,
         results,
         timestamp: new Date(),
-        status: 'success'
+        status: 'success',
+        metadata: {
+          limitUsed,
+          totalCount,
+          countQuery,
+          fullResultSparql,
+          resultsTruncated
+        }
       };
 
       setMessages(prev => [...prev, assistantMsg]);
@@ -592,6 +668,64 @@ const App: React.FC = () => {
         status: 'error'
       };
       setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFetchAllResults = async (msg: Message) => {
+    if (!msg.metadata?.fullResultSparql) return;
+    setIsLoading(true);
+
+    try {
+      const results = await executeSparql(msg.metadata.fullResultSparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+      const summary = await summarizeResults(msg.text, results, msg.metadata?.totalCount);
+
+      const assistantMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        text: `Alle resultaten opgehaald (${results.length}${msg.metadata?.totalCount ? ` van ${msg.metadata.totalCount}` : ''}):\n\n${summary}`,
+        sparql: msg.metadata.fullResultSparql,
+        results,
+        timestamp: new Date(),
+        status: 'success',
+        metadata: {
+          domain: msg.metadata?.domain,
+          totalCount: msg.metadata?.totalCount,
+          resultsTruncated: false
+        }
+      };
+
+      setMessages(prev => [...prev, assistantMsg]);
+      await persistMessage(assistantMsg);
+    } catch (error: any) {
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        text: `Kon alle resultaten niet ophalen: ${error.message}`,
+        timestamp: new Date(),
+        status: 'error'
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDownloadAll = async (msg: Message) => {
+    if (!msg.metadata?.fullResultSparql) return;
+    setIsLoading(true);
+    try {
+      const results = await executeSparql(msg.metadata.fullResultSparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
+      downloadAsExcel(results, { 
+        vraag: msg.text, 
+        sparql: msg.metadata.fullResultSparql, 
+        timestamp: new Date(),
+        endpoint: sparqlEndpoint,
+        graphs: selectedGraphs
+      });
+    } catch (error) {
+      console.warn('Kon alle resultaten niet downloaden', error);
     } finally {
       setIsLoading(false);
     }
@@ -1016,6 +1150,25 @@ const App: React.FC = () => {
                   >
                     📄 Toon eerste 50 resultaten
                   </button>
+                )}
+
+                {msg.metadata?.resultsTruncated && msg.metadata?.fullResultSparql && (
+                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                    <button
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-semibold hover:bg-emerald-600 hover:text-white transition-colors"
+                      onClick={() => handleFetchAllResults(msg)}
+                      disabled={isLoading}
+                    >
+                      📥 Haal alle resultaten op{msg.metadata.totalCount ? ` (${msg.metadata.totalCount})` : ''}
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold hover:bg-indigo-600 hover:text-white transition-colors"
+                      onClick={() => handleDownloadAll(msg)}
+                      disabled={isLoading}
+                    >
+                      ⬇️ Download alles
+                    </button>
+                  </div>
                 )}
                 
                 {/* Results table */}
