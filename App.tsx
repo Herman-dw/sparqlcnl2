@@ -255,7 +255,7 @@ const App: React.FC = () => {
   const [shouldContinueListening, setShouldContinueListening] = useState(false);
   const userStoppedRef = useRef(false);
   const silenceStopRef = useRef(false);
-  const handleSendRef = useRef<(text?: string) => Promise<void>>(async () => {});
+  const handleSendRef = useRef<(text?: string, options?: { exampleId?: number }) => Promise<void>>(async () => {});
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -424,15 +424,19 @@ const App: React.FC = () => {
     await persistMessage(assistantMsg);
   };
 
-  const handleSend = async (text: string = inputText) => {
+  const handleSend = async (text: string = inputText, options?: { exampleId?: number }) => {
     if (!text.trim()) return;
+
+    const exampleQuestionId = options?.exampleId;
+    const baseMetadata = exampleQuestionId ? { exampleQuestionId } : undefined;
 
     const userMsg: Message = { 
       id: Date.now().toString(), 
       role: 'user', 
       text, 
       timestamp: new Date(), 
-      status: 'success' 
+      status: 'success',
+      metadata: baseMetadata
     };
     setMessages(prev => [...prev, userMsg]);
     await persistMessage(userMsg);
@@ -466,7 +470,7 @@ const App: React.FC = () => {
           text: result.response,
           timestamp: new Date(),
           status: 'success',
-          metadata: { isDisambiguation: true }
+          metadata: { ...(baseMetadata || {}), isDisambiguation: true }
         };
         setMessages(prev => [...prev, disambigMsg]);
         await persistMessage(disambigMsg);
@@ -482,19 +486,19 @@ const App: React.FC = () => {
         const assistantMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          text: result.response,
-          sparql: result.sparql || undefined,
-          timestamp: new Date(),
-          status: 'success',
-          needsList: true,
-          listSparql: result.listSparql,
-          sourceQuestion: text,
-          metadata: { domain: result.domain }
-        };
-        setMessages(prev => [...prev, assistantMsg]);
-        await persistMessage(assistantMsg);
-        setIsLoading(false);
-        return;
+        text: result.response,
+        sparql: result.sparql || undefined,
+        timestamp: new Date(),
+        status: 'success',
+        needsList: true,
+        listSparql: result.listSparql,
+        sourceQuestion: text,
+        metadata: { ...(baseMetadata || {}), domain: result.domain }
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      await persistMessage(assistantMsg);
+      setIsLoading(false);
+      return;
       }
 
       // Normal flow: execute SPARQL
@@ -504,7 +508,8 @@ const App: React.FC = () => {
           role: 'assistant',
           text: result.response || 'Ik kon geen SPARQL query genereren voor deze vraag.',
           timestamp: new Date(),
-          status: 'error'
+          status: 'error',
+          metadata: baseMetadata
         };
         setMessages(prev => [...prev, fallbackMsg]);
         await persistMessage(fallbackMsg);
@@ -529,7 +534,7 @@ const App: React.FC = () => {
         results,
         timestamp: new Date(),
         status: 'success',
-        metadata: { domain: result.domain }
+        metadata: { ...(baseMetadata || {}), domain: result.domain }
       };
 
       setMessages(prev => [...prev, assistantMsg]);
@@ -541,7 +546,8 @@ const App: React.FC = () => {
         role: 'assistant',
         text: `Er is een fout opgetreden: ${error.message}`,
         timestamp: new Date(),
-        status: 'error'
+        status: 'error',
+        metadata: baseMetadata
       };
       setMessages(prev => [...prev, errorMsg]);
       await persistMessage(errorMsg);
@@ -609,7 +615,28 @@ const App: React.FC = () => {
     const msg = messages.find(m => m.id === messageId);
     if (msg) {
       await saveFeedback(messageId, feedback, msg.sparql || '', msg.results?.length || 0);
-      await sendFeedbackToBackend(localBackendUrl, sessionId, messageId, feedback, msg.text, msg.sparql || '');
+      try {
+        await fetch(`${localBackendUrl}/conversation/feedback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, messageId, feedback })
+        });
+      } catch (error) {
+        console.warn('Kon feedback niet opslaan in conversation_messages', error);
+      }
+
+      await sendFeedbackToBackend(localBackendUrl, {
+        sessionId,
+        messageId,
+        feedback,
+        questionEmbeddingId: msg.metadata?.exampleQuestionId,
+        context: {
+          question: msg.text,
+          sparql: msg.sparql,
+          resultsCount: msg.results?.length || 0,
+          metadata: msg.metadata
+        }
+      });
     }
   };
 
@@ -886,7 +913,7 @@ const App: React.FC = () => {
                 dynamicExamples.map((ex, i) => (
                   <button
                     key={ex.id || i}
-                    onClick={() => handleSend(ex.vraag)}
+                    onClick={() => handleSend(ex.vraag, { exampleId: ex.id })}
                     className="w-full text-left text-[11px] p-3 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50 transition-all text-slate-600 leading-snug group"
                   >
                     <span className="flex items-start gap-2">

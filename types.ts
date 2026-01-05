@@ -14,6 +14,7 @@ export interface Message {
   listSparql?: string;
   sourceQuestion?: string;
   metadata?: {
+    exampleQuestionId?: number;
     isDisambiguation?: boolean;
     graphs?: string[];
     endpoint?: string;
