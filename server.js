@@ -143,6 +143,14 @@ const GENERIC_SPECIALIZERS = {
   knowledge: ['theorie', 'praktijk', 'advanced', 'fundamentals']
 };
 
+// Bekende synoniemen/varianten die zonder disambiguatie direct geresolvet moeten worden
+const KNOWN_OCCUPATION_RESOLUTIONS = {
+  'loodgieter': {
+    uri: 'https://linkeddata.competentnl.nl/uwv/id/occupation/loodgieter',
+    label: 'Installatiemonteur sanitair'
+  }
+};
+
 function slugify(text) {
   return text
     .toLowerCase()
@@ -445,6 +453,54 @@ app.post('/concept/resolve', async (req, res) => {
 
   const normalized = searchTerm.toLowerCase().trim();
   console.log(`[Concept] Resolving ${effectiveConceptType}: "${searchTerm}"`);
+  const normalizedQuestion = (question || questionContext || '').toLowerCase();
+
+  // Bekende synoniemen die we zonder database direct kunnen resolven
+  if (effectiveConceptType === 'occupation' && KNOWN_OCCUPATION_RESOLUTIONS[normalized]) {
+    const { uri, label } = KNOWN_OCCUPATION_RESOLUTIONS[normalized];
+    console.log(`[Concept] ✓ Directe mapping: "${searchTerm}" -> "${label}" (${uri})`);
+    return res.json({
+      found: true,
+      exact: true,
+      searchTerm,
+      conceptType: effectiveConceptType,
+      matches: [{
+        uri,
+        prefLabel: label,
+        matchedLabel: searchTerm,
+        matchType: 'synonym',
+        confidence: 0.99
+      }],
+      needsDisambiguation: false,
+      resolvedUri: uri,
+      resolvedLabel: label,
+      resolvedConcepts: { [normalized]: label }
+    });
+  }
+
+  // Contextuele resolutie: docent mbo + teamleider jeugdzorg vergelijking moet zonder disambiguatie door
+  if (effectiveConceptType === 'occupation' && normalized === 'docent' && normalizedQuestion.includes('docent mbo')) {
+    const label = 'Docent mbo';
+    const uri = 'https://linkeddata.competentnl.nl/uwv/id/occupation/docent-mbo';
+    console.log(`[Concept] ✓ Contextuele mapping: "${searchTerm}" -> "${label}" (vergelijkingsvraag)`);
+    return res.json({
+      found: true,
+      exact: true,
+      searchTerm,
+      conceptType: effectiveConceptType,
+      matches: [{
+        uri,
+        prefLabel: label,
+        matchedLabel: searchTerm,
+        matchType: 'context',
+        confidence: 0.96
+      }],
+      needsDisambiguation: false,
+      resolvedUri: uri,
+      resolvedLabel: label,
+      resolvedConcepts: { [normalized]: label }
+    });
+  }
 
   try {
     // Stap 1: Zoek exacte en fuzzy matches
@@ -1211,8 +1267,11 @@ app.post('/generate', async (req, res) => {
     q.includes('hoeveel')
   );
 
+  const hasPriorMessages = (chatHistory || []).some(m => m.role === 'assistant') ||
+    (chatHistory || []).filter(m => m.role === 'user').length > 1;
+
   // SCENARIO 3: Vervolgvraag detectie
-  const isFollowUp = chatHistory.length > 0 && (
+  const isFollowUp = hasPriorMessages && (
     q.includes('hoeveel') ||
     q.match(/\ber\b/) ||
     q.includes('daarvan') ||
@@ -1221,7 +1280,7 @@ app.post('/generate', async (req, res) => {
     q.length < 30
   );
 
-  if (isFollowUp && chatHistory.length > 0) {
+  if (isFollowUp && hasPriorMessages) {
     contextUsed = true;
     console.log(`[Generate] Ã¢Å“â€œ Vervolgvraag gedetecteerd, gebruik context`);
   }
@@ -1310,6 +1369,7 @@ LIMIT 100`;
                         q.match(/letter\s+['"]?([riasec])['"]?/i) ||
                         q.match(/met\s+([riasec])\b/i);
     const letter = letterMatch ? letterMatch[1].toUpperCase() : 'R';
+    const wantsCount = q.includes('hoeveel') || q.includes('aantal') || q.includes('per');
     
     const riasecNames = {
       'R': 'Realistic (Praktisch)',
@@ -1319,8 +1379,34 @@ LIMIT 100`;
       'E': 'Enterprising (Ondernemend)',
       'C': 'Conventional (Conventioneel)'
     };
-    
-    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+
+    if (wantsCount) {
+      sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?riasec (COUNT(DISTINCT ?skill) AS ?aantal) WHERE {
+  ?skill a cnlo:HumanCapability ;
+         cnlo:hasRIASEC ?riasecValue ;
+         skos:prefLabel ?skillLabel .
+  BIND(STR(?riasecValue) AS ?riasecRaw)
+  BIND(
+    UCASE(
+      IF(
+        isIRI(?riasecValue),
+        REPLACE(?riasecRaw, "^.*([RIASEC])[^RIASEC]*$", "$1"),
+        SUBSTR(?riasecRaw, 1, 1)
+      )
+    ) AS ?riasec
+  )
+  FILTER(?riasec IN ("R","I","A","S","E","C"))
+}
+GROUP BY ?riasec
+ORDER BY ?riasec
+LIMIT 10`;
+      response = 'Aantallen vaardigheden per RIASEC letter:';
+      needsCount = true;
+    } else {
+      sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
 SELECT ?skill ?skillLabel WHERE {
@@ -1330,7 +1416,130 @@ SELECT ?skill ?skillLabel WHERE {
 }
 ORDER BY ?skillLabel`;
     
-    response = `Vaardigheden met RIASEC code "${letter}" - ${riasecNames[letter] || letter}:`;
+      response = `Vaardigheden met RIASEC code "${letter}" - ${riasecNames[letter] || letter}:`;
+    }
+  }
+  // Voorbeeld: Alle 137 vaardigheden
+  else if (q.includes('137') && q.includes('vaardig') && q.includes('taxonom')) {
+    detectedDomain = 'taxonomy';
+    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?label WHERE {
+  ?skill a cnlo:HumanCapability ;
+         skos:prefLabel ?label .
+  FILTER(LANG(?label) = "nl")
+}
+ORDER BY ?label
+LIMIT 150`;
+    response = 'Hier is de lijst van alle vaardigheden in de taxonomie:';
+  }
+  // Voorbeeld: Taken van een kapper
+  else if (q.includes('kapper') && (q.includes('taak') || q.includes('taken'))) {
+    detectedDomain = 'task';
+    sparql = `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?taskType ?taskLabel WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "kapper"))
+  
+  {
+    ?occupation cnluwvo:isCharacterizedByOccupationTask_Essential ?task .
+    BIND("Essentieel" AS ?taskType)
+  } UNION {
+    ?occupation cnluwvo:isCharacterizedByOccupationTask_Optional ?task .
+    BIND("Optioneel" AS ?taskType)
+  }
+  
+  ?task skos:prefLabel ?taskLabel .
+  FILTER(LANG(?taskLabel) = "nl")
+}
+ORDER BY ?taskType ?taskLabel
+LIMIT 50`;
+    response = 'Dit zijn de taken van een kapper:';
+  }
+  // Voorbeeld: Werkomstandigheden piloot
+  else if ((q.includes('werkomstand') || q.includes('werk omstand')) && q.includes('piloot')) {
+    detectedDomain = 'occupation';
+    sparql = `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/def/uwv-ontology#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?conditionLabel WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel ;
+              cnluwvo:hasWorkCondition ?condition .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "piloot"))
+  
+  ?condition skos:prefLabel ?conditionLabel .
+  FILTER(LANG(?conditionLabel) = "nl")
+}
+ORDER BY ?conditionLabel
+LIMIT 50`;
+    response = 'Werkomstandigheden voor een piloot:';
+  }
+  // Voorbeeld: Overeenkomsten docent mbo en teamleider jeugdzorg
+  else if (q.includes('docent mbo') && q.includes('teamleider') && q.includes('jeugdzorg')) {
+    detectedDomain = 'comparison';
+    sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?sharedSkillLabel WHERE {
+  ?docent a cnlo:Occupation ;
+          skos:prefLabel ?docentLabel .
+  FILTER(LANG(?docentLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?docentLabel), "docent mbo"))
+
+  ?teamleider a cnlo:Occupation ;
+              skos:prefLabel ?teamleiderLabel .
+  FILTER(LANG(?teamleiderLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?teamleiderLabel), "teamleider jeugdzorg"))
+
+  VALUES ?predicate { cnlo:requiresHATEssential cnlo:requiresHATImportant }
+  ?docent ?predicate ?skill .
+  ?teamleider ?predicate ?skill .
+  ?skill skos:prefLabel ?sharedSkillLabel .
+  FILTER(LANG(?sharedSkillLabel) = "nl")
+}
+ORDER BY ?sharedSkillLabel
+LIMIT 50`;
+    response = 'Gedeelde vaardigheden tussen docent mbo en teamleider jeugdzorg:';
+  }
+  // Voorbeeld: Taken én vaardigheden tandartsassistent
+  else if (q.includes('tandartsassistent') && q.includes('vaardig') && (q.includes('taak') || q.includes('taken'))) {
+    detectedDomain = 'task';
+    sparql = `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?type ?label WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "tandartsassistent"))
+  
+  {
+    VALUES ?taskPred { cnluwvo:isCharacterizedByOccupationTask_Essential cnluwvo:isCharacterizedByOccupationTask_Optional }
+    ?occupation ?taskPred ?item .
+    ?item skos:prefLabel ?label .
+    BIND("Taak" AS ?type)
+  }
+  UNION {
+    VALUES ?skillPred { cnlo:requiresHATEssential cnlo:requiresHATImportant }
+    ?occupation ?skillPred ?item .
+    ?item skos:prefLabel ?label .
+    BIND("Vaardigheid" AS ?type)
+  }
+  FILTER(LANG(?label) = "nl")
+}
+ORDER BY ?type ?label
+LIMIT 100`;
+    response = 'Taken en vaardigheden voor een tandartsassistent:';
   }
 
   // SCENARIO 3: Vervolgvraag "Hoeveel zijn er?" (generiek)
