@@ -1,342 +1,81 @@
 /**
- * TestPage.tsx v4.1.0 - Met echte API calls en download knoppen
- * ==============================================================
+ * TestPage.tsx v4.2.0 - Chat-gesimuleerde test suite
+ * ===================================================
+ *
+ * Draait alle scenario's via de TestRunner zodat de flow overeenkomt
+ * met hoe een gebruiker in de chat vragen stelt (classify → resolve → generate).
  */
 
-import React, { useState, useCallback } from 'react';
-import { TEST_SCENARIOS as BACKEND_SCENARIOS, TestScenario as RunnerTestScenario } from '../tests/testScenarios';
+import React, { useCallback, useMemo, useState } from 'react';
+import { TestRunner } from '../tests/testRunner';
+import { TEST_SCENARIOS, TestResult, TestScenario, ValidationCheck } from '../tests/testScenarios';
 
-// ============================================================
-// TYPES
-// ============================================================
-
-interface ValidationCheck {
-  type: string;
-  field?: string;
-  expected?: any;
-  value?: any;
-  check?: string;
-  minLength?: number;
-  pattern?: string;
-  caseInsensitive?: boolean;
-  description: string;
-}
-
-interface ValidationResult {
-  check: ValidationCheck;
-  passed: boolean;
-  actual?: any;
-  reason?: string;
-}
-
-interface TestScenario {
-  id: string;
-  name: string;
-  description: string;
-  endpoint: string;
-  method: string;
-  payload: any;
-  validations: ValidationCheck[];
-}
-
-interface TestResult {
-  scenarioId: string;
+interface UITestResult extends TestResult {
   scenarioName: string;
-  passed: boolean;
-  duration: number;
-  validationResults: ValidationResult[];
-  apiResponse: any;
-  error?: string;
   suggestion?: string;
 }
 
 interface TestPageProps {
   onClose?: () => void;
+  onBack?: () => void;
   backendUrl?: string;
 }
 
-// ============================================================
-// TEST SCENARIOS - Echte API calls
-// ============================================================
+function generateSuggestion(
+  scenario: TestScenario,
+  failedValidations: UITestResult['validationResults']
+): string {
+  const hasFailedCheck = (type: ValidationCheck['type'], value?: string | number | boolean | RegExp) =>
+    failedValidations.some(v => v.check.type === type && (value === undefined || v.check.value === value));
 
-type ScenarioConfig = {
-  endpoint: string;
-  method: string;
-  payload?: any;
-  validations: ValidationCheck[];
-};
-
-const API_SCENARIO_CONFIG: Record<string, ScenarioConfig> = {
-  'disambiguation-architect': {
-    endpoint: '/concept/resolve',
-    method: 'POST',
-    payload: { searchTerm: 'architect', conceptType: 'occupation' },
-    validations: [
-      { type: 'exact', field: 'needsDisambiguation', expected: true, description: 'Moet disambiguatie triggeren' },
-      { type: 'array_min', field: 'matches', minLength: 2, description: 'Moet meerdere matches retourneren' },
-      { type: 'contains', field: 'disambiguationQuestion', value: 'welke', caseInsensitive: true, description: 'Vraag moet "welke" bevatten' }
-    ]
-  },
-  'disambiguation-feedback': {
-    endpoint: '/feedback',
-    method: 'POST',
-    payload: { rating: 5, feedbackType: 'helpful', comment: 'Test feedback', sessionId: 'test-session' },
-    validations: [
-      { type: 'exact', field: 'success', expected: true, description: 'Feedback moet succesvol opgeslagen worden' }
-    ]
-  },
-  'domain-detection-education': {
-    endpoint: '/orchestrator/classify',
-    method: 'POST',
-    validations: [
-      { type: 'exact', field: 'primary.domainKey', expected: 'education', description: 'Domein moet "education" zijn' },
-      { type: 'greater_than', field: 'primary.confidence', value: 0.5, description: 'Confidence moet > 0.5 zijn' }
-    ]
-  },
-  'count-handling-large-results': {
-    endpoint: '/generate',
-    method: 'POST',
-    payload: { question: 'Toon alle MBO kwalificaties', filters: { graphs: [], type: 'All', status: 'Current' } },
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL moet COUNT bevatten' },
-      { type: 'regex', field: 'response', pattern: '\\d+|kwalificaties', description: 'Response moet aantallen of kwalificaties bevatten' }
-    ]
-  },
-  'follow-up-context': {
-    endpoint: '/generate',
-    method: 'POST',
-    payload: {
-      question: 'Hoeveel zijn er?',
-      filters: { graphs: [], type: 'All', status: 'Current' },
-      chatHistory: [
-        { role: 'user', content: 'Toon alle MBO kwalificaties' },
-        { role: 'assistant', content: 'Hier zijn de MBO kwalificaties', sparql: 'SELECT ?k WHERE { ?k a ksmo:MboKwalificatie }' }
-      ]
-    },
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL moet COUNT bevatten' },
-      { type: 'exact', field: 'contextUsed', expected: true, description: 'Context moet gebruikt zijn' }
-    ]
-  },
-  'concept-resolver-loodgieter': {
-    endpoint: '/concept/resolve',
-    method: 'POST',
-    payload: { searchTerm: 'loodgieter', conceptType: 'occupation' },
-    validations: [
-      { type: 'exact', field: 'found', expected: true, description: 'Moet gevonden worden' },
-      { type: 'exact', field: 'needsDisambiguation', expected: false, description: 'Geen disambiguatie nodig' },
-      { type: 'exists', field: 'resolvedLabel', description: 'Moet een resolvedLabel hebben' }
-    ]
-  },
-  'education-skills-knowledge': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'prescribesHATEssential', description: 'SPARQL moet vaardigheden bevatten' },
-      { type: 'contains', field: 'sparql', value: 'prescribesKnowledge', description: 'SPARQL moet kennisgebieden bevatten' }
-    ]
-  },
-  'riasec-hollandcode-R': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'hasRIASEC', description: 'SPARQL moet hasRIASEC bevatten' },
-      { type: 'regex', field: 'sparql', pattern: "[\\\"']R[\\\"']", description: 'SPARQL moet \"R\" als waarde hebben' },
-      { type: 'contains', field: 'response', value: 'RIASEC code \"R\"', description: 'Response moet RIASEC vaardigheden benoemen' },
-      { type: 'exact', field: 'disambiguationQuestion', expected: undefined, description: 'Geen disambiguatie prompt bij RIASEC vragen' }
-    ]
-  },
-  'relation-counts': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL moet COUNT bevatten' },
-      { type: 'regex', field: 'sparql', pattern: 'requiresHAT|GROUP BY', description: 'SPARQL moet HAT relaties of GROUP BY bevatten' }
-    ]
-  },
-  'example-riasec-r-skills': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'hasRIASEC', description: 'SPARQL bevat hasRIASEC' },
-      { type: 'contains', field: 'response', value: 'RIASEC', description: 'Response benoemt RIASEC' }
-    ]
-  },
-  'example-all-skills-taxonomy': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'HumanCapability', description: 'SPARQL richt zich op skills' },
-      { type: 'contains', field: 'sparql', value: 'LIMIT 150', description: 'Bevat limiet' }
-    ]
-  },
-  'example-riasec-count': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL bevat COUNT' },
-      { type: 'contains', field: 'sparql', value: 'hasRIASEC', description: 'SPARQL gebruikt hasRIASEC' }
-    ]
-  },
-  'example-kapper-tasks': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'OccupationTask', description: 'SPARQL haalt taken op' },
-      { type: 'regex', field: 'response', pattern: 'kapper|haar', description: 'Response benoemt kapper' }
-    ]
-  },
-  'example-piloot-conditions': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'hasWorkCondition', description: 'SPARQL bevat werkomstandigheden' },
-      { type: 'regex', field: 'response', pattern: 'piloot', description: 'Response benoemt piloot' }
-    ]
-  },
-  'example-docent-teamleider-comparison': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'requiresHAT', description: 'SPARQL vergelijkt gedeelde skills' },
-      { type: 'regex', field: 'sparql', pattern: 'docent|jeugdzorg', description: 'SPARQL bevat beide beroepen' }
-    ]
-  },
-  'example-tandartsassistent-tasks-skills': {
-    endpoint: '/generate',
-    method: 'POST',
-    validations: [
-      { type: 'contains', field: 'sparql', value: 'OccupationTask', description: 'SPARQL bevat taken' },
-      { type: 'contains', field: 'sparql', value: 'requiresHAT', description: 'SPARQL bevat vaardigheden' }
-    ]
+  switch (scenario.id) {
+    case 'disambiguation-architect':
+      if (hasFailedCheck('needs_disambiguation') || hasFailedCheck('has_matches')) {
+        return 'Controleer of concept-resolve meerdere architecten teruggeeft (database seed of fallback).';
+      }
+      return 'Check de disambiguatieflow in /concept/resolve.';
+    case 'domain-detection-education':
+      if (hasFailedCheck('domain_equals')) {
+        return 'Classificatie mist education-domein; controleer classification_keywords of fallback classificatie.';
+      }
+      return 'Controleer orchestrator/classify endpoint.';
+    case 'follow-up-context':
+      if (hasFailedCheck('context_used')) {
+        return 'De chatgeschiedenis wordt niet opgepakt; verwerk chatHistory in /generate.';
+      }
+      return 'Controleer context-handling in de generate endpoint.';
+    case 'concept-resolver-loodgieter':
+      if (hasFailedCheck('concept_resolved', 'loodgieter')) {
+        return 'Voeg loodgieter of synoniem toe aan concept-resolver dataset.';
+      }
+      return 'Controleer resolutiepad voor beroepen.';
+    case 'count-handling-large-results':
+      if (hasFailedCheck('count_triggered')) {
+        return 'COUNT-indicatie ontbreekt; controleer grote-resultatenlogica in SPARQL generatie.';
+      }
+      return 'Controleer of er een limit/count query wordt toegevoegd bij grote sets.';
+    default:
+      return failedValidations.length > 0
+        ? `Controleer scenario "${scenario.name}" in backend flow.`
+        : '';
   }
-};
-
-const TEST_SCENARIOS: TestScenario[] = BACKEND_SCENARIOS
-  .map((scenario: RunnerTestScenario): TestScenario | null => {
-    const config = API_SCENARIO_CONFIG[scenario.id];
-
-    if (!config) {
-      return null;
-    }
-
-    const defaultPayload = config.endpoint === '/orchestrator/classify'
-      ? { question: scenario.question }
-      : { question: scenario.question, filters: { graphs: [], type: 'All', status: 'Current' } };
-
-    return {
-      id: scenario.id,
-      name: scenario.name,
-      description: scenario.description,
-      endpoint: config.endpoint,
-      method: config.method,
-      payload: config.payload ?? defaultPayload,
-      validations: config.validations
-    };
-  })
-  .filter((scenario): scenario is TestScenario => Boolean(scenario));
-
-// ============================================================
-// HELPER FUNCTIONS
-// ============================================================
-
-function getNestedValue(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => current?.[key], obj);
 }
 
-function validateField(data: any, validation: ValidationCheck): ValidationResult {
-  const value = getNestedValue(data, validation.field || '');
-  
-  const result: ValidationResult = {
-    check: validation,
-    passed: false,
-    actual: value,
-    reason: ''
-  };
-  
-  switch (validation.type) {
-    case 'exact':
-      result.passed = value === validation.expected;
-      result.reason = result.passed 
-        ? 'Match' 
-        : `Verwacht: ${JSON.stringify(validation.expected)}, Kreeg: ${JSON.stringify(value)}`;
-      break;
-      
-    case 'array_min':
-      result.passed = Array.isArray(value) && value.length >= (validation.minLength || 0);
-      result.reason = result.passed
-        ? `Array heeft ${value?.length} items`
-        : `Array te kort: ${value?.length || 0} items (min: ${validation.minLength})`;
-      break;
-      
-    case 'contains':
-      const searchVal = validation.caseInsensitive ? validation.value?.toLowerCase() : validation.value;
-      const actualVal = validation.caseInsensitive ? String(value || '').toLowerCase() : String(value || '');
-      result.passed = actualVal.includes(searchVal || '');
-      result.reason = result.passed
-        ? `Bevat "${validation.value}"`
-        : `Bevat NIET "${validation.value}"`;
-      break;
-      
-    case 'regex':
-      const regex = new RegExp(validation.pattern || '');
-      result.passed = regex.test(String(value || ''));
-      result.reason = result.passed
-        ? `Matcht regex`
-        : `Matcht NIET regex: ${validation.pattern}`;
-      break;
-      
-    case 'exists':
-      result.passed = value !== undefined && value !== null;
-      result.reason = result.passed ? 'Waarde bestaat' : 'Waarde is undefined/null';
-      break;
-      
-    case 'greater_than':
-      result.passed = typeof value === 'number' && value > (validation.value || 0);
-      result.reason = result.passed
-        ? `${value} > ${validation.value}`
-        : `${value} is NIET > ${validation.value}`;
-      break;
-  }
-  
-  return result;
-}
-
-function generateSuggestion(scenario: TestScenario, failedValidations: ValidationResult[]): string {
-  if (scenario.id === 'disambiguation-architect') {
-    if (failedValidations.some(v => v.check.field === 'needsDisambiguation' || v.check.field === 'matches')) {
-      return 'Database mist architect data. Voer database-setup-complete.sql opnieuw uit.';
-    }
-  }
-  if (scenario.id === 'domain-detection-education' && failedValidations.some(v => v.check.field?.includes('domainKey'))) {
-    return 'Check classification_keywords tabel voor "mbo" en "kwalificatie" met domain_id=3 (education).';
-  }
-  if (scenario.id === 'follow-up-context' && failedValidations.some(v => v.check.field === 'contextUsed')) {
-    return 'Follow-up detectie werkt niet. Check chatHistory verwerking in /generate endpoint.';
-  }
-  if (scenario.id === 'concept-resolver-loodgieter' && failedValidations.some(v => v.check.field === 'found')) {
-    return 'Loodgieter niet in database. Voer database-setup-complete.sql uit.';
-  }
-  return `Check ${scenario.endpoint} endpoint in server.js`;
-}
-
-// ============================================================
-// TEST PAGE COMPONENT
-// ============================================================
-
-const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://localhost:3001' }) => {
-  const [results, setResults] = useState<TestResult[]>([]);
+const TestPage: React.FC<TestPageProps> = ({ onClose, onBack, backendUrl = 'http://localhost:3001' }) => {
+  const [results, setResults] = useState<UITestResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [currentTest, setCurrentTest] = useState<string>('');
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [logs, setLogs] = useState<string[]>([]);
 
+  const runner = useMemo(() => new TestRunner({ backendUrl, verbose: false }), [backendUrl]);
+
   // Check backend status
   React.useEffect(() => {
     checkBackend();
-  }, [backendUrl]);
+  }, [checkBackend]);
 
-  const checkBackend = async () => {
+  const checkBackend = useCallback(async () => {
     setBackendStatus('checking');
     try {
       const response = await fetch(`${backendUrl}/health`);
@@ -344,116 +83,118 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
     } catch {
       setBackendStatus('offline');
     }
-  };
+  }, [backendUrl]);
 
-  const addLog = (message: string) => {
+  const addLog = useCallback((message: string) => {
     const timestamp = new Date().toISOString();
     setLogs(prev => [...prev, `[${timestamp}] ${message}`]);
-  };
+  }, []);
 
-  const runTest = async (scenario: TestScenario): Promise<TestResult> => {
-    const startTime = Date.now();
-    addLog(`Starting test ${scenario.id}: ${scenario.name}`);
-    addLog(`  Endpoint: ${scenario.method} ${backendUrl}${scenario.endpoint}`);
-    addLog(`  Payload: ${JSON.stringify(scenario.payload)}`);
-    
-    try {
-      const response = await fetch(`${backendUrl}${scenario.endpoint}`, {
-        method: scenario.method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(scenario.payload)
-      });
-      
-      const data = await response.json();
-      const duration = Date.now() - startTime;
-      
-      addLog(`  Response (${duration}ms): ${JSON.stringify(data).substring(0, 500)}`);
-      
-      const validationResults = scenario.validations.map(v => validateField(data, v));
-      const allPassed = validationResults.every(v => v.passed);
-      const failedValidations = validationResults.filter(v => !v.passed);
-      
-      validationResults.forEach(vr => {
-        addLog(`  ${vr.passed ? '✅' : '❌'} ${vr.check.description}: ${vr.reason}`);
-      });
-      
-      const suggestion = allPassed ? '' : generateSuggestion(scenario, failedValidations);
-      if (suggestion) addLog(`  💡 Suggestie: ${suggestion}`);
-      
-      return {
-        scenarioId: scenario.id,
-        scenarioName: scenario.name,
-        passed: allPassed,
-        duration,
-        validationResults,
-        apiResponse: data,
-        suggestion
-      };
-    } catch (error: any) {
-      const duration = Date.now() - startTime;
-      addLog(`  ❌ Error: ${error.message}`);
-      
-      return {
-        scenarioId: scenario.id,
-        scenarioName: scenario.name,
-        passed: false,
-        duration,
-        validationResults: [],
-        apiResponse: null,
-        error: error.message,
-        suggestion: `API call failed: ${error.message}`
-      };
-    }
-  };
+  const runTest = useCallback(
+    async (scenario: TestScenario): Promise<UITestResult> => {
+      const startTime = Date.now();
+      addLog(`Starting test ${scenario.id}: ${scenario.name}`);
+      addLog(`  Vraag: ${scenario.question}`);
 
-  const runAllTests = async () => {
+      try {
+        const result = await runner.runSingleTest(scenario);
+        const duration = Date.now() - startTime;
+
+        result.consoleOutput.forEach(line => addLog(`  ${line}`));
+        if (result.responseText) {
+          addLog(`  Response: ${result.responseText.substring(0, 200)}`);
+        }
+        if (result.sparqlGenerated) {
+          addLog(`  SPARQL: ${result.sparqlGenerated.substring(0, 200)}`);
+        }
+
+        result.validationResults.forEach(vr => {
+          const detail = vr.actualValue ? ` (waarde: ${vr.actualValue})` : '';
+          const error = vr.error ? ` [${vr.error}]` : '';
+          addLog(`  ${vr.passed ? '✅' : '❌'} ${vr.check.description}${detail}${error}`);
+        });
+
+        const suggestion = result.passed ? '' : generateSuggestion(scenario, result.validationResults);
+        if (suggestion) addLog(`  💡 Suggestie: ${suggestion}`);
+
+        return {
+          ...result,
+          duration,
+          scenarioName: scenario.name,
+          suggestion
+        };
+      } catch (error: any) {
+        const duration = Date.now() - startTime;
+        addLog(`  ❌ Error: ${error.message}`);
+
+        return {
+          scenarioId: scenario.id,
+          scenarioName: scenario.name,
+          passed: false,
+          duration,
+          validationResults: [],
+          consoleOutput: [],
+          sparqlGenerated: undefined,
+          responseText: undefined,
+          error: error.message,
+          suggestion: `API call failed: ${error.message}`
+        };
+      }
+    },
+    [addLog, runner]
+  );
+
+  const runAllTests = useCallback(async () => {
     setIsRunning(true);
     setResults([]);
     setLogs([]);
     addLog('='.repeat(60));
-    addLog('CompetentNL Test Suite v4.1.0 - Starting');
+    addLog('CompetentNL Test Suite v4.2.0 - Starting (chatflow)');
     addLog(`Backend: ${backendUrl}`);
     addLog('='.repeat(60));
-    
-    const newResults: TestResult[] = [];
-    
+
+    const newResults: UITestResult[] = [];
+
     for (const scenario of TEST_SCENARIOS) {
       setCurrentTest(scenario.id);
       const result = await runTest(scenario);
       newResults.push(result);
       setResults([...newResults]);
     }
-    
+
     const passed = newResults.filter(r => r.passed).length;
     addLog('='.repeat(60));
     addLog(`RESULTAAT: ${passed}/${newResults.length} tests geslaagd`);
     addLog('='.repeat(60));
-    
-    setCurrentTest('');
-    setIsRunning(false);
-  };
 
-  const runSingleTest = async (scenarioId: string) => {
-    const scenario = TEST_SCENARIOS.find(s => s.id === scenarioId);
-    if (!scenario) return;
-    
-    setIsRunning(true);
-    setCurrentTest(scenarioId);
-    addLog(`\n--- Running single test: ${scenario.name} ---`);
-    
-    const result = await runTest(scenario);
-    
-    setResults(prev => {
-      const filtered = prev.filter(r => r.scenarioId !== scenarioId);
-      return [...filtered, result].sort((a, b) => a.scenarioId.localeCompare(b.scenarioId));
-    });
-    
     setCurrentTest('');
     setIsRunning(false);
-  };
+  }, [addLog, backendUrl, runTest]);
+
+  const runSingleTest = useCallback(
+    async (scenarioId: string) => {
+      const scenario = TEST_SCENARIOS.find(s => s.id === scenarioId);
+      if (!scenario) return;
+
+      setIsRunning(true);
+      setCurrentTest(scenarioId);
+      addLog(`\n--- Running single test: ${scenario.name} ---`);
+
+      const result = await runTest(scenario);
+
+      setResults(prev => {
+        const filtered = prev.filter(r => r.scenarioId !== scenarioId);
+        return [...filtered, result].sort((a, b) => a.scenarioId.localeCompare(b.scenarioId));
+      });
+
+      setCurrentTest('');
+      setIsRunning(false);
+    },
+    [addLog, runTest]
+  );
 
   // Download functions
-  const downloadJSON = () => {
+  const downloadJSON = useCallback(() => {
     const data = {
       timestamp: new Date().toISOString(),
       backendUrl,
@@ -470,46 +211,48 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
         validationResults: r.validationResults.map(vr => ({
           description: vr.check.description,
           passed: vr.passed,
-          actual: vr.actual,
-          reason: vr.reason
+          actual: vr.actualValue,
+          error: vr.error
         })),
         suggestion: r.suggestion,
-        apiResponse: r.apiResponse
+        response: r.responseText,
+        sparql: r.sparqlGenerated,
+        consoleOutput: r.consoleOutput
       }))
     };
-    
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `test-results-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+    a.download = `test-results-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [backendUrl, results]);
 
-  const downloadTXT = () => {
+  const downloadTXT = useCallback(() => {
     const content = logs.join('\n');
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `test-results-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.log`;
+    a.download = `test-results-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [logs]);
 
   const passed = results.filter(r => r.passed).length;
   const failed = results.filter(r => !r.passed).length;
 
   return (
-    <div style={{ 
-      minHeight: '100vh', 
-      backgroundColor: '#0f172a', 
+    <div style={{
+      minHeight: '100vh',
+      backgroundColor: '#0f172a',
       color: '#e2e8f0',
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
       {/* Header */}
-      <div style={{ 
+      <div style={{
         background: 'linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%)',
         padding: '24px',
         display: 'flex',
@@ -518,10 +261,10 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
       }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>
-            🧪 CompetentNL Test Suite v4.1.0
+            🧪 CompetentNL Test Suite v4.2.0
           </h1>
           <p style={{ margin: '8px 0 0', opacity: 0.8, fontSize: '14px' }}>
-            Met echte API calls en download functie
+            Chat-simulatie: classify → resolve → generate
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -530,15 +273,15 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
             borderRadius: '9999px',
             fontSize: '12px',
             fontWeight: '500',
-            backgroundColor: backendStatus === 'online' ? '#22c55e' : 
-                           backendStatus === 'offline' ? '#ef4444' : '#eab308'
+            backgroundColor: backendStatus === 'online' ? '#22c55e' :
+              backendStatus === 'offline' ? '#ef4444' : '#eab308'
           }}>
-            {backendStatus === 'online' ? '🟢 Backend Online' : 
-             backendStatus === 'offline' ? '🔴 Backend Offline' : '🟡 Checking...'}
+            {backendStatus === 'online' ? '🟢 Backend Online' :
+              backendStatus === 'offline' ? '🔴 Backend Offline' : '🟡 Checking...'}
           </span>
-          {onClose && (
-            <button 
-              onClick={onClose}
+          {(onClose || onBack) && (
+            <button
+              onClick={onClose || onBack}
               style={{
                 padding: '8px 16px',
                 backgroundColor: 'rgba(255,255,255,0.2)',
@@ -575,7 +318,7 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
           >
             {isRunning ? '⏳ Running...' : '▶️ Run Alle Tests'}
           </button>
-          
+
           <button
             onClick={checkBackend}
             style={{
@@ -593,7 +336,7 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
           {results.length > 0 && (
             <>
               <div style={{ height: '32px', width: '1px', backgroundColor: '#475569' }} />
-              
+
               <button
                 onClick={downloadJSON}
                 style={{
@@ -610,7 +353,7 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
               >
                 📥 Download JSON
               </button>
-              
+
               <button
                 onClick={downloadTXT}
                 style={{
@@ -629,7 +372,7 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
               </button>
             </>
           )}
-          
+
           {results.length > 0 && (
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '16px', fontSize: '14px' }}>
               <span style={{ color: '#22c55e' }}>✅ {passed} geslaagd</span>
@@ -644,11 +387,11 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
         {/* Left: Test Results */}
         <div>
           <h2 style={{ marginTop: 0, marginBottom: '16px', fontSize: '18px' }}>Test Resultaten</h2>
-          
+
           {TEST_SCENARIOS.map(scenario => {
             const result = results.find(r => r.scenarioId === scenario.id);
             const isCurrentTest = currentTest === scenario.id;
-            
+
             return (
               <div
                 key={scenario.id}
@@ -677,7 +420,7 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
                       {scenario.description}
                     </p>
                   </div>
-                  
+
                   <button
                     onClick={() => runSingleTest(scenario.id)}
                     disabled={isRunning || backendStatus !== 'online'}
@@ -694,29 +437,45 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
                     ▶️ Run
                   </button>
                 </div>
-                
+
                 {/* Validation details */}
                 {result && (
                   <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #334155' }}>
                     {result.validationResults.map((vr, i) => (
-                      <div key={i} style={{ 
-                        fontSize: '13px', 
+                      <div key={i} style={{
+                        fontSize: '13px',
                         padding: '4px 0',
                         color: vr.passed ? '#86efac' : '#fca5a5'
                       }}>
                         {vr.passed ? '✓' : '✗'} {vr.check.description}
-                        {!vr.passed && vr.reason && (
+                        {!vr.passed && vr.actualValue && (
                           <span style={{ display: 'block', fontSize: '12px', opacity: 0.7, marginLeft: '16px' }}>
-                            {vr.reason}
+                            Waarde: {vr.actualValue}
+                          </span>
+                        )}
+                        {vr.error && (
+                          <span style={{ display: 'block', fontSize: '12px', opacity: 0.7, marginLeft: '16px' }}>
+                            Error: {vr.error}
                           </span>
                         )}
                       </div>
                     ))}
-                    
+
+                    {result.responseText && (
+                      <div style={{ marginTop: '8px', fontSize: '12px', opacity: 0.8 }}>
+                        <strong>Antwoord:</strong> {result.responseText}
+                      </div>
+                    )}
+                    {result.sparqlGenerated && (
+                      <div style={{ marginTop: '8px', fontSize: '12px', opacity: 0.8 }}>
+                        <strong>SPARQL:</strong> {result.sparqlGenerated}
+                      </div>
+                    )}
+
                     {result.suggestion && (
-                      <div style={{ 
-                        marginTop: '8px', 
-                        padding: '8px 12px', 
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '8px 12px',
                         backgroundColor: '#422006',
                         borderRadius: '6px',
                         fontSize: '12px',
@@ -742,7 +501,7 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
               </span>
             )}
           </h2>
-          
+
           <div style={{
             backgroundColor: '#0f172a',
             border: '1px solid #334155',
@@ -762,10 +521,10 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
               logs.map((log, i) => (
                 <div key={i} style={{
                   color: log.includes('✅') || log.includes('✓') ? '#86efac' :
-                         log.includes('❌') || log.includes('✗') ? '#fca5a5' :
-                         log.includes('💡') ? '#fbbf24' :
-                         log.includes('===') ? '#94a3b8' :
-                         '#e2e8f0',
+                    log.includes('❌') || log.includes('✗') ? '#fca5a5' :
+                      log.includes('💡') ? '#fbbf24' :
+                        log.includes('===') ? '#94a3b8' :
+                          '#e2e8f0',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all'
                 }}>
