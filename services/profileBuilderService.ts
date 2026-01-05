@@ -35,6 +35,20 @@ const buildSource = (label: string): ProfileSource => ({
   type: 'wizard'
 });
 
+const buildSearchTerms = (payload: ProfileSuggestionRequest) => {
+  const parts = [payload.title, payload.organization, payload.description]
+    .map((p) => (p || '').trim())
+    .filter(Boolean);
+
+  const uniqueParts = Array.from(new Set(parts));
+
+  if (uniqueParts.length > 1) {
+    uniqueParts.unshift(uniqueParts.join(' - '));
+  }
+
+  return uniqueParts;
+};
+
 async function resolveConcept(
   searchTerm: string,
   conceptType: 'occupation' | 'education'
@@ -237,12 +251,21 @@ async function fetchEducationProfile(uri: string) {
 export async function fetchProfileSuggestions(
   payload: ProfileSuggestionRequest
 ): Promise<ProfileSuggestionsResponse> {
-  const backendUrl = getBackendUrl();
   const isEducation = payload.kind === 'education';
-  const resolveTerm = payload.title || payload.description || payload.organization || '';
+  const searchTerms = buildSearchTerms(payload);
 
   try {
-    const resolved = resolveTerm ? await resolveConcept(resolveTerm, isEducation ? 'education' : 'occupation') : null;
+    let resolved: Awaited<ReturnType<typeof resolveConcept>> = null;
+
+    for (const term of searchTerms) {
+      resolved = await resolveConcept(term, isEducation ? 'education' : 'occupation');
+      if (resolved) break;
+    }
+
+    if (!resolved && payload.title?.trim()) {
+      resolved = await resolveConcept(payload.title.trim(), isEducation ? 'education' : 'occupation');
+    }
+
     if (!resolved) {
       return {
         ...DEFAULT_EMPTY_RESPONSE,
