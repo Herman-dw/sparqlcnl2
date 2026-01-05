@@ -32,12 +32,13 @@ if (fs.existsSync('.env.local')) {
 
 const router = express.Router();
 
-// Database config
+// Database config (ondersteunt MARIADB_* en DB_* variabelen)
 const DB_CONFIG = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'competentnl_rag',
+  host: process.env.MARIADB_HOST || process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.MARIADB_PORT || process.env.DB_PORT || '3306'),
+  user: process.env.MARIADB_USER || process.env.DB_USER || 'root',
+  password: process.env.MARIADB_PASSWORD || process.env.DB_PASSWORD || '',
+  database: process.env.MARIADB_DATABASE || process.env.DB_NAME || 'competentnl_rag',
   charset: 'utf8mb4'
 };
 
