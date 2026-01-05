@@ -111,12 +111,16 @@ interface FeedbackPayload {
 }
 
 // Stuur feedback door naar backend voor logging
-export const sendFeedbackToBackend = async (payload: FeedbackPayload): Promise<void> => {
+export const sendFeedbackToBackend = async (
+  backendUrl: string | undefined,
+  payload: FeedbackPayload & { questionEmbeddingId?: number }
+): Promise<void> => {
   const rating = payload.feedback === 'like' ? 5 : 1;
   const feedbackType = payload.feedback === 'like' ? 'helpful' : 'not_helpful';
+  const targetUrl = `${backendUrl || BACKEND_URL}/feedback`;
 
   try {
-    await fetch(`${BACKEND_URL}/feedback`, {
+    await fetch(targetUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -124,6 +128,7 @@ export const sendFeedbackToBackend = async (payload: FeedbackPayload): Promise<v
         messageId: payload.messageId,
         rating,
         feedbackType,
+        questionEmbeddingId: payload.questionEmbeddingId,
         context: payload.context
       })
     });

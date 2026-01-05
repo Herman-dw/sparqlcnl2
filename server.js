@@ -718,7 +718,8 @@ app.post('/feedback', async (req, res) => {
     rating,           // 1-5 of thumbs up/down
     feedbackType,     // 'helpful', 'not_helpful', 'incorrect', 'suggestion'
     comment,
-    context           // Optionele context (vraag, antwoord, etc.)
+    context,          // Optionele context (vraag, antwoord, etc.)
+    questionEmbeddingId
   } = req.body;
 
   console.log(`[Feedback] Ontvangen: ${feedbackType} (${rating}) - ${comment || 'geen opmerking'}`);
@@ -737,6 +738,45 @@ app.post('/feedback', async (req, res) => {
     ]).catch(() => {
       // Tabel bestaat mogelijk niet
     });
+
+    // Koppel feedback optioneel aan question_embeddings
+    if (questionEmbeddingId) {
+      const feedbackDelta = feedbackType === 'helpful' || (rating && Number(rating) >= 4) ? 0.1 : -0.1;
+
+      // Update aggregaties op de question_embeddings rij
+      try {
+        await ragPool.execute(`
+          UPDATE question_embeddings
+          SET feedback_score = GREATEST(-1, LEAST(1, feedback_score + ?)),
+              usage_count = usage_count + 1,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `, [feedbackDelta, questionEmbeddingId]);
+      } catch (error) {
+        console.warn('[Feedback] Kon feedback_score niet bijwerken voor question_embeddings:', error.message);
+      }
+
+      // Log koppeling voor latere analyse
+      try {
+        await ragPool.execute(`
+          INSERT INTO feedback_details (
+            question_embedding_id,
+            feedback_type,
+            feedback_reason,
+            sparql_was_correct,
+            results_were_relevant
+          ) VALUES (?, ?, ?, ?, ?)
+        `, [
+          questionEmbeddingId,
+          feedbackType === 'helpful' ? 'like' : 'dislike',
+          comment || null,
+          context?.sparql ? true : null,
+          typeof context?.resultsCount === 'number' ? context.resultsCount > 0 : null
+        ]);
+      } catch (error) {
+        console.warn('[Feedback] Kon feedback_details niet opslaan (optioneel):', error.message);
+      }
+    }
 
     res.json({ 
       success: true, 
