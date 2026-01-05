@@ -26,6 +26,162 @@ PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
 
 const escapeTerm = (term: string) => term.toLowerCase().replace(/"/g, '\\"');
 
+const featuredExampleQuestions: QuestionEntry[] = [
+  {
+    question: 'Welke vaardigheden hebben RIASEC code R?',
+    sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?skillLabel WHERE {
+  ?skill a cnlo:HumanCapability ;
+         cnlo:hasRIASEC "R" ;
+         skos:prefLabel ?skillLabel .
+  FILTER(LANG(?skillLabel) = "nl")
+}
+ORDER BY ?skillLabel
+LIMIT 50`,
+    category: 'capability'
+  },
+  {
+    question: 'Toon alle 137 vaardigheden in de taxonomie',
+    sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?label WHERE {
+  ?skill a cnlo:HumanCapability ;
+         skos:prefLabel ?label .
+  FILTER(LANG(?label) = "nl")
+}
+ORDER BY ?label
+LIMIT 150`,
+    category: 'capability'
+  },
+  {
+    question: 'Hoeveel vaardigheden zijn er per RIASEC letter?',
+    sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+
+SELECT ?riasec (COUNT(DISTINCT ?skill) AS ?aantal) WHERE {
+  ?skill a cnlo:HumanCapability ;
+         cnlo:hasRIASEC ?riasecValue .
+  BIND(STR(?riasecValue) AS ?riasecRaw)
+  BIND(
+    UCASE(
+      IF(
+        isIRI(?riasecValue),
+        REPLACE(?riasecRaw, "^.*([RIASEC])[^RIASEC]*$", "$1"),
+        SUBSTR(?riasecRaw, 1, 1)
+      )
+    ) AS ?riasec
+  )
+  FILTER(?riasec IN ("R","I","A","S","E","C"))
+}
+GROUP BY ?riasec
+ORDER BY ?riasec
+LIMIT 10`,
+    category: 'count'
+  },
+  {
+    question: 'Wat zijn de taken van een kapper?',
+    sparql: `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?taskType ?taskLabel WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "kapper"))
+  {
+    ?occupation cnluwvo:isCharacterizedByOccupationTask_Essential ?task .
+    BIND("Essentieel" AS ?taskType)
+  }
+  UNION {
+    ?occupation cnluwvo:isCharacterizedByOccupationTask_Optional ?task .
+    BIND("Optioneel" AS ?taskType)
+  }
+  ?task skos:prefLabel ?taskLabel .
+  FILTER(LANG(?taskLabel) = "nl")
+}
+ORDER BY ?taskType ?taskLabel
+LIMIT 50`,
+    category: 'task'
+  },
+  {
+    question: 'Wat zijn de werkomstandigheden van een piloot?',
+    sparql: `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/def/uwv-ontology#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?conditionLabel WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel ;
+              cnluwvo:hasWorkCondition ?condition .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "piloot"))
+  ?condition skos:prefLabel ?conditionLabel .
+  FILTER(LANG(?conditionLabel) = "nl")
+}
+ORDER BY ?conditionLabel
+LIMIT 50`,
+    category: 'occupation'
+  },
+  {
+    question: 'Op welke manier komt het beroep docent mbo overeen met teamleider jeugdzorg?',
+    sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?sharedSkillLabel WHERE {
+  ?docent a cnlo:Occupation ;
+          skos:prefLabel ?docentLabel .
+  FILTER(LANG(?docentLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?docentLabel), "docent mbo"))
+
+  ?teamleider a cnlo:Occupation ;
+              skos:prefLabel ?teamleiderLabel .
+  FILTER(LANG(?teamleiderLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?teamleiderLabel), "teamleider jeugdzorg"))
+
+  VALUES ?predicate { cnlo:requiresHATEssential cnlo:requiresHATImportant }
+  ?docent ?predicate ?skill .
+  ?teamleider ?predicate ?skill .
+  ?skill skos:prefLabel ?sharedSkillLabel .
+  FILTER(LANG(?sharedSkillLabel) = "nl")
+}
+ORDER BY ?sharedSkillLabel
+LIMIT 50`,
+    category: 'comparison'
+  },
+  {
+    question: 'Wat zijn de taken en vaardigheden van een tandartsassistent?',
+    sparql: `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?type ?label WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "tandartsassistent"))
+  {
+    VALUES ?taskPred { cnluwvo:isCharacterizedByOccupationTask_Essential cnluwvo:isCharacterizedByOccupationTask_Optional }
+    ?occupation ?taskPred ?item .
+    ?item skos:prefLabel ?label .
+    BIND("Taak" AS ?type)
+  }
+  UNION {
+    VALUES ?skillPred { cnlo:requiresHATEssential cnlo:requiresHATImportant }
+    ?occupation ?skillPred ?item .
+    ?item skos:prefLabel ?label .
+    BIND("Vaardigheid" AS ?type)
+  }
+  FILTER(LANG(?label) = "nl")
+}
+ORDER BY ?type ?label
+LIMIT 100`,
+    category: 'task'
+  }
+];
+
 const buildOccupationSkillQuestion = (term: string): QuestionEntry => ({
   question: `Welke vaardigheden zijn essentieel of belangrijk voor een ${term}?`,
   sparql: `${PREFIXES}
@@ -1354,7 +1510,10 @@ WHERE {
   }
 ];
 
+export const FEATURED_EXAMPLE_QUESTIONS = featuredExampleQuestions;
+
 export const QUESTION_BANK: QuestionEntry[] = [
+  ...featuredExampleQuestions,
   ...occupationSkillQuestions,
   ...occupationTaskQuestions,
   ...workConditionQuestions,
@@ -1370,8 +1529,10 @@ export const QUESTION_BANK: QuestionEntry[] = [
 
 export const QUESTION_BANK_COUNT = QUESTION_BANK.length;
 
-if (QUESTION_BANK_COUNT !== 150) {
+const EXPECTED_QUESTION_BANK_COUNT = 157;
+
+if (QUESTION_BANK_COUNT !== EXPECTED_QUESTION_BANK_COUNT) {
   console.warn(
-    `⚠️ QUESTION_BANK_COUNT=${QUESTION_BANK_COUNT} (expected 150 for full coverage)`
+    `⚠️ QUESTION_BANK_COUNT=${QUESTION_BANK_COUNT} (expected ${EXPECTED_QUESTION_BANK_COUNT} for full coverage)`
   );
 }

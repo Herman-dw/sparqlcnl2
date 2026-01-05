@@ -99,11 +99,21 @@ INSERT INTO question_embeddings (question, sparql_query, category, domain) VALUE
 SELECT ?riasec (COUNT(?skill) AS ?aantal) WHERE {
   ?skill a cnlo:HumanCapability ;
          cnlo:hasRIASEC ?riasecValue .
-  BIND(UCASE(SUBSTR(STR(?riasecValue), 1, 1)) AS ?riasec)
+  BIND(STR(?riasecValue) AS ?riasecRaw)
+  BIND(
+    UCASE(
+      IF(
+        isIRI(?riasecValue),
+        REPLACE(?riasecRaw, "^.*([RIASEC])[^RIASEC]*$", "$1"),
+        SUBSTR(?riasecRaw, 1, 1)
+      )
+    ) AS ?riasec
+  )
   FILTER(?riasec IN ("R","I","A","S","E","C"))
 }
 GROUP BY ?riasec
-ORDER BY ?riasec',
+ORDER BY ?riasec
+LIMIT 10',
 'count',
 'skill');
 
