@@ -183,20 +183,20 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <p>Stel een vraag over beroepen, vaardigheden of opleidingen.</p>
             <div className="example-questions">
               <p><strong>Voorbeelden:</strong></p>
-              <button onClick={() => setInput('Welke vaardigheden heeft een architect?')}>
-                🏗️ Welke vaardigheden heeft een architect?
+              <button onClick={() => setInput('Welke vaardigheden hebben RIASEC code R?')}>
+                🏷️ Vaardigheden met RIASEC code R
               </button>
-              <button onClick={() => setInput('Toon alle MBO kwalificaties')}>
-                🎓 Toon alle MBO kwalificaties
+              <button onClick={() => setInput('Hoeveel vaardigheden zijn er per RIASEC letter?')}>
+                🔢 Vaardigheden per RIASEC letter
               </button>
-              <button onClick={() => setInput('Vaardigheden van loodgieter')}>
-                🔧 Vaardigheden van loodgieter
+              <button onClick={() => setInput('Wat zijn de taken van een kapper?')}>
+                ✂️ Taken van een kapper
               </button>
-              <button onClick={() => setInput('Wat leer je bij de opleiding werkvoorbereider installaties?')}>
-                📚 Wat leer je bij de opleiding werkvoorbereider?
+              <button onClick={() => setInput('Wat zijn de werkomstandigheden van een piloot?')}>
+                🛫 Werkomstandigheden voor piloten
               </button>
-              <button onClick={() => setInput('Geef alle vaardigheden met RIASEC code R')}>
-                🏷️ Vaardigheden met Hollandcode R
+              <button onClick={() => setInput('Wat zijn de taken en vaardigheden van een tandartsassistent?')}>
+                🦷 Taken en skills van een tandartsassistent
               </button>
             </div>
           </div>

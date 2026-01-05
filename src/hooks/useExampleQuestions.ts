@@ -54,7 +54,7 @@ const DEFAULT_BACKEND = 'http://localhost:3001';
 
 export function useExampleQuestions(
   backendUrl: string = DEFAULT_BACKEND,
-  limit: number = 8
+  limit: number = 14
 ): UseExampleQuestionsReturn {
   const [examples, setExamples] = useState<ExampleQuestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,10 +88,14 @@ export function useExampleQuestions(
       
       // Fallback naar hardcoded voorbeelden
       setExamples([
-        { id: 1, vraag: 'Welke vaardigheden heeft een loodgieter?', category: 'skill' },
-        { id: 2, vraag: 'Hoeveel beroepen zijn er in de database?', category: 'count' },
-        { id: 3, vraag: 'Toon alle MBO kwalificaties', category: 'education' },
-        { id: 4, vraag: 'Vergelijk timmerman met metselaar', category: 'comparison' }
+        { id: 1, vraag: 'Welke vaardigheden hebben RIASEC code R?', category: 'skill' },
+        { id: 2, vraag: 'Toon alle 137 vaardigheden in de taxonomie', category: 'skill' },
+        { id: 3, vraag: 'Hoeveel vaardigheden zijn er per RIASEC letter?', category: 'count' },
+        { id: 4, vraag: 'Wat zijn de taken van een kapper?', category: 'task' },
+        { id: 5, vraag: 'Wat zijn de werkomstandigheden van een piloot?', category: 'occupation' },
+        { id: 6, vraag: 'Op welke manier komt het beroep docent mbo overeen met teamleider jeugdzorg?', category: 'comparison' },
+        { id: 7, vraag: 'Wat zijn de taken en vaardigheden van een tandartsassistent?', category: 'task' },
+        { id: 8, vraag: 'Toon 30 MBO kwalificaties', category: 'education' }
       ]);
       setSource('fallback');
     } finally {

@@ -201,6 +201,102 @@ const TEST_SCENARIOS: TestScenario[] = [
     expectedBehavior: 'Queryt RIASEC mapping',
     priority: 2,
     tags: ['riasec', 'taxonomie']
+  },
+  {
+    id: 'example-riasec-r-skills',
+    name: 'Voorbeeld: RIASEC R vaardigheden',
+    description: 'Homepage voorbeeldvraag voor RIASEC R',
+    type: 'example_question',
+    question: 'Welke vaardigheden hebben RIASEC code R?',
+    validations: [
+      { type: 'sparql_contains', value: 'hasRIASEC', description: 'SPARQL moet hasRIASEC bevatten' },
+      { type: 'response_contains', value: 'RIASEC', description: 'Response benoemt RIASEC' }
+    ],
+    expectedBehavior: 'Geeft vaardigheden voor letter R',
+    priority: 2,
+    tags: ['example', 'riasec']
+  },
+  {
+    id: 'example-all-skills-taxonomy',
+    name: 'Voorbeeld: Alle vaardigheden',
+    description: 'Controleert de lijstvraag voor alle vaardigheden',
+    type: 'example_question',
+    question: 'Toon alle 137 vaardigheden in de taxonomie',
+    validations: [
+      { type: 'sparql_contains', value: 'HumanCapability', description: 'SPARQL richt zich op skills' },
+      { type: 'sparql_contains', value: 'LIMIT 150', description: 'Bevat limiet' }
+    ],
+    expectedBehavior: 'Lijst met alle vaardigheden',
+    priority: 2,
+    tags: ['example', 'skills']
+  },
+  {
+    id: 'example-riasec-count',
+    name: 'Voorbeeld: RIASEC aantallen',
+    description: 'Aggregatie over RIASEC letters',
+    type: 'example_question',
+    question: 'Hoeveel vaardigheden zijn er per RIASEC letter?',
+    validations: [
+      { type: 'sparql_contains', value: 'COUNT', description: 'SPARQL bevat COUNT' },
+      { type: 'sparql_contains', value: 'hasRIASEC', description: 'SPARQL gebruikt hasRIASEC' }
+    ],
+    expectedBehavior: 'Aantallen per RIASEC letter',
+    priority: 2,
+    tags: ['example', 'riasec', 'count']
+  },
+  {
+    id: 'example-kapper-tasks',
+    name: 'Voorbeeld: Taken kapper',
+    description: 'Voorbeeldvraag taken van een kapper',
+    type: 'example_question',
+    question: 'Wat zijn de taken van een kapper?',
+    validations: [
+      { type: 'sparql_contains', value: 'OccupationTask', description: 'SPARQL haalt taken op' },
+      { type: 'response_contains', value: 'kapper', description: 'Antwoord benoemt kapper' }
+    ],
+    expectedBehavior: 'Geeft taken voor kapper',
+    priority: 2,
+    tags: ['example', 'task']
+  },
+  {
+    id: 'example-piloot-conditions',
+    name: 'Voorbeeld: Werkomstandigheden piloot',
+    description: 'Voorbeeldvraag voor werkomstandigheden',
+    type: 'example_question',
+    question: 'Wat zijn de werkomstandigheden van een piloot?',
+    validations: [
+      { type: 'sparql_contains', value: 'hasWorkCondition', description: 'SPARQL bevat werkomstandigheden' }
+    ],
+    expectedBehavior: 'Geeft werkomstandigheden voor piloten',
+    priority: 2,
+    tags: ['example', 'work-conditions']
+  },
+  {
+    id: 'example-docent-teamleider-comparison',
+    name: 'Voorbeeld: Overeenkomsten docent mbo en teamleider jeugdzorg',
+    description: 'Vergelijkingsvraag tussen twee beroepen',
+    type: 'example_question',
+    question: 'Op welke manier komt het beroep docent mbo overeen met teamleider jeugdzorg?',
+    validations: [
+      { type: 'sparql_contains', value: 'requiresHAT', description: 'SPARQL vergelijkt vaardigheden' }
+    ],
+    expectedBehavior: 'Geeft gedeelde vaardigheden terug',
+    priority: 2,
+    tags: ['example', 'comparison']
+  },
+  {
+    id: 'example-tandartsassistent-tasks-skills',
+    name: 'Voorbeeld: Taken en skills tandartsassistent',
+    description: 'Combinatievraag voor taken en vaardigheden',
+    type: 'example_question',
+    question: 'Wat zijn de taken en vaardigheden van een tandartsassistent?',
+    validations: [
+      { type: 'sparql_contains', value: 'OccupationTask', description: 'SPARQL bevat taken' },
+      { type: 'sparql_contains', value: 'requiresHAT', description: 'SPARQL bevat skills' }
+    ],
+    expectedBehavior: 'Toont taken en vaardigheden',
+    priority: 2,
+    tags: ['example', 'task', 'skill']
   }
 ];
 
