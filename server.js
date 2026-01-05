@@ -35,6 +35,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const HOST = '127.0.0.1';
 
+// Database configuratie (ondersteunt zowel MARIADB_* als DB_* variabelen)
+const DB_HOST = process.env.MARIADB_HOST || process.env.DB_HOST || 'localhost';
+const DB_PORT = parseInt(process.env.MARIADB_PORT || process.env.DB_PORT || '3306');
+const DB_USER = process.env.MARIADB_USER || process.env.DB_USER || 'root';
+const DB_PASSWORD = process.env.MARIADB_PASSWORD || process.env.DB_PASSWORD || '';
+const DB_NAME = process.env.MARIADB_DATABASE || process.env.DB_NAME || 'competentnl_rag';
+const DB_PROMPTS_NAME = process.env.DB_PROMPTS_NAME || 'competentnl_prompts';
+
 app.use(cors());
 app.use(express.json());
 app.use('/api', matchingRouter);
@@ -45,10 +53,11 @@ app.use('/api', matchingRouter);
 
 // Pool voor RAG & Concept Resolver
 const ragPool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'competentnl_rag',
+  host: DB_HOST,
+  port: DB_PORT,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
   charset: 'utf8mb4'
@@ -56,10 +65,11 @@ const ragPool = mysql.createPool({
 
 // Pool voor Multi-Prompt Orchestrator
 const promptsPool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_PROMPTS_NAME || 'competentnl_prompts',
+  host: DB_HOST,
+  port: DB_PORT,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_PROMPTS_NAME,
   waitForConnections: true,
   connectionLimit: 5,
   charset: 'utf8mb4'
