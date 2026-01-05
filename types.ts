@@ -22,6 +22,11 @@ export interface Message {
     domain?: string;
     isRiasec?: boolean;
     riasecLetter?: string;
+    limitUsed?: number;
+    totalCount?: number;
+    countQuery?: string;
+    fullResultSparql?: string;
+    resultsTruncated?: boolean;
   };
 }
 
