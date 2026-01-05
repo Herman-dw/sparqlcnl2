@@ -31,7 +31,7 @@ import {
 type TestType = 
   | 'disambiguation' | 'domain_detection' | 'follow_up' 
   | 'concept_resolution' | 'count_handling' | 'feedback'
-  | 'riasec' | 'education_skills';
+  | 'riasec' | 'education_skills' | 'example_question';
 
 interface ValidationCheck {
   type: string;
@@ -194,6 +194,104 @@ const TEST_SCENARIOS: TestScenario[] = [
     expectedBehavior: 'Queryt RIASEC mapping',
     priority: 2,
     tags: ['riasec', 'taxonomie']
+  },
+  {
+    id: 'example-riasec-r-skills',
+    name: 'Voorbeeldvraag: RIASEC R vaardigheden',
+    description: 'Homepage voorbeeldvraag voor RIASEC code R',
+    type: 'example_question' as TestType,
+    question: 'Welke vaardigheden hebben RIASEC code R?',
+    validations: [
+      { type: 'sparql_contains', value: 'hasRIASEC', description: 'SPARQL bevat hasRIASEC' },
+      { type: 'response_contains', value: /RIASEC/i, description: 'Response benoemt RIASEC' }
+    ],
+    expectedBehavior: 'Geeft vaardigheden gekoppeld aan RIASEC letter R.',
+    priority: 2,
+    tags: ['example', 'riasec']
+  },
+  {
+    id: 'example-all-skills-taxonomy',
+    name: 'Voorbeeldvraag: Alle 137 vaardigheden',
+    description: 'Controleert de lijstvraag voor alle vaardigheden',
+    type: 'example_question' as TestType,
+    question: 'Toon alle 137 vaardigheden in de taxonomie',
+    validations: [
+      { type: 'sparql_contains', value: 'HumanCapability', description: 'SPARQL richt zich op vaardigheden' },
+      { type: 'sparql_contains', value: 'LIMIT 150', description: 'Bevat limiet' }
+    ],
+    expectedBehavior: 'Geeft de volledige lijst met vaardigheden (max 150).',
+    priority: 2,
+    tags: ['example', 'taxonomy']
+  },
+  {
+    id: 'example-riasec-count',
+    name: 'Voorbeeldvraag: RIASEC aantallen',
+    description: 'Aggregatie per RIASEC letter',
+    type: 'example_question' as TestType,
+    question: 'Hoeveel vaardigheden zijn er per RIASEC letter?',
+    validations: [
+      { type: 'sparql_contains', value: 'COUNT', description: 'SPARQL bevat COUNT' },
+      { type: 'sparql_contains', value: 'hasRIASEC', description: 'SPARQL gebruikt hasRIASEC' }
+    ],
+    expectedBehavior: 'Toont aantallen per RIASEC letter.',
+    priority: 2,
+    tags: ['example', 'riasec', 'aggregatie']
+  },
+  {
+    id: 'example-kapper-tasks',
+    name: 'Voorbeeldvraag: Taken kapper',
+    description: 'Takenoverzicht voor kapper',
+    type: 'example_question' as TestType,
+    question: 'Wat zijn de taken van een kapper?',
+    validations: [
+      { type: 'sparql_contains', value: 'OccupationTask', description: 'SPARQL haalt taken op' },
+      { type: 'response_contains', value: /kapper/i, description: 'Antwoord noemt kapper' }
+    ],
+    expectedBehavior: 'Lijst met essentiële of optionele kappers taken.',
+    priority: 2,
+    tags: ['example', 'task', 'occupation']
+  },
+  {
+    id: 'example-piloot-conditions',
+    name: 'Voorbeeldvraag: Werkomstandigheden piloot',
+    description: 'Werkomstandigheden voor piloten',
+    type: 'example_question' as TestType,
+    question: 'Wat zijn de werkomstandigheden van een piloot?',
+    validations: [
+      { type: 'sparql_contains', value: 'hasWorkCondition', description: 'SPARQL bevat werkomstandigheden' },
+      { type: 'response_contains', value: /piloot/i, description: 'Antwoord benoemt piloot' }
+    ],
+    expectedBehavior: 'Geeft relevante werkomstandigheden terug.',
+    priority: 2,
+    tags: ['example', 'work-conditions', 'occupation']
+  },
+  {
+    id: 'example-docent-teamleider-comparison',
+    name: 'Voorbeeldvraag: Docent mbo vs teamleider jeugdzorg',
+    description: 'Vergelijking tussen twee beroepen',
+    type: 'example_question' as TestType,
+    question: 'Op welke manier komt het beroep docent mbo overeen met teamleider jeugdzorg?',
+    validations: [
+      { type: 'sparql_contains', value: 'requiresHAT', description: 'SPARQL vergelijkt gedeelde skills' },
+      { type: 'response_contains', value: /docent|jeugdzorg/i, description: 'Antwoord noemt beide beroepen' }
+    ],
+    expectedBehavior: 'Toont overlappende vaardigheden tussen de twee beroepen.',
+    priority: 2,
+    tags: ['example', 'comparison', 'occupation']
+  },
+  {
+    id: 'example-tandartsassistent-tasks-skills',
+    name: 'Voorbeeldvraag: Tandartsassistent taken & skills',
+    description: 'Combinatie van taken en vaardigheden voor tandartsassistent',
+    type: 'example_question' as TestType,
+    question: 'Wat zijn de taken en vaardigheden van een tandartsassistent?',
+    validations: [
+      { type: 'sparql_contains', value: 'OccupationTask', description: 'SPARQL bevat taken' },
+      { type: 'sparql_contains', value: 'requiresHAT', description: 'SPARQL bevat vaardigheden' }
+    ],
+    expectedBehavior: 'Geeft zowel taken als vaardigheden terug.',
+    priority: 2,
+    tags: ['example', 'task', 'skill', 'occupation']
   }
 ];
 

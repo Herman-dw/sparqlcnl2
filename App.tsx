@@ -50,7 +50,7 @@ interface UseExampleQuestionsReturn {
   refetch: () => Promise<void>;
 }
 
-function useExampleQuestions(backendUrl: string, limit: number = 8): UseExampleQuestionsReturn {
+function useExampleQuestions(backendUrl: string, limit: number = 14): UseExampleQuestionsReturn {
   const [examples, setExamples] = useState<ExampleQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,14 +82,14 @@ function useExampleQuestions(backendUrl: string, limit: number = 8): UseExampleQ
       
       // Fallback voorbeelden - alle vragen zijn getest en werken!
       setExamples([
-        { id: 1, vraag: 'Welke vaardigheden heeft een loodgieter?', category: 'skill' },
-        { id: 2, vraag: 'Hoeveel beroepen zijn er in de database?', category: 'count' },
-        { id: 3, vraag: 'Toon 30 MBO kwalificaties', category: 'education' },
-        { id: 4, vraag: 'Welke vaardigheden hebben RIASEC code R?', category: 'skill' },
-        { id: 5, vraag: 'Toon 30 kennisgebieden', category: 'knowledge' },
-        { id: 6, vraag: 'Toon alle 137 vaardigheden', category: 'skill' },
-        { id: 7, vraag: 'Welke taken heeft een timmerman?', category: 'task' },
-        { id: 8, vraag: 'Toon 20 software-gerelateerde beroepen', category: 'occupation' }
+        { id: 1, vraag: 'Welke vaardigheden hebben RIASEC code R?', category: 'skill' },
+        { id: 2, vraag: 'Toon alle 137 vaardigheden in de taxonomie', category: 'skill' },
+        { id: 3, vraag: 'Hoeveel vaardigheden zijn er per RIASEC letter?', category: 'count' },
+        { id: 4, vraag: 'Wat zijn de taken van een kapper?', category: 'task' },
+        { id: 5, vraag: 'Wat zijn de werkomstandigheden van een piloot?', category: 'occupation' },
+        { id: 6, vraag: 'Op welke manier komt het beroep docent mbo overeen met teamleider jeugdzorg?', category: 'comparison' },
+        { id: 7, vraag: 'Wat zijn de taken en vaardigheden van een tandartsassistent?', category: 'task' },
+        { id: 8, vraag: 'Toon 30 MBO kwalificaties', category: 'education' }
       ]);
       setSource('fallback');
     } finally {
@@ -211,7 +211,7 @@ const App: React.FC = () => {
     error: examplesError, 
     source: examplesSource,
     refetch: refetchExamples 
-  } = useExampleQuestions(localBackendUrl, 8);
+  } = useExampleQuestions(localBackendUrl, 14);
 
   const riasecProfileItems = useMemo<ProfileItemWithSource[]>(() => {
     return riasecSelectedCapabilities.map((cap) => ({

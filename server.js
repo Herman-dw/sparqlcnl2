@@ -1511,7 +1511,7 @@ app.get('/api/example-questions', async (req, res) => {
     console.log('[API] âš  Geen voorbeelden in database, gebruik defaults');
     res.json({
       source: 'defaults',
-      count: 8,
+      count: getDefaultExamples().length,
       examples: getDefaultExamples()
     });
     
@@ -1520,7 +1520,7 @@ app.get('/api/example-questions', async (req, res) => {
     res.json({
       source: 'defaults_error',
       error: error.message,
-      count: 8,
+      count: getDefaultExamples().length,
       examples: getDefaultExamples()
     });
   }
@@ -1529,52 +1529,9 @@ app.get('/api/example-questions', async (req, res) => {
 // Helper functie met WERKENDE voorbeelden (alle queries hebben LIMIT!)
 function getDefaultExamples() {
   return [
-    { 
-      id: 1, 
-      vraag: 'Welke vaardigheden heeft een loodgieter?', 
-      category: 'skill',
-      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT DISTINCT ?skillLabel WHERE {
-  ?occupation a cnlo:Occupation ;
-              skos:prefLabel ?occLabel .
-  FILTER(CONTAINS(LCASE(?occLabel), "loodgieter"))
-  ?occupation cnlo:requiresHATEssential ?skill .
-  ?skill skos:prefLabel ?skillLabel .
-  FILTER(LANG(?skillLabel) = "nl")
-}
-LIMIT 30`
-    },
-    { 
-      id: 2, 
-      vraag: 'Hoeveel beroepen zijn er in de database?', 
-      category: 'count',
-      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-
-SELECT (COUNT(DISTINCT ?occupation) AS ?aantal) WHERE {
-  ?occupation a cnlo:Occupation .
-}
-LIMIT 1`
-    },
-    { 
-      id: 3, 
-      vraag: 'Toon 30 MBO kwalificaties', 
-      category: 'education',
-      sparql_query: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT ?naam WHERE {
-  ?kwalificatie a ksmo:MboKwalificatie ;
-                skos:prefLabel ?naam .
-  FILTER(LANG(?naam) = "nl")
-}
-ORDER BY ?naam
-LIMIT 30`
-    },
-    { 
-      id: 4, 
-      vraag: 'Welke vaardigheden hebben RIASEC code R?', 
+    {
+      id: 1,
+      vraag: 'Welke vaardigheden hebben RIASEC code R?',
       category: 'skill',
       sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -1588,24 +1545,9 @@ SELECT ?skillLabel WHERE {
 ORDER BY ?skillLabel
 LIMIT 50`
     },
-    { 
-      id: 5, 
-      vraag: 'Toon 30 kennisgebieden', 
-      category: 'knowledge',
-      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-SELECT ?label WHERE {
-  ?area a cnlo:KnowledgeArea ;
-        skos:prefLabel ?label .
-  FILTER(LANG(?label) = "nl")
-}
-ORDER BY ?label
-LIMIT 30`
-    },
-    { 
-      id: 6, 
-      vraag: 'Toon alle 137 vaardigheden', 
+    {
+      id: 2,
+      vraag: 'Toon alle 137 vaardigheden in de taxonomie',
       category: 'skill',
       sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -1618,27 +1560,161 @@ SELECT ?label WHERE {
 ORDER BY ?label
 LIMIT 150`
     },
-    { 
-      id: 7, 
-      vraag: 'Welke taken heeft een timmerman?', 
+    {
+      id: 3,
+      vraag: 'Hoeveel vaardigheden zijn er per RIASEC letter?',
+      category: 'count',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+
+SELECT ?riasec (COUNT(?skill) AS ?aantal) WHERE {
+  ?skill a cnlo:HumanCapability ;
+         cnlo:hasRIASEC ?riasecValue .
+  BIND(UCASE(SUBSTR(STR(?riasecValue), 1, 1)) AS ?riasec)
+  FILTER(?riasec IN ("R","I","A","S","E","C"))
+}
+GROUP BY ?riasec
+ORDER BY ?riasec`
+    },
+    {
+      id: 4,
+      vraag: 'Wat zijn de taken van een kapper?',
       category: 'task',
       sparql_query: `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
 PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
-SELECT DISTINCT ?taskLabel WHERE {
+SELECT DISTINCT ?taskType ?taskLabel WHERE {
   ?occupation a cnlo:Occupation ;
               skos:prefLabel ?occLabel .
-  FILTER(CONTAINS(LCASE(?occLabel), "timmerman"))
-  ?occupation cnluwvo:isCharacterizedByOccupationTask_Essential ?task .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "kapper"))
+  
+  {
+    ?occupation cnluwvo:isCharacterizedByOccupationTask_Essential ?task .
+    BIND("Essentieel" AS ?taskType)
+  } UNION {
+    ?occupation cnluwvo:isCharacterizedByOccupationTask_Optional ?task .
+    BIND("Optioneel" AS ?taskType)
+  }
+  
   ?task skos:prefLabel ?taskLabel .
   FILTER(LANG(?taskLabel) = "nl")
 }
+ORDER BY ?taskType ?taskLabel
+LIMIT 50`
+    },
+    {
+      id: 5,
+      vraag: 'Wat zijn de werkomstandigheden van een piloot?',
+      category: 'occupation',
+      sparql_query: `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/def/uwv-ontology#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?conditionLabel WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel ;
+              cnluwvo:hasWorkCondition ?condition .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "piloot"))
+  
+  ?condition skos:prefLabel ?conditionLabel .
+  FILTER(LANG(?conditionLabel) = "nl")
+}
+ORDER BY ?conditionLabel
+LIMIT 50`
+    },
+    {
+      id: 6,
+      vraag: 'Op welke manier komt het beroep docent mbo overeen met teamleider jeugdzorg?',
+      category: 'comparison',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?sharedSkillLabel WHERE {
+  ?docent a cnlo:Occupation ;
+          skos:prefLabel ?docentLabel .
+  FILTER(LANG(?docentLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?docentLabel), "docent mbo"))
+
+  ?teamleider a cnlo:Occupation ;
+              skos:prefLabel ?teamleiderLabel .
+  FILTER(LANG(?teamleiderLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?teamleiderLabel), "teamleider jeugdzorg"))
+
+  VALUES ?predicate { cnlo:requiresHATEssential cnlo:requiresHATImportant }
+  ?docent ?predicate ?skill .
+  ?teamleider ?predicate ?skill .
+  ?skill skos:prefLabel ?sharedSkillLabel .
+  FILTER(LANG(?sharedSkillLabel) = "nl")
+}
+ORDER BY ?sharedSkillLabel
+LIMIT 50`
+    },
+    {
+      id: 7,
+      vraag: 'Wat zijn de taken en vaardigheden van een tandartsassistent?',
+      category: 'task',
+      sparql_query: `PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?type ?label WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel .
+  FILTER(LANG(?occLabel) = "nl")
+  FILTER(CONTAINS(LCASE(?occLabel), "tandartsassistent"))
+  
+  {
+    VALUES ?taskPred { cnluwvo:isCharacterizedByOccupationTask_Essential cnluwvo:isCharacterizedByOccupationTask_Optional }
+    ?occupation ?taskPred ?item .
+    ?item skos:prefLabel ?label .
+    BIND("Taak" AS ?type)
+  }
+  UNION {
+    VALUES ?skillPred { cnlo:requiresHATEssential cnlo:requiresHATImportant }
+    ?occupation ?skillPred ?item .
+    ?item skos:prefLabel ?label .
+    BIND("Vaardigheid" AS ?type)
+  }
+  FILTER(LANG(?label) = "nl")
+}
+ORDER BY ?type ?label
+LIMIT 100`
+    },
+    {
+      id: 8,
+      vraag: 'Toon 30 MBO kwalificaties',
+      category: 'education',
+      sparql_query: `PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?naam WHERE {
+  ?kwalificatie a ksmo:MboKwalificatie ;
+                skos:prefLabel ?naam .
+  FILTER(LANG(?naam) = "nl")
+}
+ORDER BY ?naam
 LIMIT 30`
     },
-    { 
-      id: 8, 
-      vraag: 'Toon 20 software-gerelateerde beroepen', 
+    {
+      id: 9,
+      vraag: 'Toon 30 kennisgebieden',
+      category: 'knowledge',
+      sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT ?label WHERE {
+  ?area a cnlo:KnowledgeArea ;
+        skos:prefLabel ?label .
+  FILTER(LANG(?label) = "nl")
+}
+ORDER BY ?label
+LIMIT 30`
+    },
+    {
+      id: 10,
+      vraag: 'Toon 20 software-gerelateerde beroepen',
       category: 'occupation',
       sparql_query: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
@@ -1654,6 +1730,23 @@ LIMIT 20`
     }
   ];
 }
+
+// =====================================================
+// RAG LOGGING ENDPOINT
+// =====================================================
+
+app.post('/rag/log', async (req, res) => {
+  const { sessionId, question, sparql, resultCount, executionTimeMs } = req.body;
+  try {
+    await ragPool.execute(`
+      INSERT INTO query_logs (session_id, question, generated_sparql, result_count, execution_time_ms)
+      VALUES (?, ?, ?, ?, ?)
+    `, [sessionId || 'anonymous', question, sparql, resultCount || 0, executionTimeMs || 0]);
+    res.json({ success: true });
+  } catch (error) {
+    res.json({ success: false });
+  }
+});
 
 // =====================================================
 // TEST VOORBEELDVRAAG ENDPOINT
@@ -1720,110 +1813,6 @@ app.post('/api/test-example-question', async (req, res) => {
   }
 });
 
-
-app.post('/rag/log', async (req, res) => {
-  const { sessionId, question, sparql, resultCount, executionTimeMs } = req.body;
-  try {
-    await ragPool.execute(`
-      INSERT INTO query_logs (session_id, question, generated_sparql, result_count, execution_time_ms)
-      VALUES (?, ?, ?, ?, ?)
-    `, [sessionId || 'anonymous', question, sparql, resultCount || 0, executionTimeMs || 0]);
-    res.json({ success: true });
-  } catch (error) {
-    res.json({ success: false });
-  }
-});
-
-// =====================================================
-// HOMEPAGE VOORBEELDVRAGEN ENDPOINT
-// =====================================================
-
-app.get('/api/example-questions', async (req, res) => {
-  const limit = parseInt(req.query.limit) || 8;
-  
-  try {
-    // Eerst proberen uit question_embeddings (primaire bron)
-    const [questionRows] = await ragPool.execute(`
-      SELECT 
-        id, 
-        question as vraag, 
-        sparql_query,
-        category,
-        domain,
-        usage_count,
-        success_rate
-      FROM question_embeddings
-      ORDER BY usage_count DESC, success_rate DESC, created_at DESC
-      LIMIT ?
-    `, [limit]);
-    
-    if (questionRows.length > 0) {
-      console.log(`[API] Loaded ${questionRows.length} example questions from question_embeddings`);
-      return res.json({
-        source: 'question_embeddings',
-        count: questionRows.length,
-        examples: questionRows
-      });
-    }
-    
-    // Fallback naar rag_examples
-    const [ragRows] = await ragPool.execute(`
-      SELECT 
-        id, 
-        question as vraag, 
-        sparql_query,
-        category,
-        feedback_score
-      FROM rag_examples
-      WHERE is_active = TRUE
-      ORDER BY feedback_score DESC, created_at DESC
-      LIMIT ?
-    `, [limit]);
-    
-    if (ragRows.length > 0) {
-      console.log(`[API] Loaded ${ragRows.length} example questions from rag_examples (fallback)`);
-      return res.json({
-        source: 'rag_examples',
-        count: ragRows.length,
-        examples: ragRows
-      });
-    }
-    
-    // Als beide tabellen leeg zijn, geef hardcoded defaults
-    console.log('[API] No examples in database, using defaults');
-    res.json({
-      source: 'defaults',
-      count: 6,
-      examples: [
-        { id: 1, vraag: 'Welke vaardigheden heeft een loodgieter?', category: 'skill' },
-        { id: 2, vraag: 'Hoeveel beroepen zijn er in de database?', category: 'count' },
-        { id: 3, vraag: 'Toon alle MBO kwalificaties', category: 'education' },
-        { id: 4, vraag: 'Vergelijk timmerman met metselaar', category: 'comparison' },
-        { id: 5, vraag: 'Welke kennisgebieden hoort bij ICT?', category: 'knowledge' },
-        { id: 6, vraag: 'Geef vaardigheden met RIASEC code R', category: 'skill' }
-      ]
-    });
-    
-  } catch (error) {
-    console.error('[API] Error loading example questions:', error.message);
-    // Bij error, geef defaults terug
-    res.json({
-      source: 'defaults_error',
-      error: error.message,
-      count: 4,
-      examples: [
-        { id: 1, vraag: 'Welke vaardigheden heeft een loodgieter?', category: 'skill' },
-        { id: 2, vraag: 'Hoeveel beroepen zijn er?', category: 'count' },
-        { id: 3, vraag: 'Toon alle MBO kwalificaties', category: 'education' },
-        { id: 4, vraag: 'Vergelijk twee beroepen', category: 'comparison' }
-      ]
-    });
-  }
-});
-
-// =====================================================
-// TEST VOORBEELDVRAGEN ENDPOINT
-// =====================================================
 
 app.post('/api/test-example-question', async (req, res) => {
   const { question } = req.body;

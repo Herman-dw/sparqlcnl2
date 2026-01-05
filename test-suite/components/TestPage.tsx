@@ -153,6 +153,62 @@ const API_SCENARIO_CONFIG: Record<string, ScenarioConfig> = {
       { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL moet COUNT bevatten' },
       { type: 'regex', field: 'sparql', pattern: 'requiresHAT|GROUP BY', description: 'SPARQL moet HAT relaties of GROUP BY bevatten' }
     ]
+  },
+  'example-riasec-r-skills': {
+    endpoint: '/generate',
+    method: 'POST',
+    validations: [
+      { type: 'contains', field: 'sparql', value: 'hasRIASEC', description: 'SPARQL bevat hasRIASEC' },
+      { type: 'contains', field: 'response', value: 'RIASEC', description: 'Response benoemt RIASEC' }
+    ]
+  },
+  'example-all-skills-taxonomy': {
+    endpoint: '/generate',
+    method: 'POST',
+    validations: [
+      { type: 'contains', field: 'sparql', value: 'HumanCapability', description: 'SPARQL richt zich op skills' },
+      { type: 'contains', field: 'sparql', value: 'LIMIT 150', description: 'Bevat limiet' }
+    ]
+  },
+  'example-riasec-count': {
+    endpoint: '/generate',
+    method: 'POST',
+    validations: [
+      { type: 'contains', field: 'sparql', value: 'COUNT', description: 'SPARQL bevat COUNT' },
+      { type: 'contains', field: 'sparql', value: 'hasRIASEC', description: 'SPARQL gebruikt hasRIASEC' }
+    ]
+  },
+  'example-kapper-tasks': {
+    endpoint: '/generate',
+    method: 'POST',
+    validations: [
+      { type: 'contains', field: 'sparql', value: 'OccupationTask', description: 'SPARQL haalt taken op' },
+      { type: 'regex', field: 'response', pattern: 'kapper|haar', description: 'Response benoemt kapper' }
+    ]
+  },
+  'example-piloot-conditions': {
+    endpoint: '/generate',
+    method: 'POST',
+    validations: [
+      { type: 'contains', field: 'sparql', value: 'hasWorkCondition', description: 'SPARQL bevat werkomstandigheden' },
+      { type: 'regex', field: 'response', pattern: 'piloot', description: 'Response benoemt piloot' }
+    ]
+  },
+  'example-docent-teamleider-comparison': {
+    endpoint: '/generate',
+    method: 'POST',
+    validations: [
+      { type: 'contains', field: 'sparql', value: 'requiresHAT', description: 'SPARQL vergelijkt gedeelde skills' },
+      { type: 'regex', field: 'sparql', pattern: 'docent|jeugdzorg', description: 'SPARQL bevat beide beroepen' }
+    ]
+  },
+  'example-tandartsassistent-tasks-skills': {
+    endpoint: '/generate',
+    method: 'POST',
+    validations: [
+      { type: 'contains', field: 'sparql', value: 'OccupationTask', description: 'SPARQL bevat taken' },
+      { type: 'contains', field: 'sparql', value: 'requiresHAT', description: 'SPARQL bevat vaardigheden' }
+    ]
   }
 };
 
