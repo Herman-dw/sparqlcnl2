@@ -35,6 +35,8 @@ const buildSource = (label: string): ProfileSource => ({
   type: 'wizard'
 });
 
+const escapeSparqlString = (value: string) => value.replace(/["\\]/g, '\\$&');
+
 const buildSearchTerms = (payload: ProfileSuggestionRequest) => {
   const parts = [payload.title, payload.organization, payload.description]
     .map((p) => (p || '').trim())
@@ -48,6 +50,55 @@ const buildSearchTerms = (payload: ProfileSuggestionRequest) => {
 
   return uniqueParts;
 };
+
+async function findEducationByLabel(searchTerms: string[]) {
+  const endpoint = getSparqlEndpoint();
+  const backendUrl = getBackendUrl();
+
+  for (const term of searchTerms) {
+    const cleaned = term.trim();
+    if (!cleaned) continue;
+
+    const query = `
+      PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+      PREFIX ksmo: <https://data.s-bb.nl/ksm/ont/ksmo#>
+      PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+      SELECT ?education ?label WHERE {
+        {
+          ?education a cnlo:EducationalNorm .
+        } UNION {
+          ?education a ksmo:MboKwalificatie .
+        } UNION {
+          ?education a ksmo:MboKeuzedeel .
+        }
+        ?education skos:prefLabel ?label .
+        FILTER(CONTAINS(LCASE(?label), "${escapeSparqlString(cleaned.toLowerCase())}"))
+      }
+      ORDER BY STRLEN(?label)
+      LIMIT 5
+    `;
+
+    const response = await fetch(`${backendUrl}/proxy/sparql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, endpoint })
+    });
+
+    if (!response.ok) continue;
+
+    const data = await response.json();
+    const firstMatch = data.results?.bindings?.[0];
+    if (firstMatch?.education?.value && firstMatch?.label?.value) {
+      return {
+        uri: firstMatch.education.value,
+        prefLabel: firstMatch.label.value,
+        matchedLabel: cleaned
+      };
+    }
+  }
+
+  return null;
+}
 
 async function resolveConcept(
   searchTerm: string,
@@ -262,8 +313,22 @@ export async function fetchProfileSuggestions(
       if (resolved) break;
     }
 
+    if (isEducation && resolved?.uri?.startsWith('synthetic:')) {
+      const sparqlResolved = await findEducationByLabel(searchTerms);
+      if (sparqlResolved) {
+        resolved = sparqlResolved;
+      } else {
+        resolved = null;
+      }
+    }
+
     if (!resolved && payload.title?.trim()) {
       resolved = await resolveConcept(payload.title.trim(), isEducation ? 'education' : 'occupation');
+    }
+
+    if (isEducation && resolved?.uri?.startsWith('synthetic:')) {
+      const sparqlResolved = await findEducationByLabel(searchTerms);
+      resolved = sparqlResolved;
     }
 
     if (!resolved) {
