@@ -70,11 +70,6 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, onBack, backendUrl = 'http
 
   const runner = useMemo(() => new TestRunner({ backendUrl, verbose: false }), [backendUrl]);
 
-  // Check backend status
-  React.useEffect(() => {
-    checkBackend();
-  }, [checkBackend]);
-
   const checkBackend = useCallback(async () => {
     setBackendStatus('checking');
     try {
@@ -84,6 +79,11 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, onBack, backendUrl = 'http
       setBackendStatus('offline');
     }
   }, [backendUrl]);
+
+  // Check backend status
+  React.useEffect(() => {
+    checkBackend();
+  }, [checkBackend]);
 
   const addLog = useCallback((message: string) => {
     const timestamp = new Date().toISOString();
