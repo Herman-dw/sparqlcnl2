@@ -4,13 +4,13 @@
  * Dit script genereert embeddings voor alle voorbeeldvragen in de database.
  * 
  * Gebruik:
- *   npx ts-node database/seed-embeddings.ts
+ *   npm run seed-db
  *   of: node --loader ts-node/esm database/seed-embeddings.ts
  */
 
 import mysql from 'mysql2/promise';
 import { pipeline } from '@xenova/transformers';
-import { QUESTION_BANK, QUESTION_BANK_COUNT } from './question-bank';
+import { QUESTION_BANK, QUESTION_BANK_COUNT } from './question-bank.js';
 
 // Database configuratie
 const DB_CONFIG = {
@@ -56,7 +56,9 @@ async function seedEmbeddings() {
     const [questions] = await connection.execute(`
       SELECT id, question 
       FROM question_embeddings 
-      WHERE JSON_LENGTH(embedding) = 0 OR embedding = '[]'
+      WHERE embedding IS NULL
+        OR JSON_VALID(embedding) = 0
+        OR (JSON_VALID(embedding) = 1 AND JSON_LENGTH(embedding) = 0)
     `);
     
     console.log(`\n📝 Found ${(questions as any[]).length} questions to process\n`);
@@ -80,7 +82,9 @@ async function seedEmbeddings() {
     const [concepts] = await connection.execute(`
       SELECT id, label_nl, description_nl 
       FROM schema_concepts 
-      WHERE embedding IS NULL OR JSON_LENGTH(embedding) = 0
+      WHERE embedding IS NULL
+        OR JSON_VALID(embedding) = 0
+        OR (JSON_VALID(embedding) = 1 AND JSON_LENGTH(embedding) = 0)
     `);
     
     console.log(`\n📚 Found ${(concepts as any[]).length} concepts to process\n`);
