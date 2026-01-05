@@ -10,7 +10,11 @@
 
 import mysql from 'mysql2/promise';
 import { pipeline } from '@xenova/transformers';
-import { QUESTION_BANK, QUESTION_BANK_COUNT } from './question-bank.js';
+import {
+  FEATURED_EXAMPLE_QUESTIONS,
+  QUESTION_BANK,
+  QUESTION_BANK_COUNT
+} from './question-bank.js';
 
 // Database configuratie
 const DB_CONFIG = {
@@ -125,33 +129,58 @@ async function syncQuestionBank() {
   const connection = await mysql.createConnection(DB_CONFIG);
   let inserted = 0;
   let updated = 0;
+  const featuredQuestions = new Set(
+    FEATURED_EXAMPLE_QUESTIONS.map((q) => q.question)
+  );
+  const FEATURED_USAGE_FLOOR = 25;
 
   console.log(`\n➕ Synchronizing ${QUESTION_BANK_COUNT} voorbeeldvragen...\n`);
 
   for (const entry of QUESTION_BANK) {
+    const isFeatured = featuredQuestions.has(entry.question);
     const [existing] = await connection.execute(
-      'SELECT id FROM question_embeddings WHERE question = ?',
+      'SELECT id, usage_count FROM question_embeddings WHERE question = ?',
       [entry.question]
     );
 
     if ((existing as any[]).length > 0) {
+      const targetId = (existing as any[])[0].id;
+      const updateFields = ['sparql_query = ?', 'category = ?', 'updated_at = CURRENT_TIMESTAMP'];
+      const params: (string | number)[] = [entry.sparql, entry.category];
+
+      if (isFeatured) {
+        updateFields.push('usage_count = GREATEST(COALESCE(usage_count, 0), ?)');
+        params.push(FEATURED_USAGE_FLOOR);
+      }
+
+      params.push(targetId);
       await connection.execute(
         `
         UPDATE question_embeddings
-        SET sparql_query = ?, category = ?, updated_at = CURRENT_TIMESTAMP
+        SET ${updateFields.join(', ')}
         WHERE id = ?
       `,
-        [entry.sparql, entry.category, (existing as any[])[0].id]
+        params
       );
       updated++;
     } else {
-      await connection.execute(
-        `
-        INSERT INTO question_embeddings (question, sparql_query, category, embedding)
-        VALUES (?, ?, ?, '[]')
-      `,
-        [entry.question, entry.sparql, entry.category]
-      );
+      if (isFeatured) {
+        await connection.execute(
+          `
+          INSERT INTO question_embeddings (question, sparql_query, category, embedding, usage_count)
+          VALUES (?, ?, ?, '[]', ?)
+        `,
+          [entry.question, entry.sparql, entry.category, FEATURED_USAGE_FLOOR]
+        );
+      } else {
+        await connection.execute(
+          `
+          INSERT INTO question_embeddings (question, sparql_query, category, embedding)
+          VALUES (?, ?, ?, '[]')
+        `,
+          [entry.question, entry.sparql, entry.category]
+        );
+      }
       inserted++;
     }
   }

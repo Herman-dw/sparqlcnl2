@@ -23,6 +23,12 @@ const getSparqlEndpoint = () => {
   return localStorage.getItem('sparql_url') || 'https://sparql.competentnl.nl';
 };
 
+const pushUnique = (collection: ProfileItem[], item: ProfileItem) => {
+  if (!collection.find((i) => i.label.toLowerCase() === item.label.toLowerCase())) {
+    collection.push(item);
+  }
+};
+
 const buildSource = (label: string): ProfileSource => ({
   id: `resolved-${label}`,
   label,
@@ -123,12 +129,6 @@ async function fetchOccupationProfile(uri: string) {
   const tasks: ProfileItem[] = [];
   const workConditions: ProfileItem[] = [];
 
-  const pushUnique = (collection: ProfileItem[], item: ProfileItem) => {
-    if (!collection.find((i) => i.label.toLowerCase() === item.label.toLowerCase())) {
-      collection.push(item);
-    }
-  };
-
   bindings.forEach((row: any) => {
     if (row.capability?.value && row.capLabel?.value) {
       pushUnique(capabilities, {
@@ -163,6 +163,77 @@ async function fetchOccupationProfile(uri: string) {
   return { capabilities, knowledge, tasks, workConditions };
 }
 
+async function fetchEducationProfile(uri: string) {
+  const endpoint = getSparqlEndpoint();
+  const backendUrl = getBackendUrl();
+
+  const query = `
+    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+    SELECT DISTINCT ?capability ?capLabel ?knowledge ?knowledgeLabel WHERE {
+      BIND(<${uri}> AS ?edu)
+      OPTIONAL {
+        VALUES ?capPred {
+          cnlo:prescribesHATEssential
+          cnlo:prescribesHATImportant
+          cnlo:prescribesHATSomewhat
+        }
+        ?edu ?capPred ?capability .
+        ?capability a cnlo:HumanCapability .
+        FILTER NOT EXISTS { ?capability a cnlo:KnowledgeArea }
+        ?capability skos:prefLabel ?capLabel .
+      }
+      OPTIONAL {
+        VALUES ?knowledgePred {
+          cnlo:prescribesKnowledge
+          cnlo:prescribesKnowledgeEssential
+          cnlo:prescribesKnowledgeImportant
+          cnlo:prescribesKnowledgeSomewhat
+        }
+        ?edu ?knowledgePred ?knowledge .
+        ?knowledge a cnlo:KnowledgeArea ;
+                  skos:prefLabel ?knowledgeLabel .
+      }
+    }
+  `;
+
+  const response = await fetch(`${backendUrl}/proxy/sparql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, endpoint })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `SPARQL error ${response.status}`);
+  }
+
+  const data = await response.json();
+  const bindings = data.results?.bindings || [];
+
+  const capabilities: ProfileItem[] = [];
+  const knowledge: ProfileItem[] = [];
+
+  bindings.forEach((row: any) => {
+    if (row.capability?.value && row.capLabel?.value) {
+      pushUnique(capabilities, {
+        uri: row.capability.value,
+        label: row.capLabel.value,
+        type: 'skill'
+      });
+    }
+    if (row.knowledge?.value && row.knowledgeLabel?.value) {
+      pushUnique(knowledge, {
+        uri: row.knowledge.value,
+        label: row.knowledgeLabel.value,
+        type: 'knowledge'
+      });
+    }
+  });
+
+  return { capabilities, knowledge, tasks: [], workConditions: [] };
+}
+
 export async function fetchProfileSuggestions(
   payload: ProfileSuggestionRequest
 ): Promise<ProfileSuggestionsResponse> {
@@ -180,7 +251,9 @@ export async function fetchProfileSuggestions(
     }
 
     const source = buildSource(resolved.prefLabel);
-    const occProfile = await fetchOccupationProfile(resolved.uri);
+    const profile = isEducation
+      ? await fetchEducationProfile(resolved.uri)
+      : await fetchOccupationProfile(resolved.uri);
 
     const mapCategory = (items: ProfileItem[]): ProfileItemWithSource[] =>
       (items || []).map((item) => ({
@@ -190,10 +263,10 @@ export async function fetchProfileSuggestions(
 
     return {
       success: true,
-      capabilities: mapCategory(occProfile.capabilities),
-      knowledge: mapCategory(occProfile.knowledge),
-      workConditions: mapCategory(occProfile.workConditions),
-      tasks: mapCategory(occProfile.tasks),
+      capabilities: mapCategory(profile.capabilities),
+      knowledge: mapCategory(profile.knowledge),
+      workConditions: mapCategory(profile.workConditions),
+      tasks: mapCategory(profile.tasks),
       resolvedLabel: resolved.prefLabel,
       resolvedMatchLabel: resolved.matchedLabel,
       resolvedUri: resolved.uri,
