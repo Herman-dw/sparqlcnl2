@@ -28,47 +28,9 @@ import {
 } from '../types/profile';
 import { MatchProfile, MatchResult } from '../types/matching';
 import { MatchResultCard } from './MatchModal';
+import { createEmptyProfile, mergeProfileLists, mergeProfiles, normalizeLabel } from '../state/profileUtils';
 
 type WizardStep = 'input' | 'suggestions' | 'confirm';
-
-const emptyProfile: SessionProfile = {
-  skills: [],
-  knowledge: [],
-  tasks: [],
-  workConditions: []
-};
-
-const normalizeLabel = (label: string) => label.trim().toLowerCase();
-
-const mergeProfileLists = (current: ProfileItemWithSource[], incoming: ProfileItemWithSource[]) => {
-  const map = new Map<string, ProfileItemWithSource>();
-
-  current.forEach((item) => map.set(normalizeLabel(item.label), item));
-  incoming.forEach((item) => {
-    const key = normalizeLabel(item.label);
-    const existing = map.get(key);
-    if (!existing) {
-      map.set(key, { ...item, sources: [...item.sources] });
-    } else {
-      const mergedSources = [...existing.sources];
-      item.sources.forEach((source) => {
-        if (!mergedSources.find((s) => s.id === source.id)) {
-          mergedSources.push(source);
-        }
-      });
-      map.set(key, { ...existing, ...item, sources: mergedSources });
-    }
-  });
-
-  return Array.from(map.values());
-};
-
-const mergeProfile = (base: SessionProfile, incoming: SessionProfile): SessionProfile => ({
-  skills: mergeProfileLists(base.skills, incoming.skills),
-  knowledge: mergeProfileLists(base.knowledge, incoming.knowledge),
-  tasks: mergeProfileLists(base.tasks, incoming.tasks),
-  workConditions: mergeProfileLists(base.workConditions, incoming.workConditions)
-});
 
 const buildSourceMap = (profile: SessionProfile) => {
   const entries: Record<string, { label: string; sources: ProfileSource[] }> = {};
@@ -123,7 +85,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
   >({});
   const [entrySelections, setEntrySelections] = useState<Record<string, SessionProfile>>({});
   const [suggestedProfiles, setSuggestedProfiles] = useState<Record<string, SessionProfile>>({});
-  const [manualAdditions, setManualAdditions] = useState<SessionProfile>(emptyProfile);
+  const [manualAdditions, setManualAdditions] = useState<SessionProfile>(createEmptyProfile());
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
   const [isMatching, setIsMatching] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
@@ -144,11 +106,11 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
     : null;
 
   const aggregatedProfile = useMemo(() => {
-    let combined: SessionProfile = emptyProfile;
+    let combined: SessionProfile = createEmptyProfile();
     Object.values(entrySelections).forEach((profile) => {
-      combined = mergeProfile(combined, profile);
+      combined = mergeProfiles(combined, profile);
     });
-    combined = mergeProfile(combined, manualAdditions);
+    combined = mergeProfiles(combined, manualAdditions);
     return combined;
   }, [entrySelections, manualAdditions]);
 
@@ -162,7 +124,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
       setValidationErrors({});
       setActiveEntryId(null);
       setEntrySelections({});
-      setManualAdditions(emptyProfile);
+      setManualAdditions(createEmptyProfile());
       setMatchResults([]);
       setMatchError(null);
       setExpandedResult(0);
@@ -221,7 +183,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
 
   const toggleSelection = (entryId: string, listKey: keyof SessionProfile, item: ProfileItemWithSource) => {
     setEntrySelections((current) => {
-      const existing = current[entryId] || emptyProfile;
+      const existing = current[entryId] || createEmptyProfile();
       const list = existing[listKey] as ProfileItemWithSource[];
       const exists = list.some((l) => normalizeLabel(l.label) === normalizeLabel(item.label));
       const updatedList = exists
@@ -319,7 +281,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
         }));
         setEntrySelections((current) => ({
           ...current,
-          [entry.id]: mergeProfile(current[entry.id] || emptyProfile, mapped)
+          [entry.id]: mergeProfiles(current[entry.id] || createEmptyProfile(), mapped)
         }));
       }
     } catch (error) {
@@ -417,8 +379,8 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
 
   const renderSuggestions = (entry: ProfileHistoryEntry) => {
     const state = suggestions[entry.id];
-    const selection = entrySelections[entry.id] || emptyProfile;
-    const suggestionData = suggestedProfiles[entry.id] || emptyProfile;
+    const selection = entrySelections[entry.id] || createEmptyProfile();
+    const suggestionData = suggestedProfiles[entry.id] || createEmptyProfile();
     const isEducation = entry.kind === 'education';
 
     const renderGroup = (
