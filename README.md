@@ -12,6 +12,42 @@ Een intelligente NL-naar-SPARQL agent voor het bevragen van CompetentNL en ESCO 
 - 📥 **Excel export** - Download resultaten als .xlsx
 - 🎨 **Moderne UI** - Clean, responsive interface
 
+## Design tokens
+
+### Kleuren (hex)
+- **Brand Navy**: `#0E2841`
+- **Brand Blue**: `#156082`
+- **Accent Orange**: `#E97132`
+- **Accent Cyan**: `#0F9ED5`
+- **Success Green**: `#196B24`
+- **Magenta**: `#A02B93`
+- **Surface**: `#F5F8FB`
+- **Surface Alt / Kaarten**: `#FFFFFF`
+- **Border**: `#D9E2EC`
+- **Tekstkleur primair**: `#0E2841`
+- **Tekstkleur secundair**: `#156082`
+- **Tekst op donkere vlakken**: `#FFFFFF`
+- **Tekst op accentvlakken**: `#0E2841`
+
+### Typografieschaal
+- **Fonts**: koppen `Space Grotesk`, body `Inter` (fallback system-ui).
+- **H1**: 2.25rem / 2.75rem, weight 700  
+- **H2**: 1.875rem / 2.375rem, weight 700  
+- **H3**: 1.5rem / 2rem, weight 600  
+- **H4**: 1.25rem / 1.75rem, weight 600  
+- **Body**: 1rem / 1.625rem, weight 400  
+- **Body strong**: 1rem / 1.625rem, weight 600  
+- **Caption**: 0.8125rem / 1.25rem, weight 500  
+
+### Contrast (WCAG)
+Aanbevolen tekst/achtergrond combinaties met minimaal AA (4.5:1) en AAA (7:1) waar aangegeven:
+- **AA**: Brand Blue op Surface (`#156082` op `#F5F8FB`, ~6.5:1)
+- **AAA**: Brand Navy op Surface (`#0E2841` op `#F5F8FB`, ~14.1:1)
+- **AAA**: Brand Navy op Surface Alt/White (`#0E2841` op `#FFFFFF`, ~15:1)
+- **AA**: White op Brand Blue (`#FFFFFF` op `#156082`, ~6.9:1)
+- **AA**: White op Success Green (`#FFFFFF` op `#196B24`, ~6.6:1)
+- **AA**: Brand Navy op Border (`#0E2841` op `#D9E2EC`, ~13.6:1)
+
 ## Installatie
 
 ### Vereisten
