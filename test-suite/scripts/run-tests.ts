@@ -182,7 +182,8 @@ const TEST_SCENARIOS: TestScenario[] = [
     question: 'Wat leer je bij de opleiding werkvoorbereider installaties?',
     validations: [
       { type: 'domain_equals', value: 'education', description: 'Domein is education' },
-      { type: 'sparql_contains', value: 'prescribes', description: 'SPARQL bevat prescribes' }
+      { type: 'sparql_contains', value: 'prescribes', description: 'SPARQL bevat prescribes' },
+      { type: 'sparql_contains', value: 'LIMIT', description: 'Query bevat LIMIT (zelfde validator als UI)' }
     ],
     expectedBehavior: 'Haalt vaardigheden en kennis op',
     priority: 2,
@@ -196,7 +197,8 @@ const TEST_SCENARIOS: TestScenario[] = [
     question: 'Geef alle vaardigheden die een relatie hebben met Hollandcode R',
     validations: [
       { type: 'sparql_contains', value: 'hasRIASEC', description: 'SPARQL bevat hasRIASEC' },
-      { type: 'sparql_pattern', value: '"R"|\'R\'', description: 'Filter op "R"' }
+      { type: 'sparql_pattern', value: '"R"|\'R\'', description: 'Filter op "R"' },
+      { type: 'sparql_contains', value: 'LIMIT', description: 'Query bevat LIMIT (zelfde validator als UI)' }
     ],
     expectedBehavior: 'Queryt RIASEC mapping',
     priority: 2,
