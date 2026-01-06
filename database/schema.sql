@@ -226,6 +226,11 @@ INSERT INTO question_embeddings (question, sparql_query, category, embedding) VA
  'task',
  '[]'),
 
+('Wat zijn de werkomstandigheden van een piloot?',
+ 'PREFIX cnluwvo: <https://linkeddata.competentnl.nl/def/uwv-ontology#>\nPREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>\nPREFIX skos: <http://www.w3.org/2004/02/skos/core#>\n\nSELECT DISTINCT ?conditionLabel WHERE {\n  ?occupation a cnlo:Occupation ;\n              skos:prefLabel ?occLabel ;\n              cnluwvo:hasWorkCondition ?condition .\n  FILTER(LANG(?occLabel) = "nl")\n  FILTER(CONTAINS(LCASE(?occLabel), "piloot"))\n  ?condition skos:prefLabel ?conditionLabel .\n  FILTER(LANG(?conditionLabel) = "nl")\n}\nORDER BY ?conditionLabel\nLIMIT 50',
+ 'occupation',
+ '[]'),
+
 ('Hoeveel beroepen zijn er?',
  'PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>\nSELECT (COUNT(DISTINCT ?occupation) AS ?aantal)\nWHERE {\n  ?occupation a cnlo:Occupation .\n}',
  'count',
