@@ -146,7 +146,7 @@ export const CONCEPT_CONFIGS: Record<ConceptType, ConceptConfig> = {
     dutchNamePlural: 'werkomstandigheden',
     disambiguationThreshold: 5,
     patterns: [
-      /(?:werkomstandigheid|arbeidsomstandigheid|werkplek|werkomgeving)\s+([a-zA-Zéëïöüáàâäèêîôûç\-\s]+)/i,
+      /(?:werkomstandigheid|werkomstandigheden|arbeidsomstandigheid|arbeidsomstandigheden|werkconditie|werkcondities|werkplek|werkplekken|werkomgeving|werkomgevingen)\s+(?:van\s+)?([a-zA-Zéëïöüáàâäèêîôûç\-\s]+)/i,
     ]
   }
 };
