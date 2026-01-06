@@ -673,45 +673,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleFetchAllResults = async (msg: Message) => {
-    if (!msg.metadata?.fullResultSparql) return;
-    setIsLoading(true);
-
-    try {
-      const results = await executeSparql(msg.metadata.fullResultSparql, sparqlEndpoint, authHeader, proxyMode, localBackendUrl);
-      const summary = await summarizeResults(msg.text, results, msg.metadata?.totalCount);
-
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        text: `Alle resultaten opgehaald (${results.length}${msg.metadata?.totalCount ? ` van ${msg.metadata.totalCount}` : ''}):\n\n${summary}`,
-        sparql: msg.metadata.fullResultSparql,
-        results,
-        timestamp: new Date(),
-        status: 'success',
-        metadata: {
-          domain: msg.metadata?.domain,
-          totalCount: msg.metadata?.totalCount,
-          resultsTruncated: false
-        }
-      };
-
-      setMessages(prev => [...prev, assistantMsg]);
-      await persistMessage(assistantMsg);
-    } catch (error: any) {
-      const errorMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        text: `Kon alle resultaten niet ophalen: ${error.message}`,
-        timestamp: new Date(),
-        status: 'error'
-      };
-      setMessages(prev => [...prev, errorMsg]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleDownloadAll = async (msg: Message) => {
     if (!msg.metadata?.fullResultSparql) return;
     setIsLoading(true);
@@ -1153,14 +1114,7 @@ const App: React.FC = () => {
                 )}
 
                 {msg.metadata?.resultsTruncated && msg.metadata?.fullResultSparql && (
-                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                    <button
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-semibold hover:bg-emerald-600 hover:text-white transition-colors"
-                      onClick={() => handleFetchAllResults(msg)}
-                      disabled={isLoading}
-                    >
-                      📥 Haal alle resultaten op{msg.metadata.totalCount ? ` (${msg.metadata.totalCount})` : ''}
-                    </button>
+                  <div className="mt-3">
                     <button
                       className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold hover:bg-indigo-600 hover:text-white transition-colors"
                       onClick={() => handleDownloadAll(msg)}
