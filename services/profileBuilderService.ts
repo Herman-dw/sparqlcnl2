@@ -235,7 +235,7 @@ async function fetchEducationProfile(uri: string) {
   const query = `
     PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
     PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-    SELECT DISTINCT ?capability ?capLabel ?knowledge ?knowledgeLabel WHERE {
+    SELECT DISTINCT ?capability ?capLabel ?knowledge ?knowledgeLabel ?knowledgeCap ?knowledgeCapLabel WHERE {
       BIND(<${uri}> AS ?edu)
       OPTIONAL {
         VALUES ?capPred {
@@ -258,6 +258,16 @@ async function fetchEducationProfile(uri: string) {
         ?edu ?knowledgePred ?knowledge .
         ?knowledge a cnlo:KnowledgeArea ;
                   skos:prefLabel ?knowledgeLabel .
+      }
+      OPTIONAL {
+        VALUES ?capKnowledgePred {
+          cnlo:prescribesHATEssential
+          cnlo:prescribesHATImportant
+          cnlo:prescribesHATSomewhat
+        }
+        ?edu ?capKnowledgePred ?knowledgeCap .
+        ?knowledgeCap a cnlo:KnowledgeArea ;
+                      skos:prefLabel ?knowledgeCapLabel .
       }
     }
   `;
@@ -291,6 +301,13 @@ async function fetchEducationProfile(uri: string) {
       pushUnique(knowledge, {
         uri: row.knowledge.value,
         label: row.knowledgeLabel.value,
+        type: 'knowledge'
+      });
+    }
+    if (row.knowledgeCap?.value && row.knowledgeCapLabel?.value) {
+      pushUnique(knowledge, {
+        uri: row.knowledgeCap.value,
+        label: row.knowledgeCapLabel.value,
         type: 'knowledge'
       });
     }

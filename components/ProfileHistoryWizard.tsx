@@ -419,6 +419,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
     const state = suggestions[entry.id];
     const selection = entrySelections[entry.id] || emptyProfile;
     const suggestionData = suggestedProfiles[entry.id] || emptyProfile;
+    const isEducation = entry.kind === 'education';
 
     const renderGroup = (
       title: string,
@@ -521,8 +522,9 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {renderGroup('Vaardigheden', 'skills', 'Nog geen voorgestelde vaardigheden', suggestionData.skills)}
               {renderGroup('Kennis', 'knowledge', 'Nog geen voorgestelde kennisgebieden', suggestionData.knowledge)}
-              {renderGroup('Werkomstandigheden', 'workConditions', 'Nog geen werkomstandigheden', suggestionData.workConditions)}
-              {renderGroup('Taken', 'tasks', 'Nog geen taken gevonden', suggestionData.tasks)}
+              {!isEducation &&
+                renderGroup('Werkomstandigheden', 'workConditions', 'Nog geen werkomstandigheden', suggestionData.workConditions)}
+              {!isEducation && renderGroup('Taken', 'tasks', 'Nog geen taken gevonden', suggestionData.tasks)}
             </div>
           </>
         )}
