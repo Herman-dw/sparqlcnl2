@@ -276,6 +276,11 @@ export const TEST_SCENARIOS: TestScenario[] = [
         type: 'sparql_pattern',
         value: /prescribesHATEssential|prescribesKnowledge/i,
         description: 'Query moet skill of knowledge prescribes bevatten'
+      },
+      {
+        type: 'sparql_contains',
+        value: 'LIMIT',
+        description: 'Query moet een LIMIT bevatten (zelfde validatie als UI)'
       }
     ],
     expectedBehavior: 'Het systeem moet zowel vaardigheden als kennisgebieden bij de opleiding ophalen.',
@@ -302,6 +307,11 @@ export const TEST_SCENARIOS: TestScenario[] = [
         type: 'sparql_pattern',
         value: /"R"|'R'|RIASEC.*R/i,
         description: 'Query moet filteren op "R"'
+      },
+      {
+        type: 'sparql_contains',
+        value: 'LIMIT',
+        description: 'Query moet een LIMIT bevatten (zelfde validatie als UI)'
       },
       {
         type: 'domain_equals',

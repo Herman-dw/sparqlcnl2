@@ -1414,7 +1414,8 @@ SELECT ?skill ?skillLabel WHERE {
   ?skill skos:prefLabel ?skillLabel .
   ?skill a cnlo:HumanCapability .
 }
-ORDER BY ?skillLabel`;
+ORDER BY ?skillLabel
+LIMIT 200`;
     
       response = `Vaardigheden met RIASEC code "${letter}" - ${riasecNames[letter] || letter}:`;
     }

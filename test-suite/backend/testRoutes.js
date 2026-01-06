@@ -338,7 +338,8 @@ SELECT ?skill ?skillLabel WHERE {
   ?skill skos:prefLabel ?skillLabel .
   ?skill a cnlo:HumanCapability .
 }
-ORDER BY ?skillLabel`;
+ORDER BY ?skillLabel
+LIMIT 200`;
     
     const riasecNames = {
       'R': 'Realistic (Praktisch)',

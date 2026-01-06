@@ -237,6 +237,12 @@ const TEST_SCENARIOS = [
         check: 'contains',
         value: 'prescribesKnowledge',
         description: 'SPARQL moet prescribesKnowledge bevatten (kennisgebieden)'
+      },
+      {
+        field: 'sparql',
+        check: 'contains',
+        value: 'LIMIT',
+        description: 'SPARQL moet LIMIT bevatten (zelfde validatie als UI)'
       }
     ]
   },
@@ -256,6 +262,12 @@ const TEST_SCENARIOS = [
         check: 'contains',
         value: 'hasRIASEC',
         description: 'SPARQL moet hasRIASEC bevatten'
+      },
+      {
+        field: 'sparql',
+        check: 'contains',
+        value: 'LIMIT',
+        description: 'SPARQL moet LIMIT bevatten (zelfde validatie als UI)'
       },
       {
         field: 'sparql',
