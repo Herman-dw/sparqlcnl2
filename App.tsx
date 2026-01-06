@@ -30,6 +30,7 @@ import MatchModal from './components/MatchModal';
 import ProfileHistoryWizard from './components/ProfileHistoryWizard';
 import { useProfileStore } from './state/profileStore';
 import { ProfileItemWithSource, SessionProfile } from './types/profile';
+import { mergeProfileLists } from './state/profileUtils';
 
 const DEFAULT_URL = 'https://sparql.competentnl.nl';
 const DEFAULT_LOCAL_BACKEND = 'http://localhost:3001';
@@ -135,30 +136,6 @@ const getRiasecFallbackResults = (letter: string | null) => {
     { skill: `urn:riasec:${safeLetter.toLowerCase()}:2`, skillLabel: `Voorbeeldvaardigheid ${safeLetter} 2` },
     { skill: `urn:riasec:${safeLetter.toLowerCase()}:3`, skillLabel: `Voorbeeldvaardigheid ${safeLetter} 3` },
   ];
-};
-
-const mergeProfileLists = (
-  existing: ProfileItemWithSource[],
-  incoming: ProfileItemWithSource[]
-): ProfileItemWithSource[] => {
-  const map = new Map<string, ProfileItemWithSource>();
-  existing.forEach((item) => map.set(item.label.toLowerCase(), item));
-  incoming.forEach((item) => {
-    const key = item.label.toLowerCase();
-    const current = map.get(key);
-    if (!current) {
-      map.set(key, { ...item, sources: [...item.sources] });
-    } else {
-      const mergedSources = [...current.sources];
-      item.sources.forEach((source) => {
-        if (!mergedSources.find((s) => s.id === source.id)) {
-          mergedSources.push(source);
-        }
-      });
-      map.set(key, { ...current, ...item, sources: mergedSources });
-    }
-  });
-  return Array.from(map.values());
 };
 
 // =====================================================

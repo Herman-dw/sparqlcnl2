@@ -23,9 +23,9 @@ import {
 } from '../services/matchingService';
 import SkillSearchInput from './SkillSearchInput';
 import { SessionProfile, ProfileSource } from '../types/profile';
+import { normalizeLabel } from '../state/profileUtils';
 
 type SourceMap = Record<string, { label: string; sources: ProfileSource[] }>;
-const normalizeLabel = (label: string) => label.trim().toLowerCase();
 
 const mergeSourceEntry = (map: SourceMap, label: string, sources: ProfileSource[]): SourceMap => {
   const key = normalizeLabel(label);
