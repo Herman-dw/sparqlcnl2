@@ -19,6 +19,7 @@ import {
   DisambiguationData,
   GenerateResult
 } from '../services/geminiService';
+import { colors, spacing, radii, shadows } from '../src/theme/tokens';
 
 interface ChatInterfaceProps {
   apiKey: string;
@@ -356,51 +357,51 @@ export const chatStyles = `
   flex-direction: column;
   height: 100%;
   max-height: 800px;
-  border: 1px solid #e0e0e0;
-  border-radius: 12px;
+  border: 1px solid ${colors.border.subtle};
+  border-radius: ${radii.md}px;
   overflow: hidden;
-  background: #f8f9fa;
+  background: ${colors.surface.base};
 }
 
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: ${spacing.md}px;
 }
 
 .welcome-message {
   text-align: center;
-  padding: 24px;
+  padding: ${spacing.xl}px;
 }
 
 .welcome-message h3 {
-  margin-bottom: 8px;
+  margin-bottom: ${spacing.sm}px;
 }
 
 .example-questions {
-  margin-top: 16px;
+  margin-top: ${spacing.md}px;
 }
 
 .example-questions button {
   display: block;
   width: 100%;
-  padding: 12px;
-  margin: 8px 0;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  background: white;
+  padding: ${spacing.md}px;
+  margin: ${spacing.sm}px 0;
+  border: 1px solid ${colors.border.default};
+  border-radius: ${radii.sm}px;
+  background: ${colors.surface.raised};
   cursor: pointer;
   text-align: left;
   transition: background 0.2s;
 }
 
 .example-questions button:hover {
-  background: #e9ecef;
+  background: ${colors.surface.muted};
 }
 
 .message {
   display: flex;
-  margin-bottom: 16px;
+  margin-bottom: ${spacing.md}px;
 }
 
 .message.user {
@@ -422,31 +423,31 @@ export const chatStyles = `
 
 .avatar {
   font-size: 24px;
-  margin: 0 8px;
+  margin: 0 ${spacing.sm}px;
 }
 
 .message-text {
-  padding: 12px 16px;
-  border-radius: 16px;
-  background: white;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  padding: ${spacing.md}px ${spacing.lg}px;
+  border-radius: ${radii.lg}px;
+  background: ${colors.surface.raised};
+  box-shadow: ${shadows.soft};
 }
 
 .message.user .message-text {
-  background: #0066cc;
-  color: white;
+  background: ${colors.primary.default};
+  color: ${colors.text.inverse};
 }
 
 .message.disambiguation .message-text {
-  background: #fff3cd;
-  border: 1px solid #ffc107;
+  background: ${colors.surface.attention};
+  border: 1px solid ${colors.border.warning};
 }
 
 .sparql-details {
-  margin-top: 12px;
-  padding: 8px;
-  background: #f1f3f4;
-  border-radius: 8px;
+  margin-top: ${spacing.md}px;
+  padding: ${spacing.sm}px;
+  background: ${colors.surface.muted};
+  border-radius: ${radii.sm}px;
 }
 
 .sparql-details summary {
@@ -455,36 +456,36 @@ export const chatStyles = `
 }
 
 .sparql-details pre {
-  margin: 8px 0 0;
-  padding: 12px;
-  background: #263238;
-  color: #80cbc4;
-  border-radius: 4px;
+  margin: ${spacing.sm}px 0 0;
+  padding: ${spacing.md}px;
+  background: ${colors.surface.inverse};
+  color: ${colors.text.code};
+  border-radius: ${radii.sm}px;
   overflow-x: auto;
   font-size: 12px;
 }
 
 .disambiguation-options {
-  margin-top: 12px;
+  margin-top: ${spacing.md}px;
 }
 
 .options-hint {
   font-size: 12px;
-  color: #666;
-  margin-bottom: 8px;
+  color: ${colors.text.secondary};
+  margin-bottom: ${spacing.sm}px;
 }
 
 .options-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  gap: ${spacing.sm}px;
 }
 
 .option-button {
-  padding: 8px 12px;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  background: white;
+  padding: ${spacing.sm}px ${spacing.md}px;
+  border: 1px solid ${colors.border.default};
+  border-radius: ${radii.sm}px;
+  background: ${colors.surface.raised};
   cursor: pointer;
   text-align: left;
   font-size: 13px;
@@ -492,43 +493,43 @@ export const chatStyles = `
 }
 
 .option-button:hover {
-  background: #e9ecef;
-  border-color: #0066cc;
+  background: ${colors.surface.muted};
+  border-color: ${colors.primary.default};
 }
 
 .count-button {
-  margin-top: 12px;
-  padding: 8px 16px;
-  border: 1px solid #17a2b8;
-  border-radius: 20px;
-  background: white;
-  color: #17a2b8;
+  margin-top: ${spacing.md}px;
+  padding: ${spacing.sm}px ${spacing.lg}px;
+  border: 1px solid ${colors.support.default};
+  border-radius: ${radii.pill}px;
+  background: ${colors.surface.raised};
+  color: ${colors.support.default};
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s;
 }
 
 .count-button:hover {
-  background: #17a2b8;
-  color: white;
+  background: ${colors.support.default};
+  color: ${colors.text.inverse};
 }
 
 .feedback-section {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #eee;
+  margin-top: ${spacing.md}px;
+  padding-top: ${spacing.md}px;
+  border-top: 1px solid ${colors.border.subtle};
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: ${spacing.sm}px;
 }
 
 .feedback-label {
   font-size: 12px;
-  color: #666;
+  color: ${colors.text.secondary};
 }
 
 .feedback-btn {
-  padding: 4px 8px;
+  padding: ${spacing.xs}px ${spacing.sm}px;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -542,15 +543,15 @@ export const chatStyles = `
 }
 
 .feedback-received {
-  margin-top: 8px;
+  margin-top: ${spacing.sm}px;
   font-size: 12px;
-  color: #28a745;
+  color: ${colors.states.success};
 }
 
 .loading-indicator {
   display: flex;
-  gap: 4px;
-  padding: 12px 16px;
+  gap: ${spacing.xs}px;
+  padding: ${spacing.md}px ${spacing.lg}px;
 }
 
 .loading-indicator span {
@@ -567,50 +568,50 @@ export const chatStyles = `
 
 .input-form {
   display: flex;
-  padding: 16px;
-  background: white;
-  border-top: 1px solid #e0e0e0;
+  padding: ${spacing.md}px;
+  background: ${colors.surface.raised};
+  border-top: 1px solid ${colors.border.subtle};
 }
 
 .input-form input {
   flex: 1;
-  padding: 12px 16px;
-  border: 1px solid #dee2e6;
-  border-radius: 24px;
+  padding: ${spacing.md}px ${spacing.lg}px;
+  border: 1px solid ${colors.border.default};
+  border-radius: ${radii.pill}px;
   font-size: 14px;
   outline: none;
 }
 
 .input-form input:focus {
-  border-color: #0066cc;
+  border-color: ${colors.primary.default};
 }
 
 .input-form button {
-  margin-left: 8px;
-  padding: 12px 20px;
+  margin-left: ${spacing.sm}px;
+  padding: ${spacing.md}px ${spacing.lg}px;
   border: none;
-  border-radius: 24px;
-  background: #0066cc;
-  color: white;
+  border-radius: ${radii.pill}px;
+  background: ${colors.primary.default};
+  color: ${colors.text.inverse};
   font-size: 16px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .input-form button:hover:not(:disabled) {
-  background: #0052a3;
+  background: ${colors.primary.hover};
 }
 
 .input-form button:disabled {
-  background: #ccc;
+  background: ${colors.states.disabled};
   cursor: not-allowed;
 }
 
 .context-indicator {
-  padding: 8px 16px;
+  padding: ${spacing.sm}px ${spacing.lg}px;
   font-size: 11px;
-  color: #666;
-  background: #f1f3f4;
+  color: ${colors.text.secondary};
+  background: ${colors.surface.muted};
   text-align: center;
 }
 `;
