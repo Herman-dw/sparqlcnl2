@@ -92,16 +92,15 @@ interface MatchModalProps {
 interface SelectedItemsProps {
   items: string[];
   onRemove: (item: string) => void;
-  color?: 'indigo' | 'emerald' | 'amber' | 'purple';
+  color?: 'emerald' | 'teal' | 'amber';
   sourceMap?: SourceMap;
 }
 
-const SelectedItems: React.FC<SelectedItemsProps> = ({ items, onRemove, color = 'indigo', sourceMap }) => {
+const SelectedItems: React.FC<SelectedItemsProps> = ({ items, onRemove, color = 'emerald', sourceMap }) => {
   const colors = {
-    indigo: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200',
     emerald: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200',
-    amber: 'bg-amber-100 text-amber-700 hover:bg-amber-200',
-    purple: 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+    teal: 'bg-teal-100 text-teal-700 hover:bg-teal-200',
+    amber: 'bg-amber-100 text-amber-700 hover:bg-amber-200'
   };
 
   if (items.length === 0) return null;
@@ -151,7 +150,7 @@ const ScoreBar: React.FC<ScoreBarProps> = ({ score, label, showPercentage = true
   const percentage = Math.round(score * 100);
   const getColor = (pct: number) => {
     if (pct >= 80) return 'bg-emerald-500';
-    if (pct >= 60) return 'bg-indigo-500';
+    if (pct >= 60) return 'bg-emerald-500';
     if (pct >= 40) return 'bg-amber-500';
     return 'bg-rose-500';
   };
@@ -189,13 +188,13 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
   const hasProfileSources = profileSources && Object.keys(profileSources).length > 0;
 
   return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden hover:border-indigo-300 transition-colors">
+    <div className="border border-slate-200 rounded-xl overflow-hidden hover:border-emerald-300 transition-colors">
       {/* Header */}
       <button
         onClick={onToggle}
         className="w-full px-5 py-4 flex items-center gap-4 bg-white hover:bg-slate-50 transition-colors"
       >
-        <span className="w-8 h-8 bg-indigo-100 text-indigo-700 rounded-lg flex items-center justify-center text-sm font-bold">
+        <span className="w-8 h-8 bg-emerald-100 text-emerald-700 rounded-lg flex items-center justify-center text-sm font-bold">
           {rank}
         </span>
         <div className="flex-1 text-left">
@@ -497,7 +496,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
       {/* Modal */}
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col m-4">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-indigo-500 to-purple-500">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-emerald-500 to-green-500">
           <div className="flex items-center gap-3">
             <Target className="w-6 h-6 text-white" />
             <h2 className="text-lg font-bold text-white">
@@ -521,11 +520,11 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
           {view === 'builder' && (
             <div className="p-6 space-y-6">
               {/* Info */}
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 flex gap-3">
-                <Sparkles className="w-5 h-5 text-indigo-500 flex-shrink-0 mt-0.5" />
-                <div className="text-sm text-indigo-700">
+              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 flex gap-3">
+                <Sparkles className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-emerald-700">
                   <p className="font-medium">Selecteer je vaardigheden</p>
-                  <p className="mt-1 text-indigo-600">
+                  <p className="mt-1 text-emerald-600">
                     We matchen je profiel tegen alle beroepen in de database en tonen welke het beste passen.
                   </p>
                 </div>
@@ -541,11 +540,11 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                   onSelect={handleSelectSkill}
                   searchFn={searchSkills}
                 />
-                <SelectedItems 
-                  items={selectedSkills} 
+                <SelectedItems
+                  items={selectedSkills}
                   onRemove={handleRemoveSkill}
                   sourceMap={profileSourceMap}
-                  color="indigo"
+                  color="emerald"
                 />
                 {selectedSkills.length === 0 && (
                   <p className="mt-2 text-xs text-slate-400">
@@ -557,7 +556,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
               {/* Advanced options toggle */}
               <button
                 onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center gap-2 text-sm text-slate-500 hover:text-indigo-600 transition-colors"
+                className="flex items-center gap-2 text-sm text-slate-500 hover:text-emerald-600 transition-colors"
               >
                 {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 Uitgebreide opties (kennisgebieden)
@@ -598,7 +597,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                     items={selectedTasks}
                     onRemove={handleRemoveTask}
                     sourceMap={profileSourceMap}
-                    color="purple"
+                    color="teal"
                   />
                 </div>
               )}
@@ -636,15 +635,15 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
           {/* Loading View */}
           {view === 'loading' && (
             <div className="p-12 flex flex-col items-center justify-center text-center">
-              <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
+              <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mb-4" />
               <h3 className="text-lg font-semibold text-slate-700">Bezig met matchen...</h3>
               <p className="mt-2 text-sm text-slate-500">
                 Dit kan even duren bij de eerste keer (cache wordt opgebouwd)
               </p>
               <div className="mt-6 flex gap-2">
-                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           )}
@@ -677,13 +676,13 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
               {/* Profile summary */}
               <div className="text-sm text-slate-500 space-y-2">
                 <div className="flex flex-wrap gap-3">
-                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100 text-xs font-semibold">
+                  <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 text-xs font-semibold">
                     Vaardigheden: {selectedSkills.length}
                   </span>
                   <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 text-xs font-semibold">
                     Kennisgebieden: {selectedKnowledge.length}
                   </span>
-                  <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full border border-purple-100 text-xs font-semibold">
+                  <span className="px-2 py-1 bg-teal-50 text-teal-700 rounded-full border border-teal-100 text-xs font-semibold">
                     Taken: {selectedTasks.length}
                   </span>
                   <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full border border-amber-100 text-xs font-semibold">
@@ -715,7 +714,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                     <p>Geen matches gevonden met de huidige criteria</p>
                     <button
                       onClick={handleBack}
-                      className="mt-3 text-indigo-600 hover:text-indigo-700 font-medium"
+                      className="mt-3 text-emerald-600 hover:text-emerald-700 font-medium"
                     >
                       Probeer andere vaardigheden
                     </button>
@@ -753,7 +752,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                 </button>
                 <button
                   onClick={handleRetry}
-                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                  className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2"
                 >
                   <RefreshCcw className="w-4 h-4" />
                   Opnieuw proberen
@@ -779,7 +778,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
               <button
                 onClick={handleMatch}
                 disabled={selectedSkills.length === 0 && selectedKnowledge.length === 0}
-                className="px-6 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                className="px-6 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
               >
                 <Target className="w-4 h-4" />
                 Matchen

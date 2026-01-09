@@ -786,9 +786,9 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50 font-sans">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-emerald-50 font-sans">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 text-white shadow-lg relative overflow-hidden">
+      <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-green-700 text-white shadow-lg relative overflow-hidden">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml,...')] opacity-10"></div>
         <div className="relative px-8 py-6 flex items-center justify-between max-w-[1800px] mx-auto">
           <div className="flex items-center gap-4">
@@ -797,7 +797,7 @@ const App: React.FC = () => {
             </div>
             <div>
               <h1 className="text-2xl font-black tracking-tight">CompetentNL SPARQL Agent</h1>
-              <p className="text-indigo-200 text-sm font-medium">Natuurlijke taal naar SPARQL • CompetentNL Knowledge Graph</p>
+              <p className="text-emerald-200 text-sm font-medium">Natuurlijke taal naar SPARQL • CompetentNL Knowledge Graph</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -805,8 +805,8 @@ const App: React.FC = () => {
               onClick={() => setActivePage('chat')}
               className={`px-4 py-2 rounded-xl text-sm font-semibold border transition ${
                 activePage === 'chat'
-                  ? 'bg-white text-indigo-700 border-white shadow-md'
-                  : 'bg-indigo-600/80 text-white border-indigo-400/50 hover:bg-indigo-600'
+                  ? 'bg-white text-emerald-700 border-white shadow-md'
+                  : 'bg-emerald-600/80 text-white border-emerald-400/50 hover:bg-emerald-600'
               }`}
             >
               Chat
@@ -861,7 +861,7 @@ const App: React.FC = () => {
         <div className="flex overflow-hidden" style={{ minHeight: 'calc(100vh - 88px)' }}>
       {/* Sidebar */}
       <aside className="w-80 bg-white border-r border-slate-200 flex flex-col shadow-xl z-20">
-        <div className="p-6 bg-indigo-700 text-white">
+        <div className="p-6 bg-emerald-700 text-white">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <Database className="w-6 h-6" />
@@ -878,23 +878,23 @@ const App: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           {showSettings && (
-            <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl space-y-3">
-              <h4 className="text-[10px] font-bold text-indigo-700 uppercase tracking-widest">Connectie</h4>
+            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl space-y-3">
+              <h4 className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest">Connectie</h4>
               <div className="space-y-2">
                 <div>
-                  <label className="block text-[10px] text-indigo-600 font-bold mb-1 uppercase">SPARQL Key</label>
-                  <input type="password" value={authHeader} onChange={e => setAuthHeader(e.target.value)} className="w-full text-xs p-2 border border-indigo-200 rounded-md outline-none" placeholder="API Sleutel" />
+                  <label className="block text-[10px] text-emerald-600 font-bold mb-1 uppercase">SPARQL Key</label>
+                  <input type="password" value={authHeader} onChange={e => setAuthHeader(e.target.value)} className="w-full text-xs p-2 border border-emerald-200 rounded-md outline-none" placeholder="API Sleutel" />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-indigo-600 font-bold mb-1 uppercase">Methode</label>
-                  <select value={proxyMode} onChange={e => setProxyMode(e.target.value as ProxyType)} className="w-full text-xs p-2 border border-indigo-200 rounded-md bg-white">
+                  <label className="block text-[10px] text-emerald-600 font-bold mb-1 uppercase">Methode</label>
+                  <select value={proxyMode} onChange={e => setProxyMode(e.target.value as ProxyType)} className="w-full text-xs p-2 border border-emerald-200 rounded-md bg-white">
                     <option value="local">Eigen Backend (3001)</option>
                     <option value="none">Direct (CORS)</option>
                     <option value="codetabs">Publieke Proxy</option>
                   </select>
                 </div>
               </div>
-              <button onClick={saveSettings} className="w-full bg-indigo-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2">
+              <button onClick={saveSettings} className="w-full bg-emerald-600 text-white text-xs font-bold py-2 rounded-lg hover:bg-emerald-700 flex items-center justify-center gap-2">
                 <Save className="w-3 h-3" /> Opslaan
               </button>
             </div>
@@ -907,14 +907,14 @@ const App: React.FC = () => {
             </h3>
             <button
               onClick={() => setShowProfileWizard(true)}
-              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-4 py-3 rounded-xl hover:bg-indigo-100 transition-all"
+              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-4 py-3 rounded-xl hover:bg-emerald-100 transition-all"
             >
               <ListChecks className="w-4 h-4" />
               Bouw profiel (werk/opleiding)
             </button>
             <button
               onClick={() => setShowMatchModal(true)}
-              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/25"
+              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-green-600 px-4 py-3 rounded-xl hover:from-emerald-700 hover:to-green-700 transition-all shadow-lg shadow-emerald-500/25"
             >
               <Target className="w-4 h-4" />
               Match mijn Profiel
@@ -938,7 +938,7 @@ const App: React.FC = () => {
                       if (e.target.checked) setSelectedGraphs([...selectedGraphs, g.uri]);
                       else setSelectedGraphs(selectedGraphs.filter(u => u !== g.uri));
                     }}
-                    className="rounded text-indigo-600"
+                    className="rounded text-emerald-600"
                   />
                   <span className="truncate">{g.label}</span>
                 </label>
@@ -986,7 +986,7 @@ const App: React.FC = () => {
                   <button
                     key={ex.id || i}
                     onClick={() => handleSend(ex.vraag, { exampleId: ex.id })}
-                    className="w-full text-left text-[11px] p-3 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50 transition-all text-slate-600 leading-snug group"
+                    className="w-full text-left text-[11px] p-3 rounded-lg border border-slate-200 bg-white hover:border-emerald-400 hover:bg-emerald-50 transition-all text-slate-600 leading-snug group"
                   >
                     <span className="flex items-start gap-2">
                       <span className="flex-1">{ex.vraag}</span>
@@ -1029,7 +1029,7 @@ const App: React.FC = () => {
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto space-y-8">
               <div className="relative">
-                <div className="w-24 h-24 bg-indigo-600 rounded-[2rem] flex items-center justify-center rotate-6 shadow-2xl relative z-10">
+                <div className="w-24 h-24 bg-emerald-600 rounded-[2rem] flex items-center justify-center rotate-6 shadow-2xl relative z-10">
                   <Database className="w-12 h-12 text-white" />
                 </div>
               </div>
@@ -1055,8 +1055,8 @@ const App: React.FC = () => {
           {messages.map((msg) => (
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[90%] p-6 rounded-3xl shadow-lg border ${
-                msg.role === 'user' ? 'bg-indigo-600 text-white border-transparent' : 
-                msg.status === 'error' ? 'bg-rose-50 border-rose-200 text-rose-900' : 
+                msg.role === 'user' ? 'bg-emerald-600 text-white border-transparent' :
+                msg.status === 'error' ? 'bg-rose-50 border-rose-200 text-rose-900' :
                 msg.metadata?.isDisambiguation ? 'bg-amber-50 border-amber-200 text-slate-800' :
                 'bg-white border-slate-200 text-slate-800'
               }`}>
@@ -1082,7 +1082,7 @@ const App: React.FC = () => {
 
                 {msg.needsList && (
                   <button
-                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-semibold hover:bg-indigo-600 hover:text-white transition-colors"
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm font-semibold hover:bg-emerald-600 hover:text-white transition-colors"
                     onClick={() => handleShowList(msg)}
                     disabled={isLoading}
                   >
@@ -1093,7 +1093,7 @@ const App: React.FC = () => {
                 {msg.metadata?.resultsTruncated && msg.metadata?.fullResultSparql && (
                   <div className="mt-3">
                     <button
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold hover:bg-indigo-600 hover:text-white transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-semibold hover:bg-emerald-600 hover:text-white transition-colors"
                       onClick={() => handleDownloadAll(msg)}
                       disabled={isLoading}
                     >
@@ -1110,7 +1110,7 @@ const App: React.FC = () => {
                         <CheckCircle className="w-3 h-3 text-emerald-500" />
                         Resultaten ({msg.results.length})
                       </span>
-                      <button onClick={() => downloadAsExcel(msg.results || [], { vraag: msg.text, sparql: msg.sparql, timestamp: msg.timestamp, endpoint: sparqlEndpoint })} className="flex items-center gap-2 text-[10px] font-black text-indigo-600 bg-indigo-50 border border-indigo-100 px-4 py-2 rounded-xl hover:bg-indigo-600 hover:text-white transition-all">
+                      <button onClick={() => downloadAsExcel(msg.results || [], { vraag: msg.text, sparql: msg.sparql, timestamp: msg.timestamp, endpoint: sparqlEndpoint })} className="flex items-center gap-2 text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-xl hover:bg-emerald-600 hover:text-white transition-all">
                         <Download className="w-4 h-4" /> EXCEL EXPORT
                       </button>
                     </div>
@@ -1136,7 +1136,7 @@ const App: React.FC = () => {
                 {/* SPARQL query */}
                 {msg.role === 'assistant' && msg.sparql && (
                   <div className="mt-6 pt-6 border-t border-slate-100">
-                    <button onClick={() => setShowSparql(!showSparql)} className="text-[10px] font-black text-slate-400 hover:text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                    <button onClick={() => setShowSparql(!showSparql)} className="text-[10px] font-black text-slate-400 hover:text-emerald-600 uppercase tracking-widest flex items-center gap-2">
                       <Server className="w-3 h-3" /> {showSparql ? 'Verberg' : 'Bekijk'} Query
                     </button>
                     {showSparql && (
@@ -1187,8 +1187,8 @@ const App: React.FC = () => {
 
           {isLoading && (
             <div className="flex items-start gap-4">
-              <div className="w-10 h-10 rounded-2xl bg-indigo-100 flex items-center justify-center">
-                <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
+              <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center">
+                <Loader2 className="w-5 h-5 text-emerald-600 animate-spin" />
               </div>
               <div className="space-y-3 pt-2">
                 <div className="h-2 w-48 bg-slate-200 rounded-full animate-pulse"></div>
@@ -1207,9 +1207,9 @@ const App: React.FC = () => {
               Typ een nummer of naam om je keuze te bevestigen
             </div>
           )}
-          
+
           <div className="max-w-4xl mx-auto relative group">
-            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-[2rem] blur opacity-20 group-focus-within:opacity-40 transition duration-1000"></div>
+            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-green-500 rounded-[2rem] blur opacity-20 group-focus-within:opacity-40 transition duration-1000"></div>
             <div className="relative flex flex-col gap-3 bg-white border border-slate-200 rounded-[2rem] p-3 shadow-2xl">
               <div className="flex items-end gap-3">
                 <textarea
@@ -1230,7 +1230,7 @@ const App: React.FC = () => {
                       className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors border ${
                         isListening
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                       } ${speechSupport !== 'supported' ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
                       <Mic className="w-4 h-4" />
@@ -1259,7 +1259,7 @@ const App: React.FC = () => {
                     <button
                       disabled={isLoading || !inputText.trim() || apiStatus === 'offline'}
                       onClick={() => handleSend()}
-                      className="bg-indigo-600 text-white p-4.5 rounded-2xl hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 transition-all flex items-center justify-center min-w-[56px] h-[56px]"
+                      className="bg-emerald-600 text-white p-4.5 rounded-2xl hover:bg-emerald-700 disabled:bg-slate-100 disabled:text-slate-400 transition-all flex items-center justify-center min-w-[56px] h-[56px]"
                     >
                       {isLoading ? <RefreshCcw className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
                     </button>
@@ -1278,8 +1278,8 @@ const App: React.FC = () => {
                 </div>
               </div>
               {(speechStatus || interimTranscript || capturedTranscript) && (
-                <div className="px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-sm text-indigo-800 flex items-start gap-2">
-                  <Loader2 className={`w-4 h-4 mt-0.5 text-indigo-500 ${isListening ? 'animate-spin' : ''}`} />
+                <div className="px-4 py-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm text-emerald-800 flex items-start gap-2">
+                  <Loader2 className={`w-4 h-4 mt-0.5 text-emerald-500 ${isListening ? 'animate-spin' : ''}`} />
                   <div className="space-y-1">
                     <div className="font-semibold">{speechStatus || 'Live transcriptie'}</div>
                     {capturedTranscript && (

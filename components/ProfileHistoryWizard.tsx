@@ -351,25 +351,25 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
   const renderEntryCard = (entry: ProfileHistoryEntry) => (
     <div
       key={entry.id}
-      className={`p-4 rounded-xl border ${activeEntryId === entry.id ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 bg-white'} flex flex-col gap-2`}
+      className={`p-4 rounded-xl border ${activeEntryId === entry.id ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white'} flex flex-col gap-2`}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-slate-700">
-          {entry.kind === 'work' ? <Briefcase className="w-4 h-4 text-indigo-600" /> : <GraduationCap className="w-4 h-4 text-emerald-600" />}
+          {entry.kind === 'work' ? <Briefcase className="w-4 h-4 text-emerald-600" /> : <GraduationCap className="w-4 h-4 text-emerald-600" />}
           <div>
             <p className="font-semibold">{entry.title}</p>
             <p className="text-xs text-slate-500">{entry.organization}</p>
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => handleEditEntry(entry)} className="text-xs text-indigo-600 hover:underline">Bewerken</button>
+          <button onClick={() => handleEditEntry(entry)} className="text-xs text-emerald-600 hover:underline">Bewerken</button>
           <button onClick={() => handleRemoveEntry(entry.id)} className="text-xs text-rose-600 hover:underline">Verwijderen</button>
         </div>
       </div>
       <div className="text-xs text-slate-500">{entry.years}</div>
       <p className="text-sm text-slate-600 line-clamp-2">{entry.description}</p>
       <button
-        className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold self-start"
+        className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold self-start"
         onClick={() => setActiveEntryId(entry.id)}
       >
         Selecteer voor suggesties
@@ -410,8 +410,8 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                   onClick={() => toggleSelection(entry.id, listKey, { ...item, sources: activeSource ? [activeSource] : item.sources })}
                   className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
                     isActive
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-emerald-300 hover:text-emerald-700'
                   }`}
                 >
                   {item.label}
@@ -427,7 +427,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-slate-600">
-            <Sparkles className="w-4 h-4 text-indigo-500" />
+            <Sparkles className="w-4 h-4 text-emerald-500" />
             <div>
               <p className="text-sm font-semibold">Suggesties</p>
               <p className="text-xs text-slate-500">Op basis van titel & beschrijving genereren we voorstellen</p>
@@ -435,7 +435,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
           </div>
           <button
             onClick={() => handleSuggestionFetch(entry)}
-            className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
           >
             <RefreshCcw className="w-4 h-4" /> Vernieuwen
           </button>
@@ -449,7 +449,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
         )}
 
         {state?.loading && (
-          <div className="p-6 border border-indigo-100 bg-indigo-50 rounded-xl flex items-center gap-3 text-indigo-700 text-sm">
+          <div className="p-6 border border-emerald-100 bg-emerald-50 rounded-xl flex items-center gap-3 text-emerald-700 text-sm">
             <Loader2 className="w-5 h-5 animate-spin" />
             Suggesties ophalen...
           </div>
@@ -500,7 +500,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col m-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-indigo-500 to-purple-500">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-emerald-500 to-green-500">
           <div className="flex items-center gap-3 text-white">
             <ListChecks className="w-6 h-6" />
             <div>
@@ -515,13 +515,13 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
 
         <div className="px-6 py-3 border-b border-slate-100 bg-slate-50">
           <div className="flex items-center gap-4 text-xs font-semibold text-slate-500">
-            <span className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === 'input' ? 'bg-indigo-100 text-indigo-700' : 'bg-white border border-slate-200'}`}>
+            <span className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === 'input' ? 'bg-emerald-100 text-emerald-700' : 'bg-white border border-slate-200'}`}>
               <Briefcase className="w-3 h-3" /> Invoer
             </span>
-            <span className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === 'suggestions' ? 'bg-indigo-100 text-indigo-700' : 'bg-white border border-slate-200'}`}>
+            <span className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === 'suggestions' ? 'bg-emerald-100 text-emerald-700' : 'bg-white border border-slate-200'}`}>
               <Sparkles className="w-3 h-3" /> Suggesties
             </span>
-            <span className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === 'confirm' ? 'bg-indigo-100 text-indigo-700' : 'bg-white border border-slate-200'}`}>
+            <span className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === 'confirm' ? 'bg-emerald-100 text-emerald-700' : 'bg-white border border-slate-200'}`}>
               <CheckCircle className="w-3 h-3" /> Bevestigen
             </span>
           </div>
@@ -532,7 +532,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <Briefcase className="w-4 h-4 text-indigo-600" />
+                  <Briefcase className="w-4 h-4 text-emerald-600" />
                   Voeg werk of mbo-opleiding toe
                 </h3>
                 {validationErrors.global && (
@@ -546,13 +546,13 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                   <div className="flex gap-2">
                     <button
                       onClick={() => setFormEntry({ ...formEntry, kind: 'work' })}
-                      className={`px-3 py-2 rounded-lg border text-sm font-semibold ${formEntry.kind === 'work' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}
+                      className={`px-3 py-2 rounded-lg border text-sm font-semibold ${formEntry.kind === 'work' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-slate-200 text-slate-600'}`}
                     >
                       Werkervaring
                     </button>
                     <button
                       onClick={() => setFormEntry({ ...formEntry, kind: 'education' })}
-                      className={`px-3 py-2 rounded-lg border text-sm font-semibold ${formEntry.kind === 'education' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-600'}`}
+                      className={`px-3 py-2 rounded-lg border text-sm font-semibold ${formEntry.kind === 'education' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white border-slate-200 text-slate-600'}`}
                     >
                       MBO-opleiding
                     </button>
@@ -601,7 +601,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                 <div className="flex gap-2">
                   <button
                     onClick={formEntry && entries.find((e) => e.id === formEntry.id) ? handleUpdateEntry : handleAddEntry}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2"
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
                     {entries.find((e) => e.id === formEntry.id) ? 'Update record' : 'Voeg record toe'}
@@ -642,7 +642,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
                   Kies een record
                 </h3>
                 <div className="space-y-2">
@@ -650,7 +650,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                     <button
                       key={entry.id}
                       onClick={() => setActiveEntryId(entry.id)}
-                      className={`w-full text-left p-4 rounded-xl border ${entry.id === activeEntryId ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 bg-white hover:border-indigo-300'} transition-colors`}
+                      className={`w-full text-left p-4 rounded-xl border ${entry.id === activeEntryId ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:border-emerald-300'} transition-colors`}
                     >
                       <p className="font-semibold text-slate-700">{entry.title}</p>
                       <p className="text-xs text-slate-500">{entry.organization}</p>
@@ -660,7 +660,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                 </div>
                 <button
                   onClick={() => setStep('input')}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1"
+                  className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold flex items-center gap-1"
                 >
                   <ArrowLeft className="w-4 h-4" /> Records aanpassen
                 </button>
@@ -668,7 +668,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
               <div className="md:col-span-2">
                 <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2 mb-4">
                   <div className="flex items-center gap-2 text-slate-700">
-                    {activeEntry.kind === 'work' ? <Briefcase className="w-4 h-4 text-indigo-600" /> : <GraduationCap className="w-4 h-4 text-emerald-600" />}
+                    {activeEntry.kind === 'work' ? <Briefcase className="w-4 h-4 text-emerald-600" /> : <GraduationCap className="w-4 h-4 text-emerald-600" />}
                     <div>
                       <p className="font-semibold">{activeEntry.title}</p>
                       <p className="text-xs text-slate-500">{activeEntry.organization}</p>
@@ -693,7 +693,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                 </div>
                 <button
                   onClick={handleMatch}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2"
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 flex items-center gap-2"
                   disabled={aggregatedProfile.skills.length === 0 && aggregatedProfile.knowledge.length === 0}
                 >
                   {isMatching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
@@ -712,11 +712,11 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                       <span className="text-xs text-slate-400">Geen vaardigheden geselecteerd</span>
                     ) : (
                       aggregatedProfile.skills.map((item) => (
-                        <span key={item.label} className="px-3 py-1.5 rounded-full bg-indigo-50 text-indigo-700 text-xs border border-indigo-100 flex items-center gap-2">
+                        <span key={item.label} className="px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs border border-emerald-100 flex items-center gap-2">
                           {item.label}
                           <button
                             onClick={() => removeAggregatedItem(item.label, 'skills')}
-                            className="text-indigo-500 hover:text-indigo-700"
+                            className="text-emerald-500 hover:text-emerald-700"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -835,11 +835,11 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                       <span className="text-xs text-slate-400">Geen taken geselecteerd</span>
                     ) : (
                       aggregatedProfile.tasks.map((item) => (
-                        <span key={item.label} className="px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 text-xs border border-purple-100 flex items-center gap-2">
+                        <span key={item.label} className="px-3 py-1.5 rounded-full bg-teal-50 text-teal-700 text-xs border border-teal-100 flex items-center gap-2">
                           {item.label}
                           <button
                             onClick={() => removeAggregatedItem(item.label, 'tasks')}
-                            className="text-purple-600 hover:text-purple-800"
+                            className="text-teal-600 hover:text-teal-800"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -871,7 +871,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
                           setTaskInput('');
                         }
                       }}
-                      className="px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-semibold"
+                      className="px-3 py-2 bg-teal-100 text-teal-700 rounded-lg text-sm font-semibold"
                     >
                       Toevoegen
                     </button>
@@ -887,7 +887,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
               )}
 
               {isMatching && (
-                <div className="p-4 border border-indigo-100 bg-indigo-50 rounded-xl text-indigo-700 text-sm flex items-center gap-2">
+                <div className="p-4 border border-emerald-100 bg-emerald-50 rounded-xl text-emerald-700 text-sm flex items-center gap-2">
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Matching op basis van je bevestigde profiel...
                 </div>
@@ -934,7 +934,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
               </button>
             )}
             {step !== 'confirm' && (
-              <button onClick={handleNext} className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 flex items-center gap-2">
+              <button onClick={handleNext} className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 flex items-center gap-2">
                 Volgende
                 <ArrowRight className="w-4 h-4" />
               </button>

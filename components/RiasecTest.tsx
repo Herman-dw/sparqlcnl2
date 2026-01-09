@@ -118,11 +118,11 @@ const RiasecTest: React.FC<RiasecTestProps> = ({ onBack, onResultComplete }) => 
 
   return (
     <div className="bg-slate-50 min-h-[calc(100vh-88px)]">
-      <div className="bg-indigo-800 text-white px-6 py-10 shadow-lg">
+      <div className="bg-emerald-800 text-white px-6 py-10 shadow-lg">
         <div className="max-w-5xl mx-auto">
-          <p className="text-xs font-semibold uppercase tracking-widest text-indigo-200">Zelftest</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-emerald-200">Zelftest</p>
           <h1 className="text-3xl font-black mt-2">RIASEC-zelftest</h1>
-          <p className="mt-3 text-indigo-100 leading-relaxed max-w-3xl">
+          <p className="mt-3 text-emerald-100 leading-relaxed max-w-3xl">
             Ontdek jouw Holland-code via 24 korte stellingen. Geef per stelling aan hoe sterk deze
             bij je past op een schaal van 1 (helemaal niet) tot 5 (zeer van toepassing).
           </p>
@@ -182,7 +182,7 @@ const RiasecTest: React.FC<RiasecTestProps> = ({ onBack, onResultComplete }) => 
                       {letter}{' '}
                       <span className="text-sm font-normal text-slate-500">{letterInfo[letter as RiasecLetter]}</span>
                     </h2>
-                    <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                    <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
                       {items.length} stellingen
                     </span>
                   </div>
@@ -198,15 +198,15 @@ const RiasecTest: React.FC<RiasecTestProps> = ({ onBack, onResultComplete }) => 
                                 key={`${name}-${value}`}
                                 className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer transition ${
                                   answers[name] === value
-                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-200 hover:text-indigo-700'
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:border-emerald-200 hover:text-emerald-700'
                                 }`}
                               >
                                 <input
                                   type="radio"
                                   name={name}
                                   value={value}
-                                  className="accent-indigo-600"
+                                  className="accent-emerald-600"
                                   checked={answers[name] === value}
                                   onChange={() => handleAnswerChange(name, value)}
                                 />
@@ -289,7 +289,7 @@ const RiasecTest: React.FC<RiasecTestProps> = ({ onBack, onResultComplete }) => 
                       <button
                         type="button"
                         onClick={() => onResultComplete(result)}
-                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition-all"
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all"
                       >
                         <span>Selecteer vaardigheden op basis van je profiel</span>
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -316,7 +316,7 @@ const RiasecSkillSelector: React.FC<RiasecSkillSelectorProps> = ({
   if (isLoading) {
     return (
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 p-12 text-center">
-        <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mx-auto mb-4" />
+        <Loader2 className="w-12 h-12 text-emerald-500 animate-spin mx-auto mb-4" />
         <h3 className="text-lg font-semibold text-slate-700">Vaardigheden laden...</h3>
         <p className="mt-2 text-sm text-slate-500">
           We halen de vaardigheden op die passen bij jouw RIASEC profiel
@@ -345,13 +345,13 @@ const RiasecSkillSelector: React.FC<RiasecSkillSelectorProps> = ({
   return (
     <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-6">
+      <div className="bg-gradient-to-r from-emerald-600 to-green-600 text-white px-6 py-6">
         <div className="flex items-center gap-3 mb-2">
           <Sparkles className="w-6 h-6" />
           <h2 className="text-xl font-bold">Bouw je profiel op basis van je interesses</h2>
         </div>
-        <p className="text-indigo-100 text-sm">
-          Je Holland-code is <span className="font-bold text-white">{riasecResult.code}</span>. 
+        <p className="text-emerald-100 text-sm">
+          Je Holland-code is <span className="font-bold text-white">{riasecResult.code}</span>.
           Selecteer de vaardigheden die bij je passen.
         </p>
       </div>
@@ -370,22 +370,22 @@ const RiasecSkillSelector: React.FC<RiasecSkillSelectorProps> = ({
                 key={letter}
                 onClick={() => setActiveTab(letter)}
                 className={`flex-1 px-4 py-4 text-sm font-medium transition-colors relative ${
-                  isActive 
-                    ? 'text-indigo-600 bg-indigo-50' 
-                    : 'text-slate-600 hover:text-indigo-600 hover:bg-slate-50'
+                  isActive
+                    ? 'text-emerald-600 bg-emerald-50'
+                    : 'text-slate-600 hover:text-emerald-600 hover:bg-slate-50'
                 }`}
               >
                 <div className="flex flex-col items-center gap-1">
                   <span className="font-bold text-lg">{letter}</span>
                   <span className="text-xs opacity-75">{info?.dutch || ''}</span>
                   {count > 0 && (
-                    <span className="mt-1 px-2 py-0.5 bg-indigo-600 text-white text-xs rounded-full">
+                    <span className="mt-1 px-2 py-0.5 bg-emerald-600 text-white text-xs rounded-full">
                       {count} / {total}
                     </span>
                   )}
                 </div>
                 {isActive && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600" />
                 )}
               </button>
             );
@@ -409,7 +409,7 @@ const RiasecSkillSelector: React.FC<RiasecSkillSelectorProps> = ({
             <div className="flex gap-2">
               <button
                 onClick={() => selectAllForLetter(activeTab)}
-                className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors"
+                className="text-xs px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
               >
                 Alles selecteren
               </button>
@@ -431,7 +431,7 @@ const RiasecSkillSelector: React.FC<RiasecSkillSelectorProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Zoek vaardigheden..."
-            className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
           />
         </div>
 
@@ -450,20 +450,20 @@ const RiasecSkillSelector: React.FC<RiasecSkillSelectorProps> = ({
                   <label
                     key={capability.uri}
                     className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
-                      isSelected ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                      isSelected ? 'bg-emerald-50' : 'hover:bg-slate-50'
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleCapability(capability.uri)}
-                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                     />
-                    <span className={`text-sm ${isSelected ? 'text-indigo-700 font-medium' : 'text-slate-700'}`}>
+                    <span className={`text-sm ${isSelected ? 'text-emerald-700 font-medium' : 'text-slate-700'}`}>
                       {capability.label}
                     </span>
                     {isSelected && (
-                      <CheckCircle className="w-4 h-4 text-indigo-600 ml-auto" />
+                      <CheckCircle className="w-4 h-4 text-emerald-600 ml-auto" />
                     )}
                   </label>
                 );
@@ -485,14 +485,14 @@ const RiasecSkillSelector: React.FC<RiasecSkillSelectorProps> = ({
         
         <div className="flex items-center gap-4">
           <span className="text-sm text-slate-600">
-            <span className="font-bold text-indigo-600">{totalSelected}</span> vaardigheden geselecteerd
+            <span className="font-bold text-emerald-600">{totalSelected}</span> vaardigheden geselecteerd
           </span>
           <button
             onClick={handleContinue}
             disabled={totalSelected === 0}
             className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-colors ${
               totalSelected > 0
-                ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                 : 'bg-slate-200 text-slate-400 cursor-not-allowed'
             }`}
           >

@@ -13,42 +13,55 @@ export type ColorState = {
   active: string;
 };
 
+/**
+ * CompetentNL Brand Colors (from logo palette)
+ */
+const competentNLBrand = {
+  brandNavy: '#00263E',
+  brandBlue: '#156082',
+  brandOrange: '#EE7F01',
+  brandCyan: '#3DBBCE',
+  successGreen: '#196B24',
+  accentMagenta: '#A1006B'
+};
+
 export const colors = {
   primary: {
-    default: '#0066cc',
-    hover: '#0052a3',
-    active: '#003f7d'
+    default: '#196B24',  // CompetentNL successGreen
+    hover: '#145a1e',
+    active: '#0f4517'
   } satisfies ColorState,
   support: {
-    default: '#17a2b8',
-    hover: '#138496',
-    active: '#0f6678'
+    default: '#156082',  // CompetentNL brandBlue
+    hover: '#114d6a',
+    active: '#0d3a51'
   } satisfies ColorState,
   surface: {
     base: '#f8f9fa',
     raised: '#ffffff',
     muted: '#f1f3f4',
-    inverse: '#263238',
+    inverse: '#00263E',  // CompetentNL brandNavy
     attention: '#fff3cd'
   },
   border: {
     subtle: '#e0e0e0',
     default: '#dee2e6',
-    warning: '#ffc107'
+    warning: '#EE7F01'  // CompetentNL brandOrange
   },
   text: {
-    primary: '#263238',
+    primary: '#00263E',  // CompetentNL brandNavy
     secondary: '#666666',
     inverse: '#ffffff',
-    code: '#80cbc4'
+    code: '#3DBBCE'  // CompetentNL brandCyan
   },
   states: {
-    success: '#28a745',
-    warning: '#ffc107',
-    info: '#17a2b8',
+    success: '#196B24',  // CompetentNL successGreen
+    warning: '#EE7F01',  // CompetentNL brandOrange
+    info: '#156082',     // CompetentNL brandBlue
     danger: '#ef4444',
     disabled: '#cccccc'
-  }
+  },
+  brand: competentNLBrand
 };
 
 export const spacing = {
@@ -76,8 +89,8 @@ export const shadows = {
  * Dark-mode mapping shows how the base tokens translate when a dark theme is active.
  */
 export const darkModeMapping = {
-  primary: '#3b82f6',
-  support: '#22c55e',
+  primary: '#22c55e',      // Lighter green for dark mode
+  support: '#3DBBCE',      // CompetentNL brandCyan
   surfaceBase: '#0f172a',
   surfaceRaised: '#1e293b',
   surfaceMuted: '#111827',

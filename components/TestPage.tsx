@@ -438,8 +438,8 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
       {/* Header */}
-      <div style={{ 
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%)',
+      <div style={{
+        background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
         padding: '24px',
         display: 'flex',
         justifyContent: 'space-between',
@@ -509,7 +509,7 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
             onClick={checkBackend}
             style={{
               padding: '12px 24px',
-              backgroundColor: '#3b82f6',
+              backgroundColor: '#10b981',
               border: 'none',
               borderRadius: '8px',
               color: 'white',
@@ -522,12 +522,12 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
           {results.length > 0 && (
             <>
               <div style={{ height: '32px', width: '1px', backgroundColor: '#475569' }} />
-              
+
               <button
                 onClick={downloadJSON}
                 style={{
                   padding: '12px 24px',
-                  backgroundColor: '#8b5cf6',
+                  backgroundColor: '#14b8a6',
                   border: 'none',
                   borderRadius: '8px',
                   color: 'white',
@@ -539,12 +539,12 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
               >
                 📥 Download JSON
               </button>
-              
+
               <button
                 onClick={downloadTXT}
                 style={{
                   padding: '12px 24px',
-                  backgroundColor: '#6366f1',
+                  backgroundColor: '#059669',
                   border: 'none',
                   borderRadius: '8px',
                   color: 'white',
@@ -586,7 +586,7 @@ const TestPage: React.FC<TestPageProps> = ({ onClose, backendUrl = 'http://local
                   borderRadius: '8px',
                   padding: '16px',
                   marginBottom: '12px',
-                  border: isCurrentTest ? '2px solid #3b82f6' : '1px solid #334155'
+                  border: isCurrentTest ? '2px solid #10b981' : '1px solid #334155'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
