@@ -22,6 +22,7 @@ import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
 import { preloadCache } from './profile-matching-api.mjs';
 import matchingRouter from './matching-router.mjs';
+import { isRiasecQuestion, isRiasecInAnyField } from './utils/riasec-detector.ts';
 
 // Load environment
 if (fs.existsSync('.env.local')) {
@@ -46,6 +47,92 @@ const DB_PROMPTS_NAME = process.env.DB_PROMPTS_NAME || 'competentnl_prompts';
 app.use(cors());
 app.use(express.json());
 app.use('/api', matchingRouter);
+
+// =====================================================
+// CONCEPT RESOLUTION CACHE
+// =====================================================
+// In-memory cache for concept resolutions to reduce database load
+// Cache entries expire after 1 hour
+const conceptCache = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
+const CACHE_MAX_SIZE = 1000; // Maximum number of cached entries
+
+function getCacheKey(searchTerm, conceptType) {
+  return `${searchTerm.toLowerCase()}:${conceptType}`;
+}
+
+function getFromCache(searchTerm, conceptType) {
+  const key = getCacheKey(searchTerm, conceptType);
+  const cached = conceptCache.get(key);
+
+  if (!cached) return null;
+
+  // Check if expired
+  if (Date.now() - cached.timestamp > CACHE_TTL) {
+    conceptCache.delete(key);
+    return null;
+  }
+
+  return cached.data;
+}
+
+function setToCache(searchTerm, conceptType, data) {
+  const key = getCacheKey(searchTerm, conceptType);
+
+  // If cache is full, remove oldest entries
+  if (conceptCache.size >= CACHE_MAX_SIZE) {
+    const now = Date.now();
+    let removedCount = 0;
+
+    // Remove expired entries first
+    for (const [cacheKey, value] of conceptCache.entries()) {
+      if (now - value.timestamp > CACHE_TTL) {
+        conceptCache.delete(cacheKey);
+        removedCount++;
+      }
+    }
+
+    // If still too large, remove oldest 10%
+    if (conceptCache.size >= CACHE_MAX_SIZE) {
+      const entries = Array.from(conceptCache.entries());
+      entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+      const toRemove = Math.ceil(CACHE_MAX_SIZE * 0.1);
+      for (let i = 0; i < toRemove && i < entries.length; i++) {
+        conceptCache.delete(entries[i][0]);
+      }
+    }
+  }
+
+  conceptCache.set(key, {
+    data,
+    timestamp: Date.now()
+  });
+}
+
+function clearExpiredCache() {
+  const now = Date.now();
+  let removedCount = 0;
+
+  for (const [key, value] of conceptCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      conceptCache.delete(key);
+      removedCount++;
+    }
+  }
+
+  if (removedCount > 0) {
+    console.log(`[Cache] Cleaned ${removedCount} expired entries, ${conceptCache.size} remaining`);
+  }
+}
+
+// Clean expired cache entries every 10 minutes
+setInterval(clearExpiredCache, 10 * 60 * 1000);
+
+// Helper to cache and return concept resolution response
+function cacheAndReturn(res, searchTerm, conceptType, data) {
+  setToCache(searchTerm, conceptType, data);
+  return res.json(data);
+}
 
 // =====================================================
 // DATABASE CONNECTION POOLS
@@ -215,13 +302,9 @@ function ensureDisambiguationOptions(searchTerm, conceptType, config, matches) {
   return Array.from(bestPerUri.values()).sort((a, b) => b.confidence - a.confidence).slice(0, 12);
 }
 
+// Alias for backward compatibility - uses centralized RIASEC detector
 function isRiasecText(text = '') {
-  const normalized = text.toLowerCase();
-  if (!normalized) return false;
-  if (normalized.includes('riasec') || normalized.includes('hollandcode') || normalized.includes('holland code')) {
-    return true;
-  }
-  return /\briasec\s*[:\-]?\s*[riasec]\b/i.test(normalized);
+  return isRiasecQuestion(text);
 }
 
 // =====================================================
@@ -451,6 +534,13 @@ app.post('/concept/resolve', async (req, res) => {
     });
   }
 
+  // Check cache first
+  const cached = getFromCache(searchTerm, effectiveConceptType);
+  if (cached) {
+    console.log(`[Concept] ✓ Cache hit: "${searchTerm}" (${effectiveConceptType})`);
+    return res.json(cached);
+  }
+
   const normalized = searchTerm.toLowerCase().trim();
   console.log(`[Concept] Resolving ${effectiveConceptType}: "${searchTerm}"`);
   const normalizedQuestion = (question || questionContext || '').toLowerCase();
@@ -459,7 +549,7 @@ app.post('/concept/resolve', async (req, res) => {
   if (effectiveConceptType === 'occupation' && KNOWN_OCCUPATION_RESOLUTIONS[normalized]) {
     const { uri, label } = KNOWN_OCCUPATION_RESOLUTIONS[normalized];
     console.log(`[Concept] ✓ Directe mapping: "${searchTerm}" -> "${label}" (${uri})`);
-    return res.json({
+    return cacheAndReturn(res, searchTerm, effectiveConceptType, {
       found: true,
       exact: true,
       searchTerm,
@@ -483,7 +573,7 @@ app.post('/concept/resolve', async (req, res) => {
     const label = 'Docent mbo';
     const uri = 'https://linkeddata.competentnl.nl/uwv/id/occupation/docent-mbo';
     console.log(`[Concept] ✓ Contextuele mapping: "${searchTerm}" -> "${label}" (vergelijkingsvraag)`);
-    return res.json({
+    return cacheAndReturn(res, searchTerm, effectiveConceptType, {
       found: true,
       exact: true,
       searchTerm,
@@ -540,7 +630,7 @@ app.post('/concept/resolve', async (req, res) => {
       const synthetic = ensureDisambiguationOptions(searchTerm, effectiveConceptType, config, []);
       console.log(`[Concept] Geen directe matches voor "${searchTerm}". Bied ${synthetic.length} generieke varianten ter verduidelijking.`);
 
-      return res.json({
+      return cacheAndReturn(res, searchTerm, effectiveConceptType, {
         found: synthetic.length > 0,
         exact: false,
         searchTerm,
@@ -591,7 +681,7 @@ app.post('/concept/resolve', async (req, res) => {
       const selected = strongMatches.length === 1 ? strongMatches[0] : uwvStrongMatches[0];
       console.log(`[Concept] ✓ Sterke exacte match: "${searchTerm}" -> "${selected.prefLabel}"`);
       console.log(`[Concept]   URI: ${selected.uri}`);
-      return res.json({
+      return cacheAndReturn(res, searchTerm, effectiveConceptType, {
         found: true,
         exact: true,
         searchTerm,
@@ -615,7 +705,7 @@ app.post('/concept/resolve', async (req, res) => {
       const selected = exactMatch || matches[0];
       console.log(`[Concept] ✓ Exact match: "${searchTerm}" -> "${selected.prefLabel}"`);
       console.log(`[Concept]   URI: ${selected.uri}`);
-      return res.json({
+      return cacheAndReturn(res, searchTerm, effectiveConceptType, {
         found: true,
         exact: true,
         searchTerm,
@@ -647,12 +737,12 @@ app.post('/concept/resolve', async (req, res) => {
 
     // Genereer disambiguatie vraag
     const disambiguationQuestion = generateDisambiguationQuestion(
-      searchTerm, 
-      disambiguationCandidates, 
+      searchTerm,
+      disambiguationCandidates,
       config
     );
 
-    return res.json({
+    return cacheAndReturn(res, searchTerm, effectiveConceptType, {
       found: true,
       exact: false,
       searchTerm,

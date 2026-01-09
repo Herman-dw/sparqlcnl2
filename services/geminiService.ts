@@ -5,6 +5,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { isRiasecQuestion } from "../utils/riasec-detector";
 
 const MODEL_NAME = 'gemini-2.0-flash';
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -62,15 +63,10 @@ const STOP_WORDS = [
 const OCCUPATION_SUFFIXES = ['er', 'eur', 'ist', 'ant', 'ent', 'aar', 'man', 'vrouw', 'meester', 'arts', 'kundige', 'loog', 'tect'];
 const STRONG_MATCH_TYPES = ['exact', 'preflabel', 'altlabel'];
 const STRONG_MATCH_THRESHOLD = 0.98;
-const RIASEC_KEYWORDS = ['riasec', 'hollandcode', 'holland code'];
 
+// Use centralized RIASEC detector
 function isRiasecQuestionText(text?: string | null): boolean {
-  if (!text) return false;
-  const normalized = text.toLowerCase();
-  if (RIASEC_KEYWORDS.some(keyword => normalized.includes(keyword))) {
-    return true;
-  }
-  return /\briasec\s*[:\-]?\s*[riasec]\b/i.test(normalized);
+  return isRiasecQuestion(text || '');
 }
 
 // ============================================================
@@ -836,14 +832,33 @@ BELANGRIJKE PREDICATEN:
 ${conceptContext ? `OPGELOSTE CONCEPTEN:
 ${conceptContext}
 
-⚠️ KRITIEK - URI GEBRUIK - LEES DIT ZORGVULDIG:
-1. Hierboven staat een URI tussen < en >
-2. KOPIEER DEZE URI EXACT - letter voor letter, inclusief de hash-code aan het einde
-3. De URI eindigt op een code zoals "ABC123DEF4", NIET op een leesbare naam
-4. MAAK NOOIT ZELF EEN URI - gebruik ALLEEN de gegeven URI
+⚠️⚠️⚠️ KRITIEKE URI REGELS - LEES DIT EERST ⚠️⚠️⚠️
 
-ALS JE EEN URI KRIJGT ZOALS: <https://linkeddata.competentnl.nl/uwv/id/occupation/7F9A2BC3D1>
-DAN MOET JE QUERY ER ZO UITZIEN:
+DEZE REGELS ZIJN ABSOLUUT - GEEN UITZONDERINGEN:
+
+1. ALS JE EEN URI KRIJGT TUSSEN < EN >: KOPIEER DEZE EXACT
+   ✅ GOED: <https://linkeddata.competentnl.nl/uwv/id/occupation/7F9A2BC3D1>
+   ❌ FOUT: <https://linkeddata.competentnl.nl/uwv/id/occupation/kapper>
+   ❌ FOUT: <https://linkeddata.competentnl.nl/id/occupation/kapper-2>
+   ❌ FOUT: Zelf een URI verzinnen
+
+2. URIs EINDIGEN ALTIJD OP HASH CODES (zoals 7F9A2BC3D1), NOOIT OP WOORDEN
+   ✅ GOED: /occupation/7F9A2BC3D1
+   ❌ FOUT: /occupation/kapper
+   ❌ FOUT: /occupation/architect-1
+
+3. MAAK NOOIT ZELF EEN URI - ZELFS NIET ALS HET LOGISCH LIJKT
+   Je mag ALLEEN URIs gebruiken die je expliciet hierboven hebt gekregen tussen < en >
+   Als je geen URI hebt gekregen, gebruik dan FILTER met CONTAINS
+
+4. VALIDATIE VOOR JE ANTWOORDT:
+   - Bevat je query een VALUES statement met een URI?
+   - Eindigt die URI op een hash code (mix van letters en cijfers)?
+   - Staat die EXACTE URI hierboven tussen < en >?
+   - NEE op één van deze vragen? Dan heb je een FOUT gemaakt - gebruik FILTER!
+
+CORRECT VOORBEELD MET GEGEVEN URI:
+Als hierboven staat: <https://linkeddata.competentnl.nl/uwv/id/occupation/7F9A2BC3D1>
 
 SELECT DISTINCT ?taskLabel WHERE {
   VALUES ?occupation { <https://linkeddata.competentnl.nl/uwv/id/occupation/7F9A2BC3D1> }
@@ -852,9 +867,7 @@ SELECT DISTINCT ?taskLabel WHERE {
   FILTER(LANG(?taskLabel) = "nl")
 }
 ORDER BY ?taskLabel
-LIMIT 50
-
-Let op: De URI in VALUES moet EXACT overeenkomen met de gegeven URI hierboven!` : ''}
+LIMIT 50` : ''}
 
 VOORBEELD ZONDER URI (fallback met CONTAINS):
 PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
@@ -874,14 +887,16 @@ ORDER BY ?taskLabel
 LIMIT 50
 
 REGELS:
-1. Als een URI beschikbaar is: KOPIEER DE VOLLEDIGE URI EXACT naar VALUES - construeer NOOIT zelf een URI!
-2. URIs bevatten hash-codes (bijv. ABC123DEF4), GEEN leesbare namen zoals "kapper-2"
-3. Gebruik CONTAINS alleen als fallback wanneer GEEN URI beschikbaar is
-4. Voeg ALTIJD LIMIT 50 toe (behalve bij COUNT)
-5. Gebruik NOOIT FROM <graph> clauses
-6. Gebruik FILTER(LANG(?label) = "nl") voor Nederlandse labels
-7. Voor TAKEN gebruik ALTIJD cnluwvo:isCharacterizedByOccupationTask_Essential (NIET cnlo:hasTask)
-8. Retourneer ALLEEN de SPARQL query`;
+1. ❌ MAAK NOOIT ZELF EEN URI - Gebruik ALLEEN URIs die tussen < en > staan in OPGELOSTE CONCEPTEN
+2. ✅ Als een URI beschikbaar is: KOPIEER DE VOLLEDIGE URI EXACT naar VALUES statement
+3. ✅ URIs eindigen op hash-codes (bijv. 7F9A2BC3D1), NOOIT op leesbare namen zoals "kapper-2"
+4. ✅ Gebruik FILTER(CONTAINS(...)) alleen als fallback wanneer GEEN URI beschikbaar is
+5. ✅ Voeg ALTIJD LIMIT 50 toe (behalve bij COUNT queries)
+6. ✅ Controleer voor je antwoordt: Als je VALUES gebruikt, staat die URI hierboven tussen < en >?
+7. Gebruik NOOIT FROM <graph> clauses
+8. Gebruik FILTER(LANG(?label) = "nl") voor Nederlandse labels
+9. Voor TAKEN gebruik ALTIJD cnluwvo:isCharacterizedByOccupationTask_Essential (NIET cnlo:hasTask)
+10. Retourneer ALLEEN de SPARQL query`;
 
   const chatContext = chatHistory.length > 0 
     ? '\nEerdere context:\n' + chatHistory.map(m => `${m.role}: ${m.content}`).join('\n') + '\n\n'
