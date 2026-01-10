@@ -8,7 +8,7 @@ import {
   Send, Database, Download, Filter, Info, Trash2, Loader2,
   Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
   HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target, ListChecks,
-  Mic, MicOff, InfoIcon, RefreshCw, AlertCircle
+  Mic, MicOff, InfoIcon, RefreshCw, AlertCircle, Moon, Sun
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS } from './constants';  // EXAMPLES verwijderd - nu dynamisch
@@ -150,7 +150,23 @@ const App: React.FC = () => {
   const [showSparql, setShowSparql] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [activePage, setActivePage] = useState<'chat' | 'riasec' | 'riasec-skills'>('chat');
-  
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved ? JSON.parse(saved) : false;
+  });
+
+  // Dark mode persistence
+  useEffect(() => {
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
+  const toggleDarkMode = () => setDarkMode(!darkMode);
+
   // RIASEC flow state
   const [riasecResult, setRiasecResult] = useState<RiasecResult | null>(null);
   const [riasecSelectedCapabilities, setRiasecSelectedCapabilities] = useState<SelectedCapability[]>([]);
@@ -786,7 +802,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-emerald-50 font-sans">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-emerald-950 font-sans transition-colors">
       {/* Header */}
       <div className="bg-gradient-to-r from-emerald-600 via-emerald-700 to-green-700 text-white shadow-lg relative overflow-hidden">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml,...')] opacity-10"></div>
@@ -801,6 +817,13 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={toggleDarkMode}
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 transition"
+              title={darkMode ? 'Schakel naar lichte modus' : 'Schakel naar donkere modus'}
+            >
+              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
             <button
               onClick={() => setActivePage('chat')}
               className={`px-4 py-2 rounded-xl text-sm font-semibold border transition ${
@@ -860,7 +883,7 @@ const App: React.FC = () => {
       ) : (
         <div className="flex overflow-hidden" style={{ minHeight: 'calc(100vh - 88px)' }}>
       {/* Sidebar */}
-      <aside className="w-80 bg-white border-r border-slate-200 flex flex-col shadow-xl z-20">
+      <aside className="w-80 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 flex flex-col shadow-xl z-20">
         <div className="p-6 bg-emerald-700 text-white">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
@@ -878,16 +901,16 @@ const App: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           {showSettings && (
-            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl space-y-3">
+            <div className="p-4 bg-emerald-50 dark:bg-slate-800 border border-emerald-100 dark:border-slate-700 rounded-xl space-y-3">
               <h4 className="text-[10px] font-bold text-emerald-700 uppercase tracking-widest">Connectie</h4>
               <div className="space-y-2">
                 <div>
-                  <label className="block text-[10px] text-emerald-600 font-bold mb-1 uppercase">SPARQL Key</label>
-                  <input type="password" value={authHeader} onChange={e => setAuthHeader(e.target.value)} className="w-full text-xs p-2 border border-emerald-200 rounded-md outline-none" placeholder="API Sleutel" />
+                  <label className="block text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mb-1 uppercase">SPARQL Key</label>
+                  <input type="password" value={authHeader} onChange={e => setAuthHeader(e.target.value)} className="w-full text-xs p-2 border border-emerald-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white rounded-md outline-none" placeholder="API Sleutel" />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-emerald-600 font-bold mb-1 uppercase">Methode</label>
-                  <select value={proxyMode} onChange={e => setProxyMode(e.target.value as ProxyType)} className="w-full text-xs p-2 border border-emerald-200 rounded-md bg-white">
+                  <label className="block text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mb-1 uppercase">Methode</label>
+                  <select value={proxyMode} onChange={e => setProxyMode(e.target.value as ProxyType)} className="w-full text-xs p-2 border border-emerald-200 dark:border-slate-600 rounded-md bg-white dark:bg-slate-800 dark:text-white">
                     <option value="local">Eigen Backend (3001)</option>
                     <option value="none">Direct (CORS)</option>
                     <option value="codetabs">Publieke Proxy</option>
@@ -907,7 +930,7 @@ const App: React.FC = () => {
             </h3>
             <button
               onClick={() => setShowProfileWizard(true)}
-              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-4 py-3 rounded-xl hover:bg-emerald-100 transition-all"
+              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-700 border border-emerald-100 dark:border-slate-600 px-4 py-3 rounded-xl hover:bg-emerald-100 dark:hover:bg-slate-600 transition-all"
             >
               <ListChecks className="w-4 h-4" />
               Bouw profiel (werk/opleiding)
@@ -919,7 +942,7 @@ const App: React.FC = () => {
               <Target className="w-4 h-4" />
               Match mijn Profiel
             </button>
-            <p className="text-[10px] text-slate-400 leading-relaxed">
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
               Selecteer vaardigheden en ontdek welke beroepen bij je passen. Actief profiel: {totalProfileItems} items.
             </p>
           </div>
@@ -930,7 +953,7 @@ const App: React.FC = () => {
             </h3>
             <div className="space-y-1">
               {GRAPH_OPTIONS.map(g => (
-                <label key={g.id} className="flex items-center gap-2 text-[11px] p-1.5 hover:bg-slate-50 rounded cursor-pointer transition-colors">
+                <label key={g.id} className="flex items-center gap-2 text-[11px] p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded cursor-pointer transition-colors">
                   <input 
                     type="checkbox" 
                     checked={selectedGraphs.includes(g.uri)} 
@@ -940,7 +963,7 @@ const App: React.FC = () => {
                     }}
                     className="rounded text-emerald-600"
                   />
-                  <span className="truncate">{g.label}</span>
+                  <span className="truncate dark:text-slate-300">{g.label}</span>
                 </label>
               ))}
             </div>
@@ -970,7 +993,7 @@ const App: React.FC = () => {
             </div>
             
             {examplesError && (
-              <div className="flex items-center gap-2 text-[10px] text-amber-600 bg-amber-50 p-2 rounded-lg">
+              <div className="flex items-center gap-2 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded-lg">
                 <AlertCircle className="w-3 h-3 flex-shrink-0" />
                 <span className="truncate">{examplesError}</span>
               </div>
@@ -986,12 +1009,12 @@ const App: React.FC = () => {
                   <button
                     key={ex.id || i}
                     onClick={() => handleSend(ex.vraag, { exampleId: ex.id })}
-                    className="w-full text-left text-[11px] p-3 rounded-lg border border-slate-200 bg-white hover:border-emerald-400 hover:bg-emerald-50 transition-all text-slate-600 leading-snug group"
+                    className="w-full text-left text-[11px] p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-all text-slate-600 dark:text-slate-300 leading-snug group"
                   >
                     <span className="flex items-start gap-2">
                       <span className="flex-1">{ex.vraag}</span>
                       {ex.category && (
-                        <span className="flex-shrink-0 text-[8px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded uppercase">
+                        <span className="flex-shrink-0 text-[8px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded uppercase">
                           {ex.category}
                         </span>
                       )}
@@ -1008,7 +1031,7 @@ const App: React.FC = () => {
           {/* EINDE VOORBEELDVRAGEN SECTIE */}
         </div>
 
-        <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
+        <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-800">
           <button onClick={handleClearChat} className="text-[10px] text-slate-400 font-bold hover:text-rose-500 flex items-center gap-1 uppercase">
             <Trash2 className="w-3 h-3" /> Wis Chat
           </button>
@@ -1024,7 +1047,7 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col relative bg-slate-50">
+      <main className="flex-1 flex flex-col relative bg-slate-50 dark:bg-slate-900">
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-8 pb-32">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto space-y-8">
@@ -1034,8 +1057,8 @@ const App: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-4">
-                <h2 className="text-4xl font-black text-slate-900 tracking-tight">CompetentNL AI Agent</h2>
-                <p className="text-slate-500 text-base leading-relaxed">
+                <h2 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">CompetentNL AI Agent</h2>
+                <p className="text-slate-500 dark:text-slate-400 text-base leading-relaxed">
                   Stel vragen in natuurlijk Nederlands. Bij onduidelijkheid vraag ik door welk concept je precies bedoelt.
                 </p>
                 {apiStatus === 'offline' && (
@@ -1056,9 +1079,9 @@ const App: React.FC = () => {
             <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[90%] p-6 rounded-3xl shadow-lg border ${
                 msg.role === 'user' ? 'bg-emerald-600 text-white border-transparent' :
-                msg.status === 'error' ? 'bg-rose-50 border-rose-200 text-rose-900' :
-                msg.metadata?.isDisambiguation ? 'bg-amber-50 border-amber-200 text-slate-800' :
-                'bg-white border-slate-200 text-slate-800'
+                msg.status === 'error' ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200' :
+                msg.metadata?.isDisambiguation ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-slate-800 dark:text-white' :
+                'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white'
               }`}>
                 <div className="whitespace-pre-wrap text-sm leading-relaxed">{msg.text}</div>
 
@@ -1069,7 +1092,7 @@ const App: React.FC = () => {
                       <button
                         key={option.uri}
                         onClick={() => handleSend(`${idx + 1}`)}
-                        className="w-full text-left p-3 bg-white border border-amber-200 rounded-xl hover:bg-amber-50 hover:border-amber-400 transition-all flex items-center gap-2 text-sm"
+                        className="w-full text-left p-3 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-700 rounded-xl hover:bg-amber-50 dark:hover:bg-slate-700 hover:border-amber-400 transition-all flex items-center gap-2 text-sm dark:text-white"
                       >
                         <span className="w-5 h-5 bg-amber-200 rounded-full flex items-center justify-center text-[10px]">
                           {idx + 1}
@@ -1082,7 +1105,7 @@ const App: React.FC = () => {
 
                 {msg.needsList && (
                   <button
-                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm font-semibold hover:bg-emerald-600 hover:text-white transition-colors"
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 rounded-xl text-sm font-semibold hover:bg-emerald-600 hover:text-white transition-colors"
                     onClick={() => handleShowList(msg)}
                     disabled={isLoading}
                   >
@@ -1093,7 +1116,7 @@ const App: React.FC = () => {
                 {msg.metadata?.resultsTruncated && msg.metadata?.fullResultSparql && (
                   <div className="mt-3">
                     <button
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-semibold hover:bg-emerald-600 hover:text-white transition-colors"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 rounded-xl text-xs font-semibold hover:bg-emerald-600 hover:text-white transition-colors"
                       onClick={() => handleDownloadAll(msg)}
                       disabled={isLoading}
                     >
@@ -1104,26 +1127,26 @@ const App: React.FC = () => {
                 
                 {/* Results table */}
                 {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
-                  <div className="mt-8 space-y-4 pt-6 border-t border-slate-100">
+                  <div className="mt-8 space-y-4 pt-6 border-t border-slate-100 dark:border-slate-700">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                         <CheckCircle className="w-3 h-3 text-emerald-500" />
                         Resultaten ({msg.results.length})
                       </span>
-                      <button onClick={() => downloadAsExcel(msg.results || [], { vraag: msg.text, sparql: msg.sparql, timestamp: msg.timestamp, endpoint: sparqlEndpoint })} className="flex items-center gap-2 text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-xl hover:bg-emerald-600 hover:text-white transition-all">
+                      <button onClick={() => downloadAsExcel(msg.results || [], { vraag: msg.text, sparql: msg.sparql, timestamp: msg.timestamp, endpoint: sparqlEndpoint })} className="flex items-center gap-2 text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-700 px-4 py-2 rounded-xl hover:bg-emerald-600 hover:text-white transition-all">
                         <Download className="w-4 h-4" /> EXCEL EXPORT
                       </button>
                     </div>
-                    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50">
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                       <table className="min-w-full text-[11px] text-left">
-                        <thead className="bg-slate-200/50 text-slate-600 font-bold uppercase tracking-wider">
+                        <thead className="bg-slate-200/50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider">
                           <tr>{Object.keys(msg.results[0]).map(k => <th key={k} className="px-5 py-3">{k}</th>)}</tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                           {msg.results.slice(0, 10).map((row, i) => (
-                            <tr key={i} className="hover:bg-white transition-colors">
+                            <tr key={i} className="hover:bg-white dark:hover:bg-slate-700 transition-colors">
                               {Object.values(row).map((val: any, j) => (
-                                <td key={j} className="px-5 py-3 truncate max-w-[200px] text-slate-500" title={val}>{String(val)}</td>
+                                <td key={j} className="px-5 py-3 truncate max-w-[200px] text-slate-500 dark:text-slate-400" title={val}>{String(val)}</td>
                               ))}
                             </tr>
                           ))}

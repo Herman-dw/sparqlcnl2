@@ -1330,38 +1330,10 @@ SELECT ?occupation ?skill ?skillLabel WHERE {
  * SCENARIO 2a: Bij 50+ resultaten Ã¢â€ â€™ COUNT query
  * SCENARIO 3: "Hoeveel zijn er?" Ã¢â€ â€™ Gebruik context
  */
-/**
- * Helper: Resolve occupation term to URI
- */
-async function resolveOccupationToUri(occupationName) {
-  try {
-    const [rows] = await ragPool.execute(`
-      SELECT occupation_uri as uri, pref_label
-      FROM occupation_labels
-      WHERE LOWER(label) = ? OR LOWER(pref_label) = ?
-      ORDER BY
-        CASE WHEN LOWER(label) = ? THEN 0 ELSE 1 END,
-        CASE WHEN occupation_uri LIKE '%/uwv/%' THEN 0 ELSE 1 END
-      LIMIT 1
-    `, [occupationName.toLowerCase(), occupationName.toLowerCase(), occupationName.toLowerCase()]);
-
-    if (rows.length > 0 && rows[0].uri) {
-      console.log(`[Generate] ✓ Resolved "${occupationName}" → "${rows[0].pref_label}" (${rows[0].uri})`);
-      return rows[0].uri;
-    }
-
-    console.log(`[Generate] ⚠️  No URI found for "${occupationName}"`);
-    return null;
-  } catch (error) {
-    console.error(`[Generate] Resolution error:`, error);
-    return null;
-  }
-}
-
 app.post('/generate', async (req, res) => {
-  const {
-    question,
-    chatHistory = [],
+  const { 
+    question, 
+    chatHistory = [], 
     domain,
     resolvedConcepts = {},
     variant = 'default'
@@ -1724,13 +1696,7 @@ ORDER BY ?relatietype`;
       const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zÃƒÂ©ÃƒÂ«ÃƒÂ¯ÃƒÂ¶ÃƒÂ¼ÃƒÂ¡ÃƒÂ ÃƒÂ¢ÃƒÂ¤ÃƒÂ¨ÃƒÂªÃƒÂ®ÃƒÂ´ÃƒÂ»ÃƒÂ§\-]+)/i);
       if (occupationMatch) {
         const occName = occupationMatch[1];
-        // Try to resolve to URI first
-        const resolvedUri = await resolveOccupationToUri(occName);
-        if (resolvedUri) {
-          occupationFilter = `VALUES ?occupation { <${resolvedUri}> }`;
-        } else {
-          occupationFilter = `?occupation skos:prefLabel ?occLabel . FILTER(CONTAINS(LCASE(?occLabel), "${occName}"))`;
-        }
+        occupationFilter = `?occupation skos:prefLabel ?occLabel . FILTER(CONTAINS(LCASE(?occLabel), "${occName}"))`;
       }
     }
     
