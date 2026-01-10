@@ -487,12 +487,21 @@ async function generateSparqlInternal(
   const uwvResolution = await mapToUwvOccupationUri(resolvedOccupation, userQuery);
   const resolvedConceptsForQuery = resolvedConcepts.map(concept => {
     if (concept.type !== 'occupation') return concept;
+
+    // Prefer UWV URI if available
     if (uwvResolution.uri) {
+      console.log(`[URI] Using UWV URI: ${uwvResolution.uri}`);
       return { ...concept, uri: uwvResolution.uri };
     }
-    if (concept.uri && concept.uri.includes('/uwv/')) {
+
+    // Keep existing URI (UWV or non-UWV) - don't throw it away!
+    if (concept.uri) {
+      console.log(`[URI] Using original URI: ${concept.uri}`);
       return concept;
     }
+
+    // No URI available
+    console.log(`[URI] No URI available for "${concept.term}"`);
     return { ...concept, uri: undefined };
   });
   const resolvedOccupationForQuery = resolvedConceptsForQuery.find(c => c.type === 'occupation' && c.uri);
