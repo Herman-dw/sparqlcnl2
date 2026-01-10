@@ -636,6 +636,31 @@ LIMIT 200`,
   // SCENARIO 4: Vaardigheden van beroep (met resolved concept)
   if ((q.includes('vaardighe') || q.includes('skill')) && resolvedConceptsForQuery.length > 0) {
     const resolved = resolvedConceptsForQuery[0];
+    if (resolved.uri) {
+      return {
+        sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+SELECT DISTINCT ?skillLabel ?importance WHERE {
+  VALUES ?occupation { <${resolved.uri}> }
+  {
+    ?occupation cnlo:requiresHATEssential ?skill .
+    BIND("essentieel" AS ?importance)
+  } UNION {
+    ?occupation cnlo:requiresHATImportant ?skill .
+    BIND("belangrijk" AS ?importance)
+  }
+  ?skill skos:prefLabel ?skillLabel .
+  FILTER(LANG(?skillLabel) = "nl")
+}
+ORDER BY ?importance ?skillLabel
+LIMIT 100`,
+        response: `Dit zijn de vaardigheden voor ${resolved.resolved}:`,
+        needsDisambiguation: false,
+        resolvedConcepts: resolvedConceptsForQuery,
+        domain: 'skill'
+      };
+    }
     return {
       sparql: `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
