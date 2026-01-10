@@ -17,9 +17,11 @@
  *   --verbose       Toon gedetailleerde output
  *   --json          Output als JSON
  *   --stop-on-fail  Stop bij eerste fout
+ *   --llm-occupation  Run LLM-beroep vaardigheden E2E test (5 runs, min. 4 successen)
  */
 
 import fetch from 'node-fetch';
+import { GoogleGenAI } from '@google/genai';
 
 // ============================================================
 // TYPES
@@ -316,6 +318,194 @@ const colors = {
   blue: '\x1b[34m',
   cyan: '\x1b[36m'
 };
+
+// ============================================================
+// LLM OCCUPATION SKILLS TEST
+// ============================================================
+
+const SPARQL_ENDPOINT = 'https://api.sandbox.triply.cc/datasets/CompetentNL/CompetentNL-UWV/services/CompetentNL-UWV/sparql';
+
+interface LlmIterationResult {
+  success: boolean;
+  occupationLabel: string;
+  occupationUri?: string;
+  error?: string;
+}
+
+async function generateOccupationLabel(ai: GoogleGenAI): Promise<string> {
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-001',
+    contents: `Geef één willekeurig beroep in het Nederlands.
+Antwoord exact met alleen het beroep, zonder extra tekst of leestekens.`,
+    config: {
+      temperature: 0.8
+    }
+  });
+
+  const label = (response.text || '').trim();
+  if (!label) {
+    throw new Error('LLM gaf geen beroep terug');
+  }
+  return label.replace(/^["'`]|["'`]$/g, '');
+}
+
+async function executeSparql(sparql: string): Promise<any[]> {
+  const response = await fetch(SPARQL_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/sparql-query',
+      Accept: 'application/sparql-results+json'
+    },
+    body: sparql
+  });
+
+  if (!response.ok) {
+    throw new Error(`SPARQL endpoint error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.results?.bindings || [];
+}
+
+async function isValidOccupationUri(uri: string): Promise<boolean> {
+  const sparql = `PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+
+ASK {
+  <${uri}> a cnlo:Occupation .
+}`;
+  const response = await fetch(SPARQL_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/sparql-query',
+      Accept: 'application/sparql-results+json'
+    },
+    body: sparql
+  });
+
+  if (!response.ok) {
+    throw new Error(`SPARQL endpoint error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return Boolean(data.boolean);
+}
+
+function extractOccupationUri(sparql: string): string | null {
+  const match = sparql.match(/VALUES\s+\?occupation\s*\{\s*<([^>]+)>\s*\}/i);
+  return match?.[1] || null;
+}
+
+async function askGenerate(backendUrl: string, body: any): Promise<any> {
+  const response = await fetch(`${backendUrl}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Backend error: ${response.status}`);
+  }
+
+  return await response.json();
+}
+
+async function runLlmOccupationTest(backendUrl: string): Promise<{
+  passed: boolean;
+  results: LlmIterationResult[];
+}> {
+  const apiKey = process.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('VITE_GEMINI_API_KEY niet gevonden');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const iterations = 5;
+  const requiredSuccesses = 4;
+  const results: LlmIterationResult[] = [];
+
+  for (let i = 1; i <= iterations; i++) {
+    let occupationLabel = 'onbekend';
+    try {
+      occupationLabel = await generateOccupationLabel(ai);
+      const question = `wat zijn de vaardigheden van een ${occupationLabel}`;
+      let data = await askGenerate(backendUrl, {
+        question,
+        chatHistory: []
+      });
+
+      if (data.needsDisambiguation && data.disambiguationData) {
+        const options = data.disambiguationData.options || [];
+        if (options.length === 0) {
+          throw new Error('Disambiguatie zonder opties');
+        }
+        const randomIndex = Math.floor(Math.random() * options.length);
+        const selection = options[randomIndex];
+
+        data = await askGenerate(backendUrl, {
+          question: `${randomIndex + 1}`,
+          chatHistory: [
+            { role: 'user', content: question },
+            { role: 'assistant', content: data.response }
+          ],
+          pendingDisambiguation: data.disambiguationData
+        });
+
+        occupationLabel = selection.prefLabel || occupationLabel;
+      }
+
+      const sparql = data.sparql || '';
+      if (!sparql) {
+        throw new Error('Geen SPARQL query gegenereerd');
+      }
+
+      const hasValues = /VALUES\s+\?occupation\s*\{\s*<[^>]+>\s*\}/i.test(sparql);
+      const hasFilterContains = /FILTER\s*\(\s*CONTAINS\s*\(\s*LCASE\s*\(\s*\?occLabel/i.test(sparql);
+      const hasRequiresHAT = /requiresHAT(Essential|Important)/i.test(sparql);
+      const occupationUri = extractOccupationUri(sparql);
+
+      if (!hasValues) {
+        throw new Error('Query gebruikt geen VALUES met occupation URI');
+      }
+      if (hasFilterContains) {
+        throw new Error('Query gebruikt FILTER(CONTAINS) i.p.v. URI');
+      }
+      if (!hasRequiresHAT) {
+        throw new Error('Query mist requiresHAT predicate');
+      }
+      if (!occupationUri) {
+        throw new Error('Geen occupation URI gevonden in query');
+      }
+
+      const uriExists = await isValidOccupationUri(occupationUri);
+      if (!uriExists) {
+        throw new Error('Occupation URI is geen geldig cnlo:Occupation');
+      }
+
+      const queryResults = await executeSparql(sparql);
+      if (queryResults.length === 0) {
+        throw new Error('Query retourneert geen vaardigheden');
+      }
+
+      results.push({
+        success: true,
+        occupationLabel,
+        occupationUri
+      });
+    } catch (error: any) {
+      results.push({
+        success: false,
+        occupationLabel,
+        error: error.message
+      });
+    }
+  }
+
+  const successCount = results.filter(r => r.success).length;
+  return {
+    passed: successCount >= requiredSuccesses,
+    results
+  };
+}
 
 // ============================================================
 // TEST RUNNER
@@ -624,7 +814,8 @@ async function main() {
     verbose: args.includes('--verbose') || args.includes('-v'),
     json: args.includes('--json'),
     stopOnFail: args.includes('--stop-on-fail'),
-    backendUrl: args.find(a => a.startsWith('--url='))?.split('=')[1] || 'http://127.0.0.1:3001'
+    backendUrl: args.find(a => a.startsWith('--url='))?.split('=')[1] || 'http://127.0.0.1:3001',
+    llmOccupation: args.includes('--llm-occupation')
   };
 
   // Filter scenarios
@@ -639,12 +830,15 @@ async function main() {
   }
 
   // Print header
+  const includeLlmOccupationTest = options.llmOccupation || options.all;
+  const totalPlanned = scenarios.length + (includeLlmOccupationTest ? 1 : 0);
+
   if (!options.json) {
     console.log('\n' + '='.repeat(60));
     console.log(`${colors.cyan}CompetentNL Test Suite${colors.reset}`);
     console.log('='.repeat(60));
     console.log(`Backend: ${options.backendUrl}`);
-    console.log(`Tests: ${scenarios.length}`);
+    console.log(`Tests: ${totalPlanned}`);
     console.log('='.repeat(60) + '\n');
   }
 
@@ -690,15 +884,98 @@ async function main() {
     }
   }
 
+  if (includeLlmOccupationTest) {
+    if (!options.json) {
+      process.stdout.write('  LLM-beroep skills E2E... ');
+    }
+
+    try {
+      const llmResult = await runLlmOccupationTest(options.backendUrl);
+      const iterationSummary = llmResult.results.map((r, index) => {
+        const status = r.success ? '✅' : '❌';
+        const detail = r.success ? r.occupationLabel : r.error;
+        return `${status} ${index + 1}: ${detail}`;
+      });
+
+      results.push({
+        scenarioId: 'llm-occupation-skills-e2e',
+        passed: llmResult.passed,
+        duration: 0,
+        validationResults: [
+          {
+            check: {
+              type: 'response_contains',
+              value: 'minimaal 4 van 5 successen',
+              description: 'LLM-beroepstest moet minimaal 4/5 slagen'
+            },
+            passed: llmResult.passed,
+            actualValue: `${llmResult.results.filter(r => r.success).length}/5`
+          }
+        ],
+        consoleOutput: iterationSummary
+      });
+
+      if (llmResult.passed) {
+        passed++;
+        if (!options.json) {
+          console.log(`${colors.green}✓${colors.reset}`);
+        }
+      } else {
+        failed++;
+        if (!options.json) {
+          console.log(`${colors.red}✗${colors.reset}`);
+          if (options.verbose) {
+            iterationSummary.forEach(line => {
+              console.log(`    ${colors.dim}└─ ${line}${colors.reset}`);
+            });
+          }
+        }
+
+        if (options.stopOnFail) {
+          const duration = Date.now() - startTime;
+          if (!options.json) {
+            console.log('\n' + '='.repeat(60));
+            console.log(`${colors.bright}Resultaten${colors.reset}`);
+            console.log('='.repeat(60));
+            console.log(`  ${colors.green}Geslaagd: ${passed}${colors.reset}`);
+            console.log(`  ${colors.red}Gefaald:  ${failed}${colors.reset}`);
+            console.log(`  Totaal:   ${totalPlanned}`);
+            console.log(`  Tijd:     ${(duration / 1000).toFixed(2)}s`);
+            console.log(`  Success:  ${Math.round((passed / totalPlanned) * 100)}%`);
+            console.log('='.repeat(60) + '\n');
+          }
+          process.exit(1);
+        }
+      }
+    } catch (error: any) {
+      failed++;
+      results.push({
+        scenarioId: 'llm-occupation-skills-e2e',
+        passed: false,
+        duration: 0,
+        validationResults: [],
+        consoleOutput: [],
+        error: error.message
+      });
+
+      if (!options.json) {
+        console.log(`${colors.red}✗${colors.reset}`);
+        if (options.verbose) {
+          console.log(`    ${colors.dim}└─ ${error.message}${colors.reset}`);
+        }
+      }
+    }
+  }
+
   const duration = Date.now() - startTime;
 
   // Output results
   if (options.json) {
     const suiteResult: TestSuiteResult = {
-      totalTests: scenarios.length,
+      totalTests: totalPlanned,
       passed,
       failed,
-      skipped: scenarios.length - passed - failed,
+      skipped: totalPlanned - passed - failed,
       duration,
       timestamp: new Date().toISOString(),
       results
@@ -710,9 +987,9 @@ async function main() {
     console.log('='.repeat(60));
     console.log(`  ${colors.green}Geslaagd: ${passed}${colors.reset}`);
     console.log(`  ${colors.red}Gefaald:  ${failed}${colors.reset}`);
-    console.log(`  Totaal:   ${scenarios.length}`);
+    console.log(`  Totaal:   ${totalPlanned}`);
     console.log(`  Tijd:     ${(duration / 1000).toFixed(2)}s`);
-    console.log(`  Success:  ${Math.round((passed / scenarios.length) * 100)}%`);
+    console.log(`  Success:  ${Math.round((passed / totalPlanned) * 100)}%`);
     console.log('='.repeat(60) + '\n');
   }
 

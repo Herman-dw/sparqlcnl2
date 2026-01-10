@@ -9,7 +9,7 @@
  *
  * Bij disambiguatie: kies random één optie
  *
- * Moet 3x achter elkaar slagen met verschillende beroepen.
+ * Moet 5x lopen met minimaal 4 successen.
  */
 
 import fetch from 'node-fetch';
@@ -39,30 +39,69 @@ function log(color, ...args) {
 }
 
 /**
- * Genereer een random beroep uit een pre-defined lijst
- * (sneller en betrouwbaarder dan LLM calls)
+ * Genereer een random beroep met bestaande CNL occupation URI
  */
-async function generateRandomOccupation() {
-  const occupations = [
-    'kapper',
-    'loodgieter',
-    'verpleger',
-    'architect',
-    'kok',
-    'docent',
-    'monteur',
-    'bakker',
-    'electriciën',
-    'timmerman',
-    'schoonmaker',
-    'tuinman',
-    'kassamedewerker',
-    'buschauffeur',
-    'secretaresse'
-  ];
+async function generateOccupationLabel(ai) {
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-001',
+    contents: `Geef één willekeurig beroep in het Nederlands.
+Antwoord exact met alleen het beroep, zonder extra tekst of leestekens.`,
+    config: {
+      temperature: 0.8
+    }
+  });
 
-  const randomIndex = Math.floor(Math.random() * occupations.length);
-  return occupations[randomIndex];
+  const label = (response.text || '').trim();
+  if (!label) {
+    throw new Error('LLM gaf geen beroep terug');
+  }
+  return label.replace(/^["'`]|["'`]$/g, '');
+}
+
+async function resolveOccupationByLabel(label) {
+  const sparql = `
+PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+SELECT DISTINCT ?occupation ?occLabel
+WHERE {
+  ?occupation a cnlo:Occupation ;
+              skos:prefLabel ?occLabel ;
+              (cnlo:requiresHATEssential|cnlo:requiresHATImportant) ?skill .
+  FILTER(LANGMATCHES(LANG(?occLabel), "nl"))
+  FILTER(LCASE(?occLabel) = LCASE("${label}"))
+}
+LIMIT 5
+`;
+
+  const results = await executeSparql(sparql);
+  if (results.length !== 1) {
+    return null;
+  }
+  const first = results[0];
+  if (!first?.occupation?.value || !first?.occLabel?.value) {
+    return null;
+  }
+  return {
+    label: first.occLabel.value,
+    uri: first.occupation.value
+  };
+}
+
+async function generateRandomOccupation() {
+  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  const maxAttempts = 5;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const label = await generateOccupationLabel(ai);
+    log(colors.gray, `   → LLM beroep (poging ${attempt}): "${label}"`);
+    const resolved = await resolveOccupationByLabel(label);
+    if (resolved) {
+      return resolved;
+    }
+    log(colors.yellow, `   ⚠️  Geen unieke CNL match voor "${label}", probeer opnieuw...`);
+  }
+
+  throw new Error('Geen beroep gevonden met unieke CNL URI na meerdere pogingen');
 }
 
 /**
@@ -131,12 +170,13 @@ async function handleDisambiguation(data, occupation) {
 /**
  * Valideer SPARQL query
  */
-function validateQuery(sparql, occupation) {
+function validateQuery(sparql, occupationUri) {
   const checks = {
     hasSparql: false,
     hasValues: false,
     noFilterContains: true,
-    hasRequiresHAT: false
+    hasRequiresHAT: false,
+    hasExpectedUri: false
   };
 
   if (!sparql || typeof sparql !== 'string') {
@@ -161,7 +201,11 @@ function validateQuery(sparql, occupation) {
     checks.hasRequiresHAT = true;
   }
 
-  const valid = checks.hasValues && checks.noFilterContains && checks.hasRequiresHAT;
+  if (occupationUri && sparql.includes(`<${occupationUri}>`)) {
+    checks.hasExpectedUri = true;
+  }
+
+  const valid = checks.hasValues && checks.noFilterContains && checks.hasRequiresHAT && checks.hasExpectedUri;
 
   let reason = '';
   if (!checks.hasValues) {
@@ -170,6 +214,8 @@ function validateQuery(sparql, occupation) {
     reason = '❌ Query gebruikt FILTER(CONTAINS(...)) in plaats van URI';
   } else if (!checks.hasRequiresHAT) {
     reason = '❌ Query mist requiresHAT predicate';
+  } else if (!checks.hasExpectedUri) {
+    reason = '❌ Query gebruikt niet de verwachte occupation URI';
   }
 
   return { valid, checks, reason };
@@ -208,15 +254,16 @@ async function runTest(iteration) {
     // Stap 1: Genereer random beroep
     log(colors.cyan, '\n🎲 Genereer random beroep...');
     const occupation = await generateRandomOccupation();
-    log(colors.green, `   ✓ Beroep: "${occupation}"`);
+    log(colors.green, `   ✓ Beroep: "${occupation.label}"`);
+    log(colors.gray, `   URI: ${occupation.uri}`);
 
     // Stap 2: Stel vraag
-    const question = `wat zijn de vaardigheden van een ${occupation}`;
+    const question = `wat zijn de vaardigheden van een ${occupation.label}`;
     let data = await askQuestion(question);
 
     // Stap 3: Handle disambiguatie indien nodig
     if (data.needsDisambiguation) {
-      data = await handleDisambiguation(data, occupation);
+      data = await handleDisambiguation(data, occupation.label);
       if (!data) {
         throw new Error('Disambiguatie afgebroken');
       }
@@ -229,11 +276,12 @@ async function runTest(iteration) {
     log(colors.gray, sparql.split('\n').map(line => '   ' + line).join('\n'));
 
     log(colors.cyan, '\n🔍 Validatie:');
-    const validation = validateQuery(sparql, occupation);
+    const validation = validateQuery(sparql, occupation.uri);
 
     log(colors.cyan, `   - Heeft VALUES statement: ${validation.checks.hasValues ? '✓' : '✗'}`);
     log(colors.cyan, `   - Geen FILTER(CONTAINS): ${validation.checks.noFilterContains ? '✓' : '✗'}`);
     log(colors.cyan, `   - Heeft requiresHAT: ${validation.checks.hasRequiresHAT ? '✓' : '✗'}`);
+    log(colors.cyan, `   - Gebruikt juiste URI: ${validation.checks.hasExpectedUri ? '✓' : '✗'}`);
 
     if (!validation.valid) {
       throw new Error(validation.reason);
@@ -254,7 +302,7 @@ async function runTest(iteration) {
 
     // Stap 6: Success!
     log(colors.green, `\n✅ TEST ${iteration} GESLAAGD`);
-    return { success: true, occupation, resultCount: results.length };
+    return { success: true, occupation: occupation.label, resultCount: results.length };
 
   } catch (error) {
     log(colors.red, `\n❌ TEST ${iteration} GEFAALD`);
@@ -274,8 +322,8 @@ async function main() {
 
   const results = [];
 
-  // Run 3 tests
-  for (let i = 1; i <= 3; i++) {
+  // Run 5 tests
+  for (let i = 1; i <= 5; i++) {
     const result = await runTest(i);
     results.push(result);
 
@@ -284,7 +332,7 @@ async function main() {
     }
 
     // Wacht kort tussen tests
-    if (i < 3) {
+    if (i < 5) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
@@ -309,11 +357,11 @@ async function main() {
 
   console.log('');
 
-  if (successes === 3) {
-    log(colors.green, '🎉 ALLE TESTS GESLAAGD! Het systeem werkt correct.');
+  if (successes >= 4) {
+    log(colors.green, '🎉 GENOEG TESTS GESLAAGD! Het systeem werkt correct.');
     process.exit(0);
   } else {
-    log(colors.red, `💔 ${successes}/3 tests geslaagd. Fix het probleem!`);
+    log(colors.red, `💔 ${successes}/5 tests geslaagd. Fix het probleem!`);
     process.exit(1);
   }
 }
