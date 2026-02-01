@@ -3,7 +3,7 @@
  * Generaliseert werkgevers naar categorieën voor privacy-bescherming
  */
 
-import { EMPLOYER_CATEGORIES, JOB_TITLE_TO_SECTOR, EmployerCategory } from './employerCategories.js';
+import { EMPLOYER_CATEGORIES, JOB_TITLE_TO_SECTOR, EmployerCategory } from './employerCategories';
 
 export type PrivacyLevel = 'low' | 'medium' | 'high';
 
