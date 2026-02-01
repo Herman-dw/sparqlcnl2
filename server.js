@@ -23,7 +23,7 @@ import mysql from 'mysql2/promise';
 import { preloadCache } from './profile-matching-api.mjs';
 import matchingRouter from './matching-router.mjs';
 import { isRiasecQuestion, isRiasecInAnyField } from './utils/riasec-detector.ts';
-import { createCVRoutes } from './routes/cvRoutes.js';
+import { createCVRoutes } from './routes/cvRoutes.ts';
 
 // Load environment
 if (fs.existsSync('.env.local')) {
