@@ -5,7 +5,7 @@
  */
 
 import { Pool, RowDataPacket } from 'mysql2/promise';
-import { PrivacyConsentLog } from '../types/cv';
+import { PrivacyConsentLog } from '../types/cv.ts';
 
 export interface LogPrivacyEventParams {
   cvId: number;
