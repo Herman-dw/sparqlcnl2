@@ -116,3 +116,22 @@ exploration-summary.txt
 
 # lokaal_kan weg
 structuur.txt
+
+# Python virtual environments
+venv/
+.env/
+.env*/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Compiled / binary files
+*.exe
+*.dll
+*.so
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
