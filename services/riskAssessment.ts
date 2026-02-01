@@ -3,7 +3,7 @@
  * Evalueer re-identification risico's in CV data
  */
 
-import { assessReIdentificationRisk, EmployerSequence } from './employerGeneralizer';
+import { assessReIdentificationRisk, EmployerSequence } from './employerGeneralizer.ts';
 
 export interface PIIRisk {
   type: string;
