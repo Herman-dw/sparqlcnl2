@@ -423,15 +423,24 @@ export interface PipelineStage {
 // ============================================================================
 
 export class CVProcessingError extends Error {
+  code: string;
+  cvId?: number;
+  stage?: string;
+  details?: any;
+
   constructor(
     message: string,
-    public code: string,
-    public cvId?: number,
-    public stage?: string,
-    public details?: any
+    code: string,
+    cvId?: number,
+    stage?: string,
+    details?: any
   ) {
     super(message);
     this.name = 'CVProcessingError';
+    this.code = code;
+    this.cvId = cvId;
+    this.stage = stage;
+    this.details = details;
   }
 }
 
