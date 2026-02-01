@@ -67,7 +67,9 @@ Aanbevolen tekst/achtergrond combinaties met minimaal AA (4.5:1) en AAA (7:1) wa
 ### Vereisten
 - Node.js 18+
 - Python 3.9+ (voor CV processing)
-- MariaDB/MySQL (voor CV processing)
+- MariaDB/MySQL met twee databases:
+  - `competentnl_rag` - SPARQL caching & CV processing
+  - `competentnl_prompts` - AI prompt templates & examples
 - npm of yarn
 - Gemini API key (gratis via https://aistudio.google.com/apikey)
 - CompetentNL API key
@@ -206,10 +208,10 @@ Het CV Processing systeem analyseert uploaded CV's en matcht werkervaring en opl
 
 ```bash
 # Run database migration
-mysql -u root -p competentnl < database/003-cv-privacy-tables.sql
+mysql -u root -p competentnl_rag < database/003-cv-privacy-tables.sql
 ```
 
-Dit creëert 6 nieuwe tabellen:
+Dit creëert 6 nieuwe tabellen in de `competentnl_rag` database:
 - `user_cvs` - CV storage met encryptie
 - `cv_extractions` - Geëxtraheerde werkervaring/opleidingen
 - `cv_pii_detections` - PII detectie resultaten
@@ -575,10 +577,10 @@ htop  # Watch Python process
 **Oplossing**:
 ```bash
 # Run migration opnieuw
-mysql -u root -p competentnl < database/003-cv-privacy-tables.sql
+mysql -u root -p competentnl_rag < database/003-cv-privacy-tables.sql
 
 # Check of tabellen bestaan
-mysql -u root -p competentnl -e "SHOW TABLES LIKE '%cv%';"
+mysql -u root -p competentnl_rag -e "SHOW TABLES LIKE '%cv%';"
 ```
 
 #### Encryption errors
@@ -709,7 +711,7 @@ CV_ENCRYPTION_IV=xxx (32 hex chars)
 DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=xxx
-DB_NAME=competentnl
+DB_NAME=competentnl_rag
 
 # Optional tuning
 GLINER_DETECTION_THRESHOLD=0.3
@@ -776,15 +778,15 @@ Feedback wordt opgeslagen in localStorage. Exporteer via:
 
 ```bash
 # Run migrations in order
-mysql -u root -p competentnl < database/001-initial-schema.sql
-mysql -u root -p competentnl < database/002-xxx.sql
-mysql -u root -p competentnl < database/003-cv-privacy-tables.sql
+mysql -u root -p competentnl_rag < database/001-complete-setup.sql
+mysql -u root -p competentnl_prompts < database/002-prompts-and-examples.sql
+mysql -u root -p competentnl_rag < database/003-cv-privacy-tables.sql
 
 # Verify tables exist
-mysql -u root -p competentnl -e "
+mysql -u root -p competentnl_rag -e "
   SELECT TABLE_NAME, TABLE_ROWS
   FROM information_schema.TABLES
-  WHERE TABLE_SCHEMA = 'competentnl' AND TABLE_NAME LIKE '%cv%';
+  WHERE TABLE_SCHEMA = 'competentnl_rag' AND TABLE_NAME LIKE '%cv%';
 "
 ```
 
@@ -908,7 +910,7 @@ watch -n 5 'curl -s http://localhost:8001/health | jq'
 watch -n 5 'curl -s http://localhost:3001/api/cv/health | jq'
 
 # Database CV counts
-watch -n 60 'mysql -u root -p competentnl -e "
+watch -n 60 'mysql -u root -p competentnl_rag -e "
   SELECT
     COUNT(*) as total_cvs,
     COUNT(CASE WHEN deleted_at IS NULL THEN 1 END) as active,
@@ -919,6 +921,17 @@ watch -n 60 'mysql -u root -p competentnl -e "
 ```
 
 ## FAQ
+
+### Waarom twee databases?
+
+Het systeem gebruikt **twee gescheiden databases**:
+- **`competentnl_rag`**: SPARQL query caching, embeddings, en CV processing data
+- **`competentnl_prompts`**: AI prompt templates, examples, en conversation logging
+
+Deze scheiding zorgt voor:
+- Betere performance (kleinere indexes)
+- Makkelijker backup strategieën (CV data vs prompts)
+- Cleaner migrations (CV features zijn optioneel)
 
 ### Waarom lokaal PII detectie?
 
