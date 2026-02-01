@@ -5,7 +5,9 @@
 
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { Pool } from 'mysql2/promise';
+import mysql from 'mysql2/promise';
+
+type Pool = mysql.Pool;
 
 import CVProcessingService from '../services/cvProcessingService.ts';
 import PrivacyLogger from '../services/privacyLogger.ts';

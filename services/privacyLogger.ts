@@ -4,8 +4,11 @@
  * GDPR compliance: volledig traceerbaar wat er met PII is gebeurd
  */
 
-import { Pool, RowDataPacket } from 'mysql2/promise';
+import mysql from 'mysql2/promise';
 import { PrivacyConsentLog } from '../types/cv.ts';
+
+type Pool = mysql.Pool;
+type RowDataPacket = mysql.RowDataPacket;
 
 export interface LogPrivacyEventParams {
   cvId: number;
