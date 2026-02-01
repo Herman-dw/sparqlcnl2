@@ -22,15 +22,15 @@ import {
   SkillExtraction,
   GLiNERAnonymizeResult,
   CVProcessingError
-} from '../types/cv';
+} from '../types/cv.js';
 
-import { PrivacyLogger } from './privacyLogger';
+import { PrivacyLogger } from './privacyLogger.js';
 import {
   generalizeEmployer,
   generalizeEmployerSequence,
   inferSectorFromJobTitle
-} from './employerGeneralizer';
-import { assessCVRisk, generatePrivacySummary } from './riskAssessment';
+} from './employerGeneralizer.js';
+import { assessCVRisk, generatePrivacySummary } from './riskAssessment.js';
 
 const GLINER_SERVICE_URL = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
