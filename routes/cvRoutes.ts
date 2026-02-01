@@ -7,15 +7,15 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { Pool } from 'mysql2/promise';
 
-import CVProcessingService from '../services/cvProcessingService.js';
-import PrivacyLogger from '../services/privacyLogger.js';
+import CVProcessingService from '../services/cvProcessingService';
+import PrivacyLogger from '../services/privacyLogger';
 import {
   CVUploadResponse,
   CVStatusResponse,
   CVExtractionResponse,
   PrivacyConsentRequest,
   ErrorResponse
-} from '../types/cv.js';
+} from '../types/cv';
 
 // Multer configuratie voor file uploads
 const upload = multer({
