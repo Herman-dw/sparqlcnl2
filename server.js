@@ -23,6 +23,7 @@ import mysql from 'mysql2/promise';
 import { preloadCache } from './profile-matching-api.mjs';
 import matchingRouter from './matching-router.mjs';
 import { isRiasecQuestion, isRiasecInAnyField } from './utils/riasec-detector.ts';
+import { createCVRoutes } from './routes/cvRoutes.js';
 
 // Load environment
 if (fs.existsSync('.env.local')) {
@@ -2584,7 +2585,11 @@ testDatabaseConnections().then(async () => {
     console.warn('Ã¢Å¡Â Ã¯Â¸Â Matching cache preload failed:', err.message);
     console.warn('   Cache wordt opgebouwd bij eerste request');
   }
-  
+
+  // Mount CV Processing routes
+  app.use('/api/cv', createCVRoutes(ragPool));
+  console.log('📄 CV Processing routes mounted at /api/cv');
+
   app.listen(PORT, HOST, () => {
     console.log(`
   Ã¢â€¢â€Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢â€”

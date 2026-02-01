@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CV Upload Test - CompetentNL</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0E2841 0%, #156082 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #0E2841;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #156082;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .privacy-badge {
+            background: #E8F5E9;
+            border: 1px solid #4CAF50;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .privacy-badge .icon {
+            font-size: 24px;
+        }
+
+        .privacy-badge .text {
+            flex: 1;
+            font-size: 13px;
+            color: #1B5E20;
+        }
+
+        .upload-area {
+            border: 2px dashed #156082;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            background: #F5F8FB;
+            border-color: #0E2841;
+        }
+
+        .upload-area.dragover {
+            background: #E3F2FD;
+            border-color: #0F9ED5;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .upload-text {
+            color: #0E2841;
+            font-size: 16px;
+            margin-bottom: 5px;
+        }
+
+        .upload-hint {
+            color: #666;
+            font-size: 13px;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-info {
+            background: #F5F8FB;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .file-info.show {
+            display: block;
+        }
+
+        .file-name {
+            color: #0E2841;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .file-size {
+            color: #666;
+            font-size: 13px;
+        }
+
+        button {
+            width: 100%;
+            background: #156082;
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0E2841;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .progress {
+            width: 100%;
+            height: 6px;
+            background: #E0E0E0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .progress.show {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #156082, #0F9ED5);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+        }
+
+        .result.success {
+            background: #E8F5E9;
+            border: 1px solid #4CAF50;
+            color: #1B5E20;
+        }
+
+        .result.error {
+            background: #FFEBEE;
+            border: 1px solid #F44336;
+            color: #B71C1C;
+        }
+
+        .result-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .result-details {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+
+        .endpoint-info {
+            background: #FFF3E0;
+            border: 1px solid #FF9800;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #E65100;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #156082;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📄 CV Upload Test</h1>
+        <p class="subtitle">Test de CV Processing Pipeline met Privacy-First PII Detectie</p>
+
+        <div class="privacy-badge">
+            <span class="icon">🔒</span>
+            <div class="text">
+                <strong>Privacy Garantie:</strong> Persoonsgegevens worden lokaal gedetecteerd en verwijderd VOOR ze naar de AI gaan.
+            </div>
+        </div>
+
+        <div class="endpoint-info">
+            <strong>Backend:</strong> http://localhost:3001/api/cv/upload<br>
+            <strong>GLiNER:</strong> http://localhost:8001 (moet draaien!)
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📤</div>
+            <div class="upload-text">Sleep CV hierheen of klik om te selecteren</div>
+            <div class="upload-hint">Ondersteunt PDF en Word documenten (max 10MB)</div>
+            <input type="file" id="fileInput" accept=".pdf,.doc,.docx">
+        </div>
+
+        <div class="file-info" id="fileInfo">
+            <div class="file-name" id="fileName"></div>
+            <div class="file-size" id="fileSize"></div>
+        </div>
+
+        <button id="uploadBtn" disabled>Selecteer eerst een bestand</button>
+
+        <div class="progress" id="progress">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div class="result" id="result">
+            <div class="result-title" id="resultTitle"></div>
+            <div id="resultMessage"></div>
+            <div class="result-details" id="resultDetails"></div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const progress = document.getElementById('progress');
+        const progressBar = document.getElementById('progressBar');
+        const result = document.getElementById('result');
+        const resultTitle = document.getElementById('resultTitle');
+        const resultMessage = document.getElementById('resultMessage');
+        const resultDetails = document.getElementById('resultDetails');
+
+        let selectedFile = null;
+
+        // Click to upload
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Drag & drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            // Validate file type
+            const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+            if (!validTypes.includes(file.type)) {
+                alert('Alleen PDF en Word documenten zijn toegestaan!');
+                return;
+            }
+
+            // Validate file size (10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                alert('Bestand is te groot! Maximum 10MB.');
+                return;
+            }
+
+            selectedFile = file;
+            fileName.textContent = file.name;
+            fileSize.textContent = formatFileSize(file.size);
+            fileInfo.classList.add('show');
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload en Analyseer CV';
+            result.classList.remove('show');
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        uploadBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = '<span class="spinner"></span>Uploading...';
+            progress.classList.add('show');
+            result.classList.remove('show');
+
+            const formData = new FormData();
+            formData.append('cv', selectedFile);
+            formData.append('sessionId', 'test-session-' + Date.now());
+
+            try {
+                const response = await fetch('http://localhost:3001/api/cv/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                progressBar.style.width = '100%';
+
+                setTimeout(() => {
+                    if (response.ok && data.success) {
+                        showResult('success', '✅ CV succesvol geüpload!',
+                            `CV ID: ${data.cvId}\n` +
+                            `Status: ${data.processingStatus}\n` +
+                            `Message: ${data.message}\n\n` +
+                            `Full Response:\n${JSON.stringify(data, null, 2)}`
+                        );
+                    } else {
+                        showResult('error', '❌ Upload mislukt',
+                            `Error: ${data.error || 'Unknown error'}\n\n` +
+                            `Full Response:\n${JSON.stringify(data, null, 2)}`
+                        );
+                    }
+
+                    uploadBtn.disabled = false;
+                    uploadBtn.textContent = 'Upload nog een CV';
+                    progress.classList.remove('show');
+                    progressBar.style.width = '0%';
+                }, 500);
+
+            } catch (error) {
+                showResult('error', '❌ Netwerk fout',
+                    `Could not connect to backend.\n\n` +
+                    `Error: ${error.message}\n\n` +
+                    `Zorg ervoor dat:\n` +
+                    `1. Backend draait op http://localhost:3001\n` +
+                    `2. GLiNER service draait op http://localhost:8001\n` +
+                    `3. Database migratie is uitgevoerd\n` +
+                    `4. .env.local is correct geconfigureerd`
+                );
+
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Probeer opnieuw';
+                progress.classList.remove('show');
+                progressBar.style.width = '0%';
+            }
+        });
+
+        function showResult(type, title, message) {
+            result.className = 'result show ' + type;
+            resultTitle.textContent = title;
+
+            const messageLines = message.split('\n\n');
+            if (messageLines.length > 1) {
+                resultMessage.innerHTML = messageLines[0];
+                resultDetails.textContent = messageLines.slice(1).join('\n\n');
+            } else {
+                resultMessage.innerHTML = message;
+                resultDetails.textContent = '';
+            }
+        }
+
+        // Check backend health on load
+        async function checkBackend() {
+            try {
+                const response = await fetch('http://localhost:3001/health');
+                if (response.ok) {
+                    console.log('✅ Backend is running');
+                }
+            } catch (error) {
+                console.error('❌ Backend not reachable:', error.message);
+                showResult('error', '⚠️ Backend niet bereikbaar',
+                    'Kan geen verbinding maken met http://localhost:3001\n\n' +
+                    'Start de backend met: npm run dev'
+                );
+            }
+        }
+
+        checkBackend();
+    </script>
+</body>
+</html>
