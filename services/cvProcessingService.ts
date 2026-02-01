@@ -7,11 +7,15 @@
  * 5. Parse Structure → 6. Generalize Employers → 7. Store → 8. Ready for Classification
  */
 
-import { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import mysql from 'mysql2/promise';
 import axios from 'axios';
 import crypto from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+
+type Pool = mysql.Pool;
+type RowDataPacket = mysql.RowDataPacket;
+type ResultSetHeader = mysql.ResultSetHeader;
 
 import {
   UserCV,
