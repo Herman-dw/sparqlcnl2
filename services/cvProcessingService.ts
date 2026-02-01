@@ -17,16 +17,16 @@ type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;
 type ResultSetHeader = mysql.ResultSetHeader;
 
-import {
+import type {
   UserCV,
   CVExtraction,
   CVExtractionResponse,
   ExperienceExtraction,
   EducationExtraction,
   SkillExtraction,
-  GLiNERAnonymizeResult,
-  CVProcessingError
+  GLiNERAnonymizeResult
 } from '../types/cv.ts';
+import { CVProcessingError } from '../types/cv.ts';
 
 import { PrivacyLogger } from './privacyLogger.ts';
 import {

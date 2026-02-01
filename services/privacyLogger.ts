@@ -5,7 +5,7 @@
  */
 
 import mysql from 'mysql2/promise';
-import { PrivacyConsentLog } from '../types/cv.ts';
+import type { PrivacyConsentLog } from '../types/cv.ts';
 
 type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;

@@ -11,7 +11,7 @@ type Pool = mysql.Pool;
 
 import CVProcessingService from '../services/cvProcessingService.ts';
 import PrivacyLogger from '../services/privacyLogger.ts';
-import {
+import type {
   CVUploadResponse,
   CVStatusResponse,
   CVExtractionResponse,
