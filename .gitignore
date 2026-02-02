@@ -117,14 +117,34 @@ exploration-summary.txt
 # lokaal_kan weg
 structuur.txt
 
-# Python virtual environments
+# Python virtual environments (alle locaties)
 venv/
+**/venv/
+.venv/
+**/.venv/
+env/
+**/env/
 .env/
-.env*/
+**/.env/
+virtualenv/
+**/virtualenv/
 
 # Python cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
+*.pyo
+*.pyd
+
+# Python packaging
+*.egg-info/
+**/*.egg-info/
+.eggs/
+**/.eggs/
+dist/
+build/
+*.egg
 
 # Compiled / binary files
 *.exe
