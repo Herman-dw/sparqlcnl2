@@ -154,9 +154,9 @@ if not exist "services\python\venv" (
     echo [OK] Dependencies geinstalleerd
 )
 
-:: Start GLiNER service in apart venster
-echo [INFO] GLiNER service starten in apart venster...
-start "GLiNER PII Service" cmd /k "cd /d %~dp0services\python && call venv\Scripts\activate.bat && python gliner_service.py"
+:: Start GLiNER service in achtergrond (geen zichtbaar venster)
+echo [INFO] GLiNER service starten in achtergrond...
+powershell -WindowStyle Hidden -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0services\python && call venv\Scripts\activate.bat && python gliner_service.py' -WindowStyle Hidden"
 
 :: Wacht even tot service opstart
 echo [INFO] Wachten op GLiNER service startup...
