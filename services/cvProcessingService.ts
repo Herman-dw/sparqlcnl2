@@ -57,7 +57,41 @@ export class CVProcessingService {
     mimeType: string,
     sessionId: string
   ): Promise<number> {
-    let cvId: number | null = null;
+    const cvId = await this.createCVRecord(fileName, fileBuffer.length, mimeType, sessionId);
+
+    await this.updateCVStatus(cvId, 'processing');
+    await this.processCVRecord(cvId, fileBuffer, fileName, mimeType, sessionId);
+
+    return cvId;
+  }
+
+  /**
+   * Start processing asynchronously and return the CV id immediately.
+   */
+  async enqueueProcessCV(
+    fileBuffer: Buffer,
+    fileName: string,
+    mimeType: string,
+    sessionId: string
+  ): Promise<number> {
+    const cvId = await this.createCVRecord(fileName, fileBuffer.length, mimeType, sessionId);
+
+    await this.updateCVStatus(cvId, 'processing');
+
+    void this.processCVRecord(cvId, fileBuffer, fileName, mimeType, sessionId).catch(() => {
+      // Errors are handled and status updated in processCVRecord.
+    });
+
+    return cvId;
+  }
+
+  private async processCVRecord(
+    cvId: number,
+    fileBuffer: Buffer,
+    fileName: string,
+    mimeType: string,
+    sessionId: string
+  ): Promise<void> {
 
     try {
       console.log(`\n${'='.repeat(60)}`);
@@ -66,11 +100,7 @@ export class CVProcessingService {
       console.log(`Session: ${sessionId}`);
       console.log(`${'='.repeat(60)}\n`);
 
-      // STAP 1: Create CV record
-      cvId = await this.createCVRecord(fileName, fileBuffer.length, mimeType, sessionId);
       console.log(`✓ STAP 1: CV record created (ID: ${cvId})`);
-
-      await this.updateCVStatus(cvId, 'processing');
 
       // STAP 2: Extract text from PDF/Word
       const startExtract = Date.now();
@@ -180,19 +210,15 @@ export class CVProcessingService {
       console.log(`Total duration: ${totalDuration}ms`);
       console.log(`${'='.repeat(60)}\n`);
 
-      return cvId;
-
     } catch (error) {
       console.error(`❌ CV Processing Failed:`, error);
 
-      if (cvId) {
-        await this.updateCVStatus(
-          cvId,
-          'failed',
-          undefined,
-          error instanceof Error ? error.message : String(error)
-        );
-      }
+      await this.updateCVStatus(
+        cvId,
+        'failed',
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      );
 
       throw error;
     }
