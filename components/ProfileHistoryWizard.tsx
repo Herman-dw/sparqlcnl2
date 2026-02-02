@@ -140,7 +140,8 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
       mergeStoreProfile(aggregatedProfile);
       onProfileReady?.(aggregatedProfile);
     }
-  }, [aggregatedProfile, mergeStoreProfile, onProfileReady, step]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]); // Only trigger when step changes to 'confirm', not on every aggregatedProfile change
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
