@@ -2551,30 +2551,61 @@ app.get('/api/health/all', async (req, res) => {
     version: '4.0.0'
   };
 
-  // 2. Check SPARQL endpoint
+  // 2. Check SPARQL endpoint - try direct first, then via internal proxy
   const sparqlUrl = 'https://sparql.competentnl.nl';
   const sparqlStart = Date.now();
+  let sparqlSuccess = false;
+
+  // First try direct connection
   try {
     const sparqlRes = await fetchWithTimeout(sparqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'query=ASK { ?s ?p ?o }'
-    }, 5000);
-    results.services.sparql = {
-      name: 'SPARQL Endpoint',
-      url: sparqlUrl,
-      status: sparqlRes.ok ? 'online' : 'error',
-      responseTime: Date.now() - sparqlStart,
-      statusCode: sparqlRes.status
-    };
-  } catch (error) {
-    results.services.sparql = {
-      name: 'SPARQL Endpoint',
-      url: sparqlUrl,
-      status: 'offline',
-      responseTime: Date.now() - sparqlStart,
-      error: error.message
-    };
+    }, 3000);
+    if (sparqlRes.ok) {
+      sparqlSuccess = true;
+      results.services.sparql = {
+        name: 'SPARQL Endpoint',
+        url: sparqlUrl,
+        status: 'online',
+        responseTime: Date.now() - sparqlStart,
+        statusCode: sparqlRes.status,
+        method: 'direct'
+      };
+    }
+  } catch (directError) {
+    // Direct failed, will try proxy below
+  }
+
+  // If direct failed, try via our own proxy endpoint
+  if (!sparqlSuccess) {
+    try {
+      const proxyRes = await fetchWithTimeout(`http://${HOST}:${PORT}/proxy/sparql`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: 'ASK { ?s ?p ?o }',
+          endpoint: sparqlUrl
+        })
+      }, 3000);
+      results.services.sparql = {
+        name: 'SPARQL Endpoint',
+        url: sparqlUrl,
+        status: proxyRes.ok ? 'online' : 'error',
+        responseTime: Date.now() - sparqlStart,
+        statusCode: proxyRes.status,
+        method: 'proxy'
+      };
+    } catch (proxyError) {
+      results.services.sparql = {
+        name: 'SPARQL Endpoint',
+        url: sparqlUrl,
+        status: 'offline',
+        responseTime: Date.now() - sparqlStart,
+        error: 'Both direct and proxy failed'
+      };
+    }
   }
 
   // 3. Check GLiNER service

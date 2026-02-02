@@ -78,11 +78,12 @@ const ServicePill: React.FC<{
   onClick?: () => void;
   showDetails?: boolean;
 }> = ({ serviceKey, service, onClick, showDetails }) => {
+  // Higher contrast colors for better visibility
   const statusColors = {
-    online: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800',
-    checking: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800',
-    error: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800',
-    offline: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800'
+    online: 'bg-emerald-600 text-white border-emerald-700 shadow-sm',
+    checking: 'bg-amber-500 text-white border-amber-600 shadow-sm',
+    error: 'bg-orange-500 text-white border-orange-600 shadow-sm',
+    offline: 'bg-rose-600 text-white border-rose-700 shadow-sm'
   };
 
   const shortNames: Record<string, string> = {
@@ -97,11 +98,10 @@ const ServicePill: React.FC<{
     <div className="relative group">
       <button
         onClick={onClick}
-        className={`flex items-center gap-1 px-2 py-1 text-[9px] font-bold rounded-full border transition-all ${statusColors[service.status]} hover:opacity-80`}
+        className={`flex items-center gap-1 px-2 py-1 text-[9px] font-bold rounded-full border transition-all ${statusColors[service.status]} hover:opacity-90`}
       >
         <ServiceIcon service={serviceKey} className="w-2.5 h-2.5" />
         <span className="uppercase">{shortNames[serviceKey] || serviceKey}</span>
-        <StatusIndicator status={service.status} />
       </button>
 
       {/* Tooltip on hover */}
@@ -175,6 +175,39 @@ export const ServiceStatusBar: React.FC<ServiceStatusBarProps> = ({
 
   const services = healthData?.services || {};
   const summary = healthData?.summary;
+  const serviceCount = Object.keys(services).length;
+
+  // Loading state - show spinner before first data
+  if (isLoading && !healthData) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 px-2 py-1 text-[9px] font-bold rounded-full bg-slate-200 text-slate-600 border border-slate-300">
+          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+          <span>LADEN...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state - backend unreachable
+  if (error && serviceCount <= 1) {
+    return (
+      <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 px-2 py-1 text-[9px] font-bold rounded-full bg-rose-600 text-white border border-rose-700 shadow-sm">
+          <XCircle className="w-2.5 h-2.5" />
+          <span>BACKEND OFFLINE</span>
+        </div>
+        <button
+          onClick={checkHealth}
+          disabled={isLoading}
+          className="p-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors disabled:opacity-50"
+          title="Opnieuw proberen"
+        >
+          <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+    );
+  }
 
   // Compact view - just pills
   if (compact && !expanded) {
@@ -189,7 +222,7 @@ export const ServiceStatusBar: React.FC<ServiceStatusBarProps> = ({
         ))}
         <button
           onClick={() => setExpanded(true)}
-          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+          className="p-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
           title="Meer details"
         >
           <ChevronDown className="w-3 h-3" />
@@ -197,7 +230,7 @@ export const ServiceStatusBar: React.FC<ServiceStatusBarProps> = ({
         <button
           onClick={checkHealth}
           disabled={isLoading}
-          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors disabled:opacity-50"
+          className="p-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors disabled:opacity-50"
           title="Ververs status"
         >
           <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
