@@ -116,6 +116,7 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
 
   const aggregatedSourceMap = useMemo(() => buildSourceMap(aggregatedProfile), [aggregatedProfile]);
 
+  // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
       setStep('input');
@@ -128,12 +129,16 @@ const ProfileHistoryWizard: React.FC<ProfileHistoryWizardProps> = ({ isOpen, onC
       setMatchResults([]);
       setMatchError(null);
       setExpandedResult(0);
-      return;
     }
-    if (!activeEntryId && entries[0]) {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]); // Only reset when modal closes, not on state changes
+
+  // Set active entry when entries change
+  useEffect(() => {
+    if (isOpen && !activeEntryId && entries[0]) {
       setActiveEntryId(entries[0].id);
     }
-  }, [activeEntryId, entries, isOpen]);
+  }, [isOpen, activeEntryId, entries]);
 
   useEffect(() => {
     if (step === 'confirm') {
