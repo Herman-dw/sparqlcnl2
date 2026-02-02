@@ -20,15 +20,22 @@ class PIIDetector:
     - CPU-only PyTorch
     """
 
-    # PII entity types we detect
+    # PII entity types we detect AND anonymize
+    # IMPORTANT: Only include truly personal identifiable information
+    # Do NOT include organization/location/date - these are needed for CV parsing!
     PII_LABELS = [
-        "person",           # Namen
-        "email",            # Email adressen
-        "phone",            # Telefoonnummers
-        "address",          # Adressen
-        "date",             # Geboortedatums
-        "organization",     # Bedrijfsnamen (voor werkgever tracking)
-        "location"          # Locaties
+        "person",           # Namen - ANONYMIZE
+        "email",            # Email adressen - ANONYMIZE
+        "phone",            # Telefoonnummers - ANONYMIZE
+        "address",          # Persoonlijke adressen - ANONYMIZE
+    ]
+
+    # Labels we detect but do NOT anonymize (needed for CV parsing)
+    # These are logged but kept in the text
+    KEEP_LABELS = [
+        "organization",     # Bedrijfsnamen - KEEP (needed for employer matching)
+        "location",         # Locaties - KEEP (needed for work location)
+        "date",             # Datums - KEEP (work periods needed)
     ]
 
     def __init__(self, model_name: str = "vicgalle/gliner-small-pii"):
