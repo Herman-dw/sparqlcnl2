@@ -116,3 +116,16 @@ exploration-summary.txt
 
 # lokaal_kan weg
 structuur.txt
+
+# Python cache files (lokaal)
+**/*.pyc
+**/*.pyo
+**/__pycache__/
+**/venv/
+**/.venv/
+
+# Python venv met versienummers
+**/venv*/
+services/python/venv*/
+
+database/database-backup*.sql
