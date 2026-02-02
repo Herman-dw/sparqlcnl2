@@ -2,6 +2,8 @@
 
 Een intelligente NL-naar-SPARQL agent voor het bevragen van CompetentNL en ESCO data met AI-ondersteuning, SPARQL validatie en Excel export.
 
+> **Voor Developers:** Zie [DEVELOPMENT.md](./DEVELOPMENT.md) voor de development workflow, git merge script, en TypeScript import best practices.
+
 ## Features
 
 ### SPARQL AI Agent
