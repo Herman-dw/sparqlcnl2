@@ -62,38 +62,37 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
         sessionId
       });
 
-      const response = await axios.post<CVUploadResponse>(
-        `${apiBase}/api/cv/upload`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          },
-          onUploadProgress: (progressEvent) => {
-            if (progressEvent.total) {
-              const percentCompleted = Math.round(
-                (progressEvent.loaded * 100) / progressEvent.total
-              );
-              setProgress(Math.min(percentCompleted, 90)); // Leave 10% for processing
-            }
-          }
-        }
-      );
+      // Use fetch instead of axios for more reliable cross-origin requests
+      const fetchResponse = await fetch(`${apiBase}/api/cv/upload`, {
+        method: 'POST',
+        body: formData,
+        // Don't set Content-Type header - browser will set it with boundary for FormData
+      });
 
-      if (response.data.success) {
-        setCvId(response.data.cvId);
+      console.log('📥 Response status:', fetchResponse.status);
+
+      if (!fetchResponse.ok) {
+        const errorData = await fetchResponse.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${fetchResponse.status}`);
+      }
+
+      const response = await fetchResponse.json() as CVUploadResponse;
+      console.log('📥 Response data:', response);
+
+      if (response.success) {
+        setCvId(response.cvId);
         setStatus('processing');
         setProgress(90);
 
         // Poll for completion (als processing nog bezig is)
-        if (response.data.processingStatus === 'processing') {
-          await pollProcessingStatus(response.data.cvId);
+        if (response.processingStatus === 'processing') {
+          await pollProcessingStatus(response.cvId);
         } else {
           // Direct klaar
           setStatus('completed');
           setProgress(100);
           setTimeout(() => {
-            onComplete(response.data.cvId);
+            onComplete(response.cvId);
           }, 1000);
         }
       } else {
@@ -104,30 +103,14 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
       console.error('Upload error:', err);
       setStatus('error');
 
-      if (axios.isAxiosError(err)) {
-        // Log detailed error info
-        console.error('Axios error details:', {
-          message: err.message,
-          code: err.code,
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          url: err.config?.url,
-          baseURL: err.config?.baseURL
-        });
-
-        if (err.code === 'ERR_NETWORK') {
-          setError(`Netwerkfout: Kan backend niet bereiken op ${apiBase}. Is de server gestart?`);
-        } else if (err.response?.status === 503) {
-          setError('De CV-analyse service is tijdelijk niet beschikbaar. Probeer het later opnieuw.');
-        } else if (err.response?.status === 0 || err.message.includes('CORS')) {
-          setError(`CORS fout: Request naar ${apiBase} geblokkeerd. Check server CORS configuratie.`);
-        } else {
-          setError(`Upload mislukt (${err.response?.status || err.code}): ${err.response?.data?.message || err.message}`);
-        }
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        setError(`Netwerkfout: Kan backend niet bereiken op ${apiBase}. Is de server gestart?`);
       } else if (err instanceof Error) {
-        console.error('Non-axios error:', err.message);
-        setError(`Fout: ${err.message}`);
+        if (err.message.includes('CORS')) {
+          setError(`CORS fout: Request naar ${apiBase} geblokkeerd.`);
+        } else {
+          setError(`Upload mislukt: ${err.message}`);
+        }
       } else {
         setError('Er is een onbekende fout opgetreden. Check de console voor details.');
       }
