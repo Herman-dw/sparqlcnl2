@@ -7,6 +7,7 @@ import express from 'express';
 import type { Request, Response, Router } from 'express';
 import multer from 'multer';
 import mysql from 'mysql2/promise';
+import axios from 'axios';
 
 type Pool = mysql.Pool;
 
@@ -471,7 +472,6 @@ export function createCVRoutes(db: Pool): Router {
       await db.execute('SELECT 1');
 
       // Check GLiNER service
-      const axios = require('axios');
       const glinerUrl = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
 
       let glinerHealthy = false;
