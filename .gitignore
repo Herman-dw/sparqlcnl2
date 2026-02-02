@@ -117,6 +117,14 @@ exploration-summary.txt
 # lokaal_kan weg
 structuur.txt
 
+# Database backups
+database-backup*.sql
+**/database-backup*.sql
+
+# Python venv met versienummers
+**/venv*/
+services/python/venv*/
+
 # Python virtual environments (alle locaties)
 venv/
 **/venv/
