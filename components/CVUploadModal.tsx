@@ -54,6 +54,14 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
       formData.append('cv', file);
       formData.append('sessionId', sessionId);
 
+      console.log('📤 Starting CV upload:', {
+        fileName: file.name,
+        fileSize: `${(file.size / 1024).toFixed(1)} KB`,
+        fileType: file.type,
+        uploadUrl: `${apiBase}/api/cv/upload`,
+        sessionId
+      });
+
       const response = await axios.post<CVUploadResponse>(
         `${apiBase}/api/cv/upload`,
         formData,
@@ -97,13 +105,31 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
       setStatus('error');
 
       if (axios.isAxiosError(err)) {
-        if (err.response?.status === 503) {
+        // Log detailed error info
+        console.error('Axios error details:', {
+          message: err.message,
+          code: err.code,
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          url: err.config?.url,
+          baseURL: err.config?.baseURL
+        });
+
+        if (err.code === 'ERR_NETWORK') {
+          setError(`Netwerkfout: Kan backend niet bereiken op ${apiBase}. Is de server gestart?`);
+        } else if (err.response?.status === 503) {
           setError('De CV-analyse service is tijdelijk niet beschikbaar. Probeer het later opnieuw.');
+        } else if (err.response?.status === 0 || err.message.includes('CORS')) {
+          setError(`CORS fout: Request naar ${apiBase} geblokkeerd. Check server CORS configuratie.`);
         } else {
-          setError(err.response?.data?.message || 'Upload mislukt. Probeer het opnieuw.');
+          setError(`Upload mislukt (${err.response?.status || err.code}): ${err.response?.data?.message || err.message}`);
         }
+      } else if (err instanceof Error) {
+        console.error('Non-axios error:', err.message);
+        setError(`Fout: ${err.message}`);
       } else {
-        setError('Er is een fout opgetreden. Probeer het opnieuw.');
+        setError('Er is een onbekende fout opgetreden. Check de console voor details.');
       }
     }
   }, [sessionId, onComplete]);
