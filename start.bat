@@ -107,8 +107,11 @@ powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:
 if %errorlevel% equ 0 (
     echo [OK] GLiNER service draait op http://localhost:8001
 ) else (
-    echo [INFO] GLiNER service niet actief ^(alleen nodig voor CV processing^)
-    echo [INFO] Start met: python gliner-fastapi/app.py
+    echo [INFO] GLiNER service niet actief, starten in achtergrond...
+    :: Start GLiNER in hidden window (no visible Python console)
+    powershell -WindowStyle Hidden -Command "Start-Process -FilePath 'python' -ArgumentList 'services/python/gliner_service.py' -WindowStyle Hidden -WorkingDirectory '%~dp0'" >nul 2>&1
+    timeout /t 2 >nul
+    echo [OK] GLiNER service gestart ^(http://localhost:8001^)
 )
 
 :: ============================================================
