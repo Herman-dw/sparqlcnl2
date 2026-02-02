@@ -12,13 +12,17 @@ import axios from 'axios';
 type Pool = mysql.Pool;
 
 import CVProcessingService from '../services/cvProcessingService.ts';
+import CVWizardService from '../services/cvWizardService.ts';
 import PrivacyLogger from '../services/privacyLogger.ts';
 import type {
   CVUploadResponse,
   CVStatusResponse,
   CVExtractionResponse,
   PrivacyConsentRequest,
-  ErrorResponse
+  ErrorResponse,
+  WizardStepConfirmRequest,
+  PIIDetection,
+  PrivacyLevel
 } from '../types/cv.ts';
 
 // Multer configuratie voor file uploads
@@ -46,6 +50,7 @@ const upload = multer({
 export function createCVRoutes(db: Pool): Router {
   const router = express.Router();
   const cvService = new CVProcessingService(db);
+  const wizardService = new CVWizardService(db);
   const privacyLogger = new PrivacyLogger(db);
 
   // ========================================================================
@@ -497,6 +502,222 @@ export function createCVRoutes(db: Pool): Router {
         error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date()
       });
+    }
+  });
+
+  // ========================================================================
+  // WIZARD ROUTES
+  // ========================================================================
+
+  // ========================================================================
+  // POST /api/cv/wizard/start
+  // Start wizard processing for a new CV
+  // ========================================================================
+  router.post('/wizard/start', upload.single('cv'), async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.body;
+
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'No file uploaded',
+          code: 'NO_FILE',
+          message: 'Please select a CV file to upload',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      if (!sessionId) {
+        return res.status(400).json({
+          error: 'Session ID required',
+          code: 'NO_SESSION',
+          message: 'Session ID is required',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      console.log(`\n📤 CV Wizard Start Request:`);
+      console.log(`  File: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} KB)`);
+      console.log(`  Type: ${req.file.mimetype}`);
+      console.log(`  Session: ${sessionId}`);
+
+      const { cvId, step1 } = await wizardService.startWizard(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype,
+        sessionId
+      );
+
+      res.status(201).json({
+        success: true,
+        cvId,
+        message: 'CV wizard started successfully',
+        firstStep: step1
+      });
+
+    } catch (error) {
+      console.error('❌ Wizard start error:', error);
+      res.status(500).json({
+        error: 'Wizard start failed',
+        code: 'WIZARD_START_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // POST /api/cv/:cvId/step/confirm
+  // Confirm current step and proceed to next
+  // ========================================================================
+  router.post('/:cvId/step/confirm', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+      const {
+        modifications,
+        additionalPII,
+        privacyLevel
+      }: WizardStepConfirmRequest & { additionalPII?: PIIDetection[]; privacyLevel?: PrivacyLevel } = req.body;
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      console.log(`✅ Confirming step for CV ${cvId}`);
+
+      const result = await wizardService.confirmStepAndProceed(
+        cvId,
+        modifications,
+        additionalPII,
+        privacyLevel
+      );
+
+      res.json({
+        success: true,
+        message: result.isComplete ? 'Wizard completed' : 'Step confirmed',
+        nextStep: result.nextStep,
+        isComplete: result.isComplete,
+        completedCvId: result.isComplete ? cvId : undefined
+      });
+
+    } catch (error) {
+      console.error('Step confirm error:', error);
+      res.status(500).json({
+        error: 'Step confirmation failed',
+        code: 'STEP_CONFIRM_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // POST /api/cv/:cvId/step/back
+  // Go back to previous step
+  // ========================================================================
+  router.post('/:cvId/step/back', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      console.log(`⬅️ Going back to previous step for CV ${cvId}`);
+
+      const result = await wizardService.goToPreviousStep(cvId);
+
+      res.json({
+        success: true,
+        message: `Returned to step ${result.stepNumber}`,
+        step: result.step,
+        stepNumber: result.stepNumber
+      });
+
+    } catch (error) {
+      console.error('Step back error:', error);
+      res.status(500).json({
+        error: 'Step back failed',
+        code: 'STEP_BACK_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // GET /api/cv/:cvId/wizard/status
+  // Get wizard status
+  // ========================================================================
+  router.get('/:cvId/wizard/status', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      const status = await wizardService.getWizardStatus(cvId);
+      res.json(status);
+
+    } catch (error) {
+      console.error('Wizard status error:', error);
+      res.status(500).json({
+        error: 'Failed to get wizard status',
+        code: 'STATUS_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // GET /api/cv/:cvId/step/current
+  // Get current step data
+  // ========================================================================
+  router.get('/:cvId/step/current', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      const { stepNumber, stepData } = await wizardService.getCurrentStepData(cvId);
+
+      res.json({
+        success: true,
+        stepNumber,
+        stepData
+      });
+
+    } catch (error) {
+      console.error('Get current step error:', error);
+      res.status(500).json({
+        error: 'Failed to get current step',
+        code: 'GET_STEP_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
     }
   });
 

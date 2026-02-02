@@ -451,3 +451,212 @@ export interface ErrorResponse {
   details?: any;
   timestamp: Date;
 }
+
+// ============================================================================
+// Wizard Step Types
+// ============================================================================
+
+export type WizardStepName = 'extract' | 'detect_pii' | 'anonymize' | 'parse' | 'finalize';
+export type WizardStepStatus = 'pending' | 'processing' | 'completed' | 'confirmed' | 'failed';
+
+export interface WizardStep {
+  id?: number;
+  cvId: number;
+  stepNumber: 1 | 2 | 3 | 4 | 5;
+  stepName: WizardStepName;
+  status: WizardStepStatus;
+  startedAt?: Date;
+  completedAt?: Date;
+  confirmedAt?: Date;
+  durationMs?: number;
+  inputData?: any;
+  outputData?: any;
+  userModifications?: any;
+  userConfirmed: boolean;
+  errorMessage?: string;
+  retryCount: number;
+}
+
+// Stap 1: Tekst Extractie
+export interface Step1ExtractResponse {
+  stepNumber: 1;
+  stepName: 'extract';
+  extractedText: string;
+  characterCount: number;
+  wordCount: number;
+  pageCount?: number;
+  sourceFormat: 'pdf' | 'docx' | 'doc';
+  detectedLanguage?: string;
+  processingTimeMs: number;
+}
+
+// Stap 2: PII Detectie
+export interface PIIDetection {
+  id?: number;
+  type: 'name' | 'email' | 'phone' | 'address' | 'date' | 'organization' | 'other';
+  text: string;
+  startPosition: number;
+  endPosition: number;
+  confidence: number;
+  replacementText?: string;
+  userApproved?: boolean;
+  userAdded?: boolean;
+}
+
+export interface Step2PIIResponse {
+  stepNumber: 2;
+  stepName: 'detect_pii';
+  detections: PIIDetection[];
+  textWithHighlights: string; // HTML-safe text with highlights
+  summary: {
+    totalDetections: number;
+    byType: Record<string, number>;
+  };
+  processingTimeMs: number;
+}
+
+// Stap 3: Anonimisering Preview
+export interface Step3AnonymizeResponse {
+  stepNumber: 3;
+  stepName: 'anonymize';
+  originalText: string;
+  anonymizedText: string;
+  replacements: Array<{
+    original: string;
+    replacement: string;
+    type: string;
+    position: { start: number; end: number };
+  }>;
+  comparisonView: {
+    original: string[];
+    anonymized: string[];
+    diffPositions: number[];
+  };
+  processingTimeMs: number;
+}
+
+// Stap 4: Structuur Parsing
+export interface ParsedExperience {
+  id: string;
+  jobTitle: string;
+  organization?: string;
+  startDate?: string;
+  endDate?: string | null;
+  duration?: number;
+  description?: string;
+  skills: string[];
+  needsReview: boolean;
+  confidence: number;
+}
+
+export interface ParsedEducation {
+  id: string;
+  degree: string;
+  institution?: string;
+  year?: string;
+  fieldOfStudy?: string;
+  needsReview: boolean;
+  confidence: number;
+}
+
+export interface ParsedSkill {
+  id: string;
+  skillName: string;
+  skillLevel?: string;
+  yearsExperience?: number;
+  confidence: number;
+}
+
+export interface Step4ParseResponse {
+  stepNumber: 4;
+  stepName: 'parse';
+  experience: ParsedExperience[];
+  education: ParsedEducation[];
+  skills: ParsedSkill[];
+  summary?: string;
+  overallConfidence: number;
+  itemsNeedingReview: number;
+  processingTimeMs: number;
+}
+
+// Stap 5: Privacy & Werkgevers
+export type PrivacyLevel = 'low' | 'medium' | 'high';
+
+export interface GeneralizedEmployerInfo {
+  original: string;
+  generalized: string;
+  sector: string;
+  isIdentifying: boolean;
+  privacyLevel: PrivacyLevel;
+}
+
+export interface Step5FinalizeResponse {
+  stepNumber: 5;
+  stepName: 'finalize';
+  employers: GeneralizedEmployerInfo[];
+  riskAssessment: {
+    overallRisk: 'low' | 'medium' | 'high' | 'critical';
+    riskScore: number;
+    recommendation: string;
+  };
+  privacyOptions: {
+    currentLevel: PrivacyLevel;
+    available: Array<{
+      level: PrivacyLevel;
+      label: string;
+      description: string;
+      employerPreview: string[];
+    }>;
+  };
+  processingTimeMs: number;
+}
+
+// Union type for all step responses
+export type WizardStepResponse =
+  | Step1ExtractResponse
+  | Step2PIIResponse
+  | Step3AnonymizeResponse
+  | Step4ParseResponse
+  | Step5FinalizeResponse;
+
+// API Request/Response types for wizard
+export interface WizardStartRequest {
+  sessionId: string;
+  fileBuffer?: Buffer; // For initial upload
+}
+
+export interface WizardStartResponse {
+  success: boolean;
+  cvId: number;
+  message: string;
+  firstStep: Step1ExtractResponse;
+}
+
+export interface WizardStepConfirmRequest {
+  modifications?: any;
+  confirmed: boolean;
+  additionalPII?: PIIDetection[]; // For step 2
+  privacyLevel?: PrivacyLevel; // For step 5
+}
+
+export interface WizardStepConfirmResponse {
+  success: boolean;
+  message: string;
+  nextStep?: WizardStepResponse;
+  isComplete: boolean;
+  completedCvId?: number;
+}
+
+export interface WizardStatusResponse {
+  cvId: number;
+  wizardMode: boolean;
+  currentStep: number;
+  steps: Array<{
+    stepNumber: number;
+    stepName: WizardStepName;
+    status: WizardStepStatus;
+    userConfirmed: boolean;
+  }>;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
