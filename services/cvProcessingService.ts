@@ -57,7 +57,41 @@ export class CVProcessingService {
     mimeType: string,
     sessionId: string
   ): Promise<number> {
-    let cvId: number | null = null;
+    const cvId = await this.createCVRecord(fileName, fileBuffer.length, mimeType, sessionId);
+
+    await this.updateCVStatus(cvId, 'processing');
+    await this.processCVRecord(cvId, fileBuffer, fileName, mimeType, sessionId);
+
+    return cvId;
+  }
+
+  /**
+   * Start processing asynchronously and return the CV id immediately.
+   */
+  async enqueueProcessCV(
+    fileBuffer: Buffer,
+    fileName: string,
+    mimeType: string,
+    sessionId: string
+  ): Promise<number> {
+    const cvId = await this.createCVRecord(fileName, fileBuffer.length, mimeType, sessionId);
+
+    await this.updateCVStatus(cvId, 'processing');
+
+    void this.processCVRecord(cvId, fileBuffer, fileName, mimeType, sessionId).catch(() => {
+      // Errors are handled and status updated in processCVRecord.
+    });
+
+    return cvId;
+  }
+
+  private async processCVRecord(
+    cvId: number,
+    fileBuffer: Buffer,
+    fileName: string,
+    mimeType: string,
+    sessionId: string
+  ): Promise<void> {
 
     try {
       console.log(`\n${'='.repeat(60)}`);
@@ -66,11 +100,7 @@ export class CVProcessingService {
       console.log(`Session: ${sessionId}`);
       console.log(`${'='.repeat(60)}\n`);
 
-      // STAP 1: Create CV record
-      cvId = await this.createCVRecord(fileName, fileBuffer.length, mimeType, sessionId);
       console.log(`✓ STAP 1: CV record created (ID: ${cvId})`);
-
-      await this.updateCVStatus(cvId, 'processing');
 
       // STAP 2: Extract text from PDF/Word
       const startExtract = Date.now();
@@ -180,19 +210,15 @@ export class CVProcessingService {
       console.log(`Total duration: ${totalDuration}ms`);
       console.log(`${'='.repeat(60)}\n`);
 
-      return cvId;
-
     } catch (error) {
       console.error(`❌ CV Processing Failed:`, error);
 
-      if (cvId) {
-        await this.updateCVStatus(
-          cvId,
-          'failed',
-          undefined,
-          error instanceof Error ? error.message : String(error)
-        );
-      }
+      await this.updateCVStatus(
+        cvId,
+        'failed',
+        undefined,
+        error instanceof Error ? error.message : String(error)
+      );
 
       throw error;
     }
@@ -276,16 +302,18 @@ export class CVProcessingService {
       jobTitle: string;
       organization?: string;
       startDate?: string;
-      endDate?: string;
+      endDate?: string | null;
       duration?: number;
       description?: string;
       skills: string[];
+      needsReview?: boolean;
     }>;
     education: Array<{
       degree: string;
       institution?: string;
       year?: string;
       fieldOfStudy?: string;
+      needsReview?: boolean;
     }>;
     skills: string[];
   }> {
@@ -312,7 +340,7 @@ export class CVProcessingService {
     }
 
     // Parse skills (kan overal in CV staan)
-    result.skills = this.extractSkills(anonymizedText);
+    result.skills = this.extractSkills(anonymizedText, sections.skills);
 
     return result;
   }
@@ -376,7 +404,16 @@ export class CVProcessingService {
    * Parse experience section
    */
   private parseExperienceSection(text: string): any[] {
-    const experiences: any[] = [];
+    const experiences: Array<{
+      jobTitle: string;
+      organization?: string;
+      startDate?: string;
+      endDate?: string | null;
+      duration?: number;
+      description?: string;
+      skills: string[];
+      needsReview?: boolean;
+    }> = [];
 
     // Pattern: Functietitel bij Bedrijf (jaar-jaar)
     const pattern = /([A-Z][^\n]+?)\s+(?:bij|at)\s+([^\n(]+?)\s*\((\d{4})\s*[-–]\s*(\d{4}|heden|present)\)/gi;
@@ -400,14 +437,50 @@ export class CVProcessingService {
       });
     }
 
+    if (experiences.length > 0) {
+      return experiences;
+    }
+
+    // Fallback: detect lines with year ranges when the main pattern fails
+    const fallbackPattern = /(.+?)\s+(\d{4})\s*[-–]\s*(\d{4}|heden|present)/gi;
+    let fallbackMatch;
+    while ((fallbackMatch = fallbackPattern.exec(text)) !== null) {
+      const [_, title, startYear, endYear] = fallbackMatch;
+      const duration = endYear.match(/\d{4}/)
+        ? parseInt(endYear) - parseInt(startYear)
+        : new Date().getFullYear() - parseInt(startYear);
+
+      experiences.push({
+        jobTitle: title.trim(),
+        startDate: startYear,
+        endDate: endYear === 'heden' || endYear === 'present' ? null : endYear,
+        duration,
+        description: '',
+        skills: [],
+        needsReview: true
+      });
+    }
+
     return experiences;
   }
 
   /**
    * Parse education section
    */
-  private parseEducationSection(text: string): any[] {
-    const education: any[] = [];
+  private parseEducationSection(text: string): Array<{
+    degree: string;
+    institution?: string;
+    year?: string;
+    fieldOfStudy?: string;
+    needsReview?: boolean;
+  }> {
+    const education: Array<{
+      degree: string;
+      institution?: string;
+      year?: string;
+      fieldOfStudy?: string;
+      needsReview?: boolean;
+    }> = [];
 
     // Pattern: Degree, Institution (jaar)
     const pattern = /([^\n,]+?),\s*([^\n(]+?)\s*\((\d{4})\)/gi;
@@ -424,13 +497,30 @@ export class CVProcessingService {
       });
     }
 
+    if (education.length > 0) {
+      return education;
+    }
+
+    // Fallback: detect lines with single years for education history
+    const fallbackPattern = /(.+?)\s*\((\d{4})\)/gi;
+    let fallbackMatch;
+    while ((fallbackMatch = fallbackPattern.exec(text)) !== null) {
+      const [_, degree, year] = fallbackMatch;
+      education.push({
+        degree: degree.trim(),
+        year,
+        fieldOfStudy: '',
+        needsReview: true
+      });
+    }
+
     return education;
   }
 
   /**
    * Extract skills from text
    */
-  private extractSkills(text: string): string[] {
+  private extractSkills(text: string, skillSection?: string): string[] {
     // Common technical skills
     const skillPatterns = [
       /\b(Python|Java|JavaScript|TypeScript|C\#|C\+\+|Ruby|PHP|Go|Rust|Swift|Kotlin)\b/gi,
@@ -446,6 +536,16 @@ export class CVProcessingService {
       let match;
       while ((match = pattern.exec(text)) !== null) {
         skills.add(match[1]);
+      }
+    }
+
+    if (skillSection) {
+      const sectionSkills = skillSection
+        .split(/[,;\n•]+/)
+        .map(skill => skill.trim())
+        .filter(skill => skill.length > 1);
+      for (const skill of sectionSkills) {
+        skills.add(skill);
       }
     }
 
@@ -574,8 +674,8 @@ export class CVProcessingService {
           genEmp?.generalized || null,
           genEmp?.sector || null,
           genEmp?.isIdentifying || false,
-          false, // needs_review
-          0.8 // confidence_score (rules-based)
+          exp.needsReview ?? false,
+          exp.needsReview ? 0.4 : 0.8
         ]
       );
     }
@@ -587,7 +687,7 @@ export class CVProcessingService {
           cv_id, section_type, content,
           needs_review, confidence_score
         ) VALUES (?, 'education', ?, ?, ?)`,
-        [cvId, JSON.stringify(edu), false, 0.8]
+        [cvId, JSON.stringify(edu), edu.needsReview ?? false, edu.needsReview ? 0.4 : 0.8]
       );
     }
 

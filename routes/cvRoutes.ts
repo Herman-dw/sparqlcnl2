@@ -80,7 +80,7 @@ export function createCVRoutes(db: Pool): Router {
       console.log(`  Session: ${sessionId}`);
 
       // Start processing (async)
-      const cvId = await cvService.processCV(
+      const cvId = await cvService.enqueueProcessCV(
         req.file.buffer,
         req.file.originalname,
         req.file.mimetype,
@@ -90,23 +90,14 @@ export function createCVRoutes(db: Pool): Router {
       const response: CVUploadResponse = {
         success: true,
         cvId,
-        message: 'CV uploaded and processing completed',
-        processingStatus: 'completed'
+        message: 'CV uploaded and processing started',
+        processingStatus: 'processing'
       };
 
-      res.json(response);
+      res.status(202).json(response);
 
     } catch (error) {
       console.error('❌ CV upload error:', error);
-
-      if (error instanceof Error && error.message.includes('GLiNER service')) {
-        return res.status(503).json({
-          error: 'Service unavailable',
-          code: 'GLINER_UNAVAILABLE',
-          message: 'PII detection service is not available. Please contact administrator.',
-          timestamp: new Date()
-        } as ErrorResponse);
-      }
 
       res.status(500).json({
         error: 'Upload failed',
