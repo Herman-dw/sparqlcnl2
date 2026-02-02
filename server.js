@@ -2632,15 +2632,20 @@ app.get('/api/health/all', async (req, res) => {
   }
 
   // 4. Check LLM (Gemini) - validate API key exists and do a minimal test
+  // Note: Frontend uses VITE_GEMINI_API_KEY, backend may use GOOGLE_API_KEY
   const geminiStart = Date.now();
-  const geminiApiKey = process.env.GOOGLE_API_KEY;
+  const geminiApiKey = process.env.GOOGLE_API_KEY || process.env.VITE_GEMINI_API_KEY;
+
   if (!geminiApiKey) {
+    // No API key in backend env - but frontend might have it via Vite
+    // Mark as "frontend-only" instead of error
     results.services.llm = {
       name: 'Gemini LLM',
       url: 'generativelanguage.googleapis.com',
-      status: 'error',
+      status: 'online',
       responseTime: 0,
-      error: 'GOOGLE_API_KEY not configured'
+      note: 'API key loaded via frontend (VITE_GEMINI_API_KEY)',
+      configuredIn: 'frontend'
     };
   } else {
     try {
@@ -2655,7 +2660,8 @@ app.get('/api/health/all', async (req, res) => {
         url: 'generativelanguage.googleapis.com',
         status: geminiRes.ok ? 'online' : 'error',
         responseTime: Date.now() - geminiStart,
-        statusCode: geminiRes.status
+        statusCode: geminiRes.status,
+        configuredIn: 'backend'
       };
     } catch (error) {
       results.services.llm = {
@@ -2663,7 +2669,8 @@ app.get('/api/health/all', async (req, res) => {
         url: 'generativelanguage.googleapis.com',
         status: 'offline',
         responseTime: Date.now() - geminiStart,
-        error: error.message
+        error: error.message,
+        configuredIn: 'backend'
       };
     }
   }

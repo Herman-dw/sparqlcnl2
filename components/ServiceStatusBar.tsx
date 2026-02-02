@@ -20,6 +20,9 @@ export interface ServiceStatus {
   modelLoaded?: boolean;
   statusCode?: number;
   database?: string;
+  note?: string;
+  configuredIn?: 'frontend' | 'backend';
+  method?: 'direct' | 'proxy';
 }
 
 export interface HealthCheckResponse {
@@ -296,7 +299,29 @@ export const ServiceStatusBar: React.FC<ServiceStatusBarProps> = ({
                   <div className="text-slate-700 dark:text-slate-300">{service.database}</div>
                 </>
               )}
+
+              {service.configuredIn && (
+                <>
+                  <div className="text-slate-500 dark:text-slate-400">Geconfigureerd in:</div>
+                  <div className="text-slate-700 dark:text-slate-300">{service.configuredIn}</div>
+                </>
+              )}
+
+              {service.method && (
+                <>
+                  <div className="text-slate-500 dark:text-slate-400">Methode:</div>
+                  <div className="text-slate-700 dark:text-slate-300">{service.method}</div>
+                </>
+              )}
             </div>
+
+            {/* Note Section */}
+            {service.note && (
+              <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <div className="text-xs font-bold text-blue-600 dark:text-blue-400 mb-1">INFO:</div>
+                <div className="text-sm text-blue-700 dark:text-blue-300">{service.note}</div>
+              </div>
+            )}
 
             {/* Error Section */}
             {service.error && (
