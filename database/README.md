@@ -2,16 +2,35 @@
 
 Deze map bevat alles wat nodig is om de database vanaf nul op te zetten of te herstellen.
 
+> **🚀 Voor complete setup instructies, zie [SETUP-COMPLETE.md](./SETUP-COMPLETE.md)**
+
+## Quick Links
+
+- **[SETUP-COMPLETE.md](./SETUP-COMPLETE.md)** - Volledige setup guide voor nieuwe installaties
+- **[create-backup.ps1](./create-backup.ps1)** - PowerShell script voor backup maken
+
 ## Bestanden
 
 | Bestand | Beschrijving |
 |---------|--------------|
-| `database-schema-complete.sql` | Database structuur v3.2.0 (tabellen, views, indexes) |
+| **Setup Scripts** | |
+| `001-complete-setup.sql` | Database structuur competentnl_rag (v4.1.0) |
+| `002-prompts-and-examples.sql` | Database structuur competentnl_prompts |
+| `003-cv-privacy-tables.sql` | CV Processing tables (user_cvs, privacy logs) ⭐ NIEUW |
+| `003-conversation-logging.sql` | Conversatie logging (legacy) |
+| **Data Sync** | |
 | `sync-all-concepts.mjs` | Script dat data ophaalt van SPARQL endpoint + IDF weights |
 | `idf-weights.json` | Pre-berekende IDF gewichten voor vaardigheden |
-| `calculate-idf-weights.js` | Script om IDF gewichten opnieuw te berekenen (optioneel) |
+| `calculate-idf-weights.js` | Script om IDF gewichten opnieuw te berekenen |
 | `setup-idf-weights.js` | Standalone script om alleen IDF weights te importeren |
-| `database-backup-full.sql` | Volledige backup van je huidige database (plaats hier je backup) |
+| **Backup** | |
+| `create-backup.ps1` | PowerShell script voor backup maken ⭐ NIEUW |
+| `database-backup-latest.sql` | Laatste backup (maak met create-backup.ps1) |
+| **Legacy** | |
+| `database-schema-complete.sql` | Oude schema (gebruik 001-complete-setup.sql) |
+| `concept_resolver_schema.sql` | Legacy concept resolver |
+| `occupation_resolver_schema.sql` | Legacy occupation resolver |
+| `schema.sql` | Legacy schema |
 
 ## Installatie vanaf nul
 
@@ -50,10 +69,20 @@ Get-Content database/database-backup-full.sql | & "C:\Program Files\MariaDB 11.8
 
 ## Backup maken
 
-Maak regelmatig een backup:
+**Met PowerShell script (aanbevolen):**
 
 ```powershell
-& "C:\Program Files\MariaDB 11.8\bin\mysqldump.exe" -u root -p --databases competentnl_rag competentnl_prompts > database/database-backup-full.sql
+.\database\create-backup.ps1
+```
+
+Dit maakt automatisch:
+- Timestamped backup: `database-backup-2025-02-02_143000.sql`
+- Latest backup: `database-backup-latest.sql`
+
+**Handmatig:**
+
+```powershell
+& "C:\Program Files\MariaDB 11.8\bin\mysqldump.exe" -u root -p --databases competentnl_rag competentnl_prompts --single-transaction > database\database-backup-latest.sql
 ```
 
 ## Sync opties
@@ -125,18 +154,23 @@ node setup-idf-weights.js
 
 ## Database structuur
 
-### competentnl_rag (7+ MiB)
+### competentnl_rag (~8 MiB)
 
 **Concept labels (gevuld door sync script):**
-- `occupation_labels` - Beroepen met synoniemen (~6 MiB)
-- `education_labels` - Opleidingen
-- `capability_labels` - Vaardigheden
-- `knowledge_labels` - Kennisgebieden (~367 labels)
-- `task_labels` - Taken
+- `occupation_labels` - Beroepen met synoniemen (~6 MiB, ~3200 records)
+- `education_labels` - Opleidingen (~1800 records)
+- `capability_labels` - Vaardigheden (~140 records)
+- `knowledge_labels` - Kennisgebieden (~367 records)
+- `task_labels` - Taken (~4600 records)
 - `workingcondition_labels` - Werkomstandigheden
 
 **Matching algoritme:**
 - `skill_idf_weights` - IDF gewichten per vaardigheid (112 skills)
+
+**CV Processing (Privacy-First)** ⭐ NIEUW v4.1.0:
+- `user_cvs` - CV uploads met AES-256 encryptie, PII tracking, privacy scores
+- `cv_extractions` - Werk ervaring, opleidingen, vaardigheden met CNL mapping
+- `privacy_consent_logs` - GDPR audit trail (PII detectie, consent, LLM calls)
 
 **Synoniemen & mapping:**
 - `concept_synonyms` - Algemene synoniemen
@@ -174,9 +208,10 @@ node setup-idf-weights.js
 
 | Versie | Datum | Wijzigingen |
 |--------|-------|-------------|
+| v4.1.0 | Feb 2025 | **CV Processing** - user_cvs, cv_extractions, privacy_consent_logs tables; create-backup.ps1 script; SETUP-COMPLETE.md guide |
 | v3.2.0 | Dec 2024 | UNION queries opgesplitst (fix SPARQL endpoint), clear logica verbeterd |
 | v3.1.0 | Dec 2024 | IDF weights tabel en sync toegevoegd |
-| v3.0.0 | Dec 2024 | Initiële complete schema |
+| v3.0.0 | Dec 2024 | Twee databases: competentnl_rag en competentnl_prompts |
 
 ## Bekende issues & oplossingen
 
