@@ -349,13 +349,19 @@ export class CVWizardService {
 
     try {
       // Get raw text from cache or database
-      const cache = this.stepDataCache.get(cvId);
+      let cache = this.stepDataCache.get(cvId);
       let rawText = cache?.rawText;
 
       if (!rawText) {
         // Try to get from step 1 output
         const step1Data = await this.getStepOutputFromDB(cvId, 1);
         rawText = step1Data?.extractedText;
+
+        // Rehydrate cache with data from DB if cache was empty
+        if (!cache && rawText) {
+          cache = { rawText };
+          this.stepDataCache.set(cvId, cache);
+        }
       }
 
       if (!rawText) {
@@ -399,9 +405,11 @@ export class CVWizardService {
 
       const processingTimeMs = Date.now() - startTime;
 
-      // Store detections in cache
-      cache!.piiDetections = detections;
-      this.stepDataCache.set(cvId, cache!);
+      // Store detections in cache (cache is guaranteed to exist after rehydration above)
+      if (cache) {
+        cache.piiDetections = detections;
+        this.stepDataCache.set(cvId, cache);
+      }
 
       const result: Step2PIIResponse = {
         stepNumber: 2,
@@ -446,13 +454,28 @@ export class CVWizardService {
     await this.updateStepStatus(cvId, 3, 'processing');
 
     try {
-      const cache = this.stepDataCache.get(cvId);
+      let cache = this.stepDataCache.get(cvId);
       let rawText = cache?.rawText;
       let detections = cache?.piiDetections || [];
 
       if (!rawText) {
         const step1Data = await this.getStepOutputFromDB(cvId, 1);
         rawText = step1Data?.extractedText;
+
+        // Rehydrate cache if empty
+        if (!cache && rawText) {
+          cache = { rawText };
+          this.stepDataCache.set(cvId, cache);
+        }
+      }
+
+      // Try to get PII detections from DB if not in cache
+      if (detections.length === 0) {
+        const step2Data = await this.getStepOutputFromDB(cvId, 2);
+        detections = step2Data?.detections || [];
+        if (cache) {
+          cache.piiDetections = detections;
+        }
       }
 
       if (!rawText) {
@@ -505,9 +528,11 @@ export class CVWizardService {
 
       const processingTimeMs = Date.now() - startTime;
 
-      // Store in cache
-      cache!.anonymizedText = anonymizedText;
-      this.stepDataCache.set(cvId, cache!);
+      // Store in cache (cache is guaranteed to exist after rehydration above)
+      if (cache) {
+        cache.anonymizedText = anonymizedText;
+        this.stepDataCache.set(cvId, cache);
+      }
 
       const result: Step3AnonymizeResponse = {
         stepNumber: 3,
@@ -551,12 +576,18 @@ export class CVWizardService {
     await this.updateStepStatus(cvId, 4, 'processing');
 
     try {
-      const cache = this.stepDataCache.get(cvId);
+      let cache = this.stepDataCache.get(cvId);
       let anonymizedText = cache?.anonymizedText;
 
       if (!anonymizedText) {
         const step3Data = await this.getStepOutputFromDB(cvId, 3);
         anonymizedText = step3Data?.anonymizedText;
+
+        // Rehydrate cache if empty
+        if (!cache && anonymizedText) {
+          cache = { anonymizedText };
+          this.stepDataCache.set(cvId, cache);
+        }
       }
 
       if (!anonymizedText) {
@@ -583,9 +614,11 @@ export class CVWizardService {
         ...parsed.education.filter(e => e.needsReview)
       ].length;
 
-      // Store in cache
-      cache!.parsedData = parsed;
-      this.stepDataCache.set(cvId, cache!);
+      // Store in cache (cache is guaranteed to exist after rehydration above)
+      if (cache) {
+        cache.parsedData = parsed;
+        this.stepDataCache.set(cvId, cache);
+      }
 
       const result: Step4ParseResponse = {
         stepNumber: 4,
@@ -619,12 +652,18 @@ export class CVWizardService {
     await this.updateStepStatus(cvId, 5, 'processing');
 
     try {
-      const cache = this.stepDataCache.get(cvId);
+      let cache = this.stepDataCache.get(cvId);
       let parsedData = cache?.parsedData;
 
       if (!parsedData) {
         const step4Data = await this.getStepOutputFromDB(cvId, 4);
         parsedData = step4Data;
+
+        // Rehydrate cache if empty
+        if (!cache && parsedData) {
+          cache = { parsedData };
+          this.stepDataCache.set(cvId, cache);
+        }
       }
 
       if (!parsedData) {
@@ -652,8 +691,12 @@ export class CVWizardService {
         privacyLevel: 'medium' as PrivacyLevel
       }));
 
-      // Assess risk
-      const piiDetections = cache?.piiDetections || [];
+      // Assess risk - try to get PII detections from cache or DB
+      let piiDetections = cache?.piiDetections || [];
+      if (piiDetections.length === 0) {
+        const step2Data = await this.getStepOutputFromDB(cvId, 2);
+        piiDetections = step2Data?.detections || [];
+      }
       const piiByType: Record<string, string[]> = {};
       piiDetections.forEach((d: PIIDetection) => {
         if (!piiByType[d.type]) piiByType[d.type] = [];
