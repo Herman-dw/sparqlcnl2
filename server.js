@@ -2677,10 +2677,10 @@ app.get('/api/health/all', async (req, res) => {
 
   // 5. Check Database
   const dbStart = Date.now();
+  let conn = null;
   try {
-    const conn = await ragPool.getConnection();
+    conn = await ragPool.getConnection();
     await conn.query('SELECT 1');
-    conn.release();
     results.services.database = {
       name: 'MariaDB',
       url: `${DB_HOST}:${DB_PORT}`,
@@ -2696,6 +2696,15 @@ app.get('/api/health/all', async (req, res) => {
       responseTime: Date.now() - dbStart,
       error: error.message
     };
+  } finally {
+    // Always release connection to prevent pool exhaustion
+    if (conn) {
+      try {
+        conn.release();
+      } catch (releaseError) {
+        console.warn('Failed to release DB connection:', releaseError.message);
+      }
+    }
   }
 
   // Summary
