@@ -30,6 +30,7 @@ import MatchModal from './components/MatchModal';
 import ProfileHistoryWizard from './components/ProfileHistoryWizard';
 import CVUploadModal from './components/CVUploadModal';
 import CVReviewScreen from './components/CVReviewScreen';
+import ServiceStatusBar from './components/ServiceStatusBar';
 import { useProfileStore } from './state/profileStore';
 import { ProfileItemWithSource, SessionProfile } from './types/profile';
 import { mergeProfileLists } from './state/profileUtils';
@@ -1059,14 +1060,11 @@ const App: React.FC = () => {
           <button onClick={handleClearChat} className="text-[10px] text-slate-400 font-bold hover:text-rose-500 flex items-center gap-1 uppercase">
             <Trash2 className="w-3 h-3" /> Wis Chat
           </button>
-          <div onClick={checkConnectivity} className={`flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 rounded-full cursor-pointer shadow-sm ${
-            apiStatus === 'online' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 
-            apiStatus === 'checking' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-rose-100 text-rose-700 border border-rose-200'
-          }`}>
-            {apiStatus === 'online' ? <Wifi className="w-3 h-3" /> : 
-             apiStatus === 'checking' ? <Loader2 className="w-3 h-3 animate-spin" /> : <WifiOff className="w-3 h-3" />}
-            {apiStatus === 'online' ? 'ONLINE' : apiStatus === 'checking' ? 'BEZIG' : 'OFFLINE'}
-          </div>
+          <ServiceStatusBar
+            backendUrl={localBackendUrl}
+            refreshInterval={30000}
+            compact={true}
+          />
         </div>
       </aside>
 

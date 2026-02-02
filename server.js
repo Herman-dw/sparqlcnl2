@@ -2518,6 +2518,162 @@ app.get('/test/health', async (req, res) => {
   res.json(status);
 });
 
+// =====================================================
+// SERVICE HEALTH CHECK - ALL DEPENDENCIES
+// =====================================================
+app.get('/api/health/all', async (req, res) => {
+  const startTime = Date.now();
+  const results = {
+    timestamp: new Date().toISOString(),
+    services: {}
+  };
+
+  // Helper function for timeouts
+  const fetchWithTimeout = async (url, options = {}, timeoutMs = 5000) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeout);
+      return response;
+    } catch (error) {
+      clearTimeout(timeout);
+      throw error;
+    }
+  };
+
+  // 1. Backend self-check (always online if this endpoint works)
+  results.services.backend = {
+    name: 'Backend Server',
+    url: `http://${HOST}:${PORT}`,
+    status: 'online',
+    responseTime: 0,
+    version: '4.0.0'
+  };
+
+  // 2. Check SPARQL endpoint
+  const sparqlUrl = 'https://sparql.competentnl.nl';
+  const sparqlStart = Date.now();
+  try {
+    const sparqlRes = await fetchWithTimeout(sparqlUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'query=ASK { ?s ?p ?o }'
+    }, 5000);
+    results.services.sparql = {
+      name: 'SPARQL Endpoint',
+      url: sparqlUrl,
+      status: sparqlRes.ok ? 'online' : 'error',
+      responseTime: Date.now() - sparqlStart,
+      statusCode: sparqlRes.status
+    };
+  } catch (error) {
+    results.services.sparql = {
+      name: 'SPARQL Endpoint',
+      url: sparqlUrl,
+      status: 'offline',
+      responseTime: Date.now() - sparqlStart,
+      error: error.message
+    };
+  }
+
+  // 3. Check GLiNER service
+  const glinerUrl = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
+  const glinerStart = Date.now();
+  try {
+    const glinerRes = await fetchWithTimeout(`${glinerUrl}/health`, {}, 3000);
+    const glinerData = await glinerRes.json().catch(() => ({}));
+    results.services.gliner = {
+      name: 'GLiNER PII Service',
+      url: glinerUrl,
+      status: glinerRes.ok && glinerData.status === 'healthy' ? 'online' : 'error',
+      responseTime: Date.now() - glinerStart,
+      modelLoaded: glinerData.model_loaded || false
+    };
+  } catch (error) {
+    results.services.gliner = {
+      name: 'GLiNER PII Service',
+      url: glinerUrl,
+      status: 'offline',
+      responseTime: Date.now() - glinerStart,
+      error: error.message
+    };
+  }
+
+  // 4. Check LLM (Gemini) - validate API key exists and do a minimal test
+  const geminiStart = Date.now();
+  const geminiApiKey = process.env.GOOGLE_API_KEY;
+  if (!geminiApiKey) {
+    results.services.llm = {
+      name: 'Gemini LLM',
+      url: 'generativelanguage.googleapis.com',
+      status: 'error',
+      responseTime: 0,
+      error: 'GOOGLE_API_KEY not configured'
+    };
+  } else {
+    try {
+      // Simple models list request to validate API key
+      const geminiRes = await fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`,
+        {},
+        5000
+      );
+      results.services.llm = {
+        name: 'Gemini LLM',
+        url: 'generativelanguage.googleapis.com',
+        status: geminiRes.ok ? 'online' : 'error',
+        responseTime: Date.now() - geminiStart,
+        statusCode: geminiRes.status
+      };
+    } catch (error) {
+      results.services.llm = {
+        name: 'Gemini LLM',
+        url: 'generativelanguage.googleapis.com',
+        status: 'offline',
+        responseTime: Date.now() - geminiStart,
+        error: error.message
+      };
+    }
+  }
+
+  // 5. Check Database
+  const dbStart = Date.now();
+  try {
+    const conn = await ragPool.getConnection();
+    await conn.query('SELECT 1');
+    conn.release();
+    results.services.database = {
+      name: 'MariaDB',
+      url: `${DB_HOST}:${DB_PORT}`,
+      status: 'online',
+      responseTime: Date.now() - dbStart,
+      database: DB_NAME
+    };
+  } catch (error) {
+    results.services.database = {
+      name: 'MariaDB',
+      url: `${DB_HOST}:${DB_PORT}`,
+      status: 'offline',
+      responseTime: Date.now() - dbStart,
+      error: error.message
+    };
+  }
+
+  // Summary
+  const allServices = Object.values(results.services);
+  const onlineCount = allServices.filter(s => s.status === 'online').length;
+  results.summary = {
+    total: allServices.length,
+    online: onlineCount,
+    offline: allServices.length - onlineCount,
+    allHealthy: onlineCount === allServices.length,
+    totalResponseTime: Date.now() - startTime
+  };
+
+  res.json(results);
+});
+
 app.post('/test/scenario', async (req, res) => {
   const { scenario, question, previousContext } = req.body;
   
