@@ -287,7 +287,7 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
         )}
       </div>
 
-      <style jsx>{`
+      <style>{`
         .cv-upload-modal-overlay {
           position: fixed;
           top: 0;

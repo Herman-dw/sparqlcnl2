@@ -269,7 +269,7 @@ export const CVReviewScreen: React.FC<CVReviewScreenProps> = ({
         />
       )}
 
-      <style jsx>{`
+      <style>{`
         .review-screen { padding: 24px; max-width: 1200px; margin: 0 auto; }
         .header h1 { margin: 0 0 8px 0; font-size: 28px; }
         .subtitle { color: #6b7280; margin: 0 0 24px 0; }
