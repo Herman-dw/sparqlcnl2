@@ -1,0 +1,5 @@
+# Database backups (exclude timestamped backups)
+database-backup-20*.sql
+
+# Keep the latest backup template (uncomment to track in git)
+# !database-backup-latest.sql

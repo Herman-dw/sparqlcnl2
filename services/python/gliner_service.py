@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting GLiNER PII Detection Service...")
     logger.info("📊 Configuration:")
     logger.info("  - Device: CPU only")
-    logger.info("  - Model: GLiNER Small v2.1")
+    logger.info("  - Model: vicgalle/gliner-small-pii")
     logger.info("  - Max sequence length: 512 tokens")
 
     try:

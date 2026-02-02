@@ -117,15 +117,49 @@ exploration-summary.txt
 # lokaal_kan weg
 structuur.txt
 
-# Python cache files (lokaal)
-**/*.pyc
-**/*.pyo
-**/__pycache__/
-**/venv/
-**/.venv/
+# Database backups
+database-backup*.sql
+**/database-backup*.sql
 
 # Python venv met versienummers
 **/venv*/
 services/python/venv*/
 
-database/database-backup*.sql
+# Python virtual environments (alle locaties)
+venv/
+**/venv/
+.venv/
+**/.venv/
+env/
+**/env/
+.env/
+**/.env/
+virtualenv/
+**/virtualenv/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+**/*.py[cod]
+*.pyo
+*.pyd
+
+# Python packaging
+*.egg-info/
+**/*.egg-info/
+.eggs/
+**/.eggs/
+dist/
+build/
+*.egg
+
+# Compiled / binary files
+*.exe
+*.dll
+*.so
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store

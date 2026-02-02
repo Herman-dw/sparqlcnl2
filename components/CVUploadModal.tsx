@@ -5,7 +5,6 @@
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import axios from 'axios';
 
 import { CVUploadResponse, CVStatusResponse } from '../types/cv';
 
@@ -14,6 +13,7 @@ interface CVUploadModalProps {
   onComplete: (cvId: number) => void;
   onClose: () => void;
   isOpen: boolean;
+  backendUrl?: string; // Optional: defaults to relative URL, but can use direct backend URL
 }
 
 type UploadStatus = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
@@ -22,8 +22,11 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
   sessionId,
   onComplete,
   onClose,
-  isOpen
+  isOpen,
+  backendUrl = 'http://localhost:3001' // Default to direct backend URL
 }) => {
+  // Build API base URL
+  const apiBase = backendUrl;
   const [status, setStatus] = useState<UploadStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -50,38 +53,45 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
       formData.append('cv', file);
       formData.append('sessionId', sessionId);
 
-      const response = await axios.post<CVUploadResponse>(
-        '/api/cv/upload',
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          },
-          onUploadProgress: (progressEvent) => {
-            if (progressEvent.total) {
-              const percentCompleted = Math.round(
-                (progressEvent.loaded * 100) / progressEvent.total
-              );
-              setProgress(Math.min(percentCompleted, 90)); // Leave 10% for processing
-            }
-          }
-        }
-      );
+      console.log('📤 Starting CV upload:', {
+        fileName: file.name,
+        fileSize: `${(file.size / 1024).toFixed(1)} KB`,
+        fileType: file.type,
+        uploadUrl: `${apiBase}/api/cv/upload`,
+        sessionId
+      });
 
-      if (response.data.success) {
-        setCvId(response.data.cvId);
+      // Use fetch instead of axios for more reliable cross-origin requests
+      const fetchResponse = await fetch(`${apiBase}/api/cv/upload`, {
+        method: 'POST',
+        body: formData,
+        // Don't set Content-Type header - browser will set it with boundary for FormData
+      });
+
+      console.log('📥 Response status:', fetchResponse.status);
+
+      if (!fetchResponse.ok) {
+        const errorData = await fetchResponse.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${fetchResponse.status}`);
+      }
+
+      const response = await fetchResponse.json() as CVUploadResponse;
+      console.log('📥 Response data:', response);
+
+      if (response.success) {
+        setCvId(response.cvId);
         setStatus('processing');
         setProgress(90);
 
         // Poll for completion (als processing nog bezig is)
-        if (response.data.processingStatus === 'processing') {
-          await pollProcessingStatus(response.data.cvId);
+        if (response.processingStatus === 'processing') {
+          await pollProcessingStatus(response.cvId);
         } else {
           // Direct klaar
           setStatus('completed');
           setProgress(100);
           setTimeout(() => {
-            onComplete(response.data.cvId);
+            onComplete(response.cvId);
           }, 1000);
         }
       } else {
@@ -92,14 +102,16 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
       console.error('Upload error:', err);
       setStatus('error');
 
-      if (axios.isAxiosError(err)) {
-        if (err.response?.status === 503) {
-          setError('De CV-analyse service is tijdelijk niet beschikbaar. Probeer het later opnieuw.');
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        setError(`Netwerkfout: Kan backend niet bereiken op ${apiBase}. Is de server gestart?`);
+      } else if (err instanceof Error) {
+        if (err.message.includes('CORS')) {
+          setError(`CORS fout: Request naar ${apiBase} geblokkeerd.`);
         } else {
-          setError(err.response?.data?.message || 'Upload mislukt. Probeer het opnieuw.');
+          setError(`Upload mislukt: ${err.message}`);
         }
       } else {
-        setError('Er is een fout opgetreden. Probeer het opnieuw.');
+        setError('Er is een onbekende fout opgetreden. Check de console voor details.');
       }
     }
   }, [sessionId, onComplete]);
@@ -110,9 +122,17 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
 
     const poll = async (): Promise<void> => {
       try {
-        const response = await axios.get<CVStatusResponse>(`/api/cv/${cvId}/status`);
+        console.log(`📊 Polling status for CV ${cvId}, attempt ${attempts + 1}`);
+        const fetchResponse = await fetch(`${apiBase}/api/cv/${cvId}/status`);
 
-        if (response.data.status === 'completed') {
+        if (!fetchResponse.ok) {
+          throw new Error(`HTTP ${fetchResponse.status}`);
+        }
+
+        const data = await fetchResponse.json() as CVStatusResponse;
+        console.log('📊 Status response:', data);
+
+        if (data.status === 'completed') {
           setStatus('completed');
           setProgress(100);
           setTimeout(() => {
@@ -121,13 +141,13 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
           return;
         }
 
-        if (response.data.status === 'failed') {
-          throw new Error(response.data.error || 'Processing failed');
+        if (data.status === 'failed') {
+          throw new Error(data.error || 'Processing failed');
         }
 
         // Update progress
-        if (response.data.progress) {
-          setProgress(Math.max(progress, response.data.progress));
+        if (data.progress) {
+          setProgress(Math.max(90, data.progress));
         }
 
         attempts++;
@@ -137,6 +157,7 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
           throw new Error('Processing timeout');
         }
       } catch (err) {
+        console.error('Polling error:', err);
         setStatus('error');
         setError('Verwerking mislukt. Probeer het opnieuw.');
       }

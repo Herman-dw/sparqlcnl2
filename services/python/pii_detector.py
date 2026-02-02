@@ -31,7 +31,7 @@ class PIIDetector:
         "location"          # Locaties
     ]
 
-    def __init__(self, model_name: str = "urchade/gliner_small_v2.1"):
+    def __init__(self, model_name: str = "vicgalle/gliner-small-pii"):
         """
         Initialize GLiNER model
 
