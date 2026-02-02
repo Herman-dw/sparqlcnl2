@@ -31,10 +31,15 @@ taskkill /F /IM python.exe /FI "WINDOWTITLE eq *gliner*" >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8001"') do (
     taskkill /F /PID %%a >nul 2>&1
 )
-:: Kill any process using port 3000
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000"') do (
+:: Kill any process using port 3000 (frontend)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 "') do (
     taskkill /F /PID %%a >nul 2>&1
 )
+:: Kill any process using port 3001 (backend)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3001 "') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
+echo [OK] Poorten 3000, 3001 en 8001 vrijgemaakt
 timeout /t 1 >nul
 
 :: ============================================================
@@ -142,11 +147,7 @@ if not exist "services\python\venv" (
     echo [OK] Virtual environment aangemaakt
 
     echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
-    call services\python\venv\Scripts\activate.bat
-    pip install --quiet --upgrade pip
-    pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson
-    pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-    pip install --quiet gliner onnxruntime huggingface_hub
+    cmd /c "cd /d %~dp0services\python && call venv\Scripts\activate.bat && pip install --quiet --upgrade pip && pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && pip install --quiet gliner onnxruntime huggingface_hub"
     if %errorlevel% neq 0 (
         echo [WARN] Fout bij installeren dependencies
         goto :gliner_done
@@ -235,6 +236,12 @@ echo ╚════════════════════════
 echo.
 
 :: Start de applicatie
-call npm run dev
+echo.
+echo [START] npm run dev starten...
+echo.
+npm run dev
 
+:: Als we hier komen is npm gestopt of gecrasht
+echo.
+echo [INFO] Applicatie is gestopt.
 pause
