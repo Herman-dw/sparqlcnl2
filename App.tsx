@@ -30,6 +30,7 @@ import MatchModal from './components/MatchModal';
 import ProfileHistoryWizard from './components/ProfileHistoryWizard';
 import CVUploadModal from './components/CVUploadModal';
 import CVReviewScreen from './components/CVReviewScreen';
+import CVParsingWizard from './components/CVParsingWizard';
 import { useProfileStore } from './state/profileStore';
 import { ProfileItemWithSource, SessionProfile } from './types/profile';
 import { mergeProfileLists } from './state/profileUtils';
@@ -199,6 +200,7 @@ const App: React.FC = () => {
 
   // CV Upload flow state
   const [showCVUpload, setShowCVUpload] = useState(false);
+  const [showCVWizard, setShowCVWizard] = useState(false);
   const [showCVReview, setShowCVReview] = useState(false);
   const [currentCvId, setCurrentCvId] = useState<number | null>(null);
 
@@ -936,16 +938,25 @@ const App: React.FC = () => {
               <Target className="w-3 h-3" /> Matching
             </h3>
 
-            {/* CV Upload - Primary CTA */}
-            <button
-              onClick={() => setShowCVUpload(true)}
-              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/25"
-            >
-              <Upload className="w-4 h-4" />
-              Upload CV voor analyse
-            </button>
+            {/* CV Upload Options */}
+            <div className="space-y-2">
+              <button
+                onClick={() => setShowCVWizard(true)}
+                className="w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/25"
+              >
+                <FileText className="w-4 h-4" />
+                CV Wizard (stap-voor-stap)
+              </button>
+              <button
+                onClick={() => setShowCVUpload(true)}
+                className="w-full flex items-center justify-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-3 py-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
+              >
+                <Upload className="w-3 h-3" />
+                Snelle upload (automatisch)
+              </button>
+            </div>
             <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
-              Upload je CV en we analyseren automatisch je vaardigheden en werkervaring voor matching.
+              Wizard: bekijk en bevestig elke stap. Snelle upload: automatische verwerking.
             </p>
 
             <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
@@ -1416,7 +1427,7 @@ const App: React.FC = () => {
         onProfileReady={() => setShowMatchModal(true)}
       />
 
-      {/* CV Upload Modal */}
+      {/* CV Upload Modal (Quick Mode) */}
       <CVUploadModal
         isOpen={showCVUpload}
         sessionId={sessionId}
@@ -1425,6 +1436,19 @@ const App: React.FC = () => {
         onComplete={(cvId) => {
           setCurrentCvId(cvId);
           setShowCVUpload(false);
+          setShowCVReview(true);
+        }}
+      />
+
+      {/* CV Parsing Wizard (Step-by-step Mode) */}
+      <CVParsingWizard
+        isOpen={showCVWizard}
+        sessionId={sessionId}
+        backendUrl={localBackendUrl}
+        onClose={() => setShowCVWizard(false)}
+        onComplete={(cvId) => {
+          setCurrentCvId(cvId);
+          setShowCVWizard(false);
           setShowCVReview(true);
         }}
       />
