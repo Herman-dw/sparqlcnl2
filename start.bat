@@ -5,7 +5,7 @@ color 0B
 echo.
 echo ╔═══════════════════════════════════════════════════════════════╗
 echo ║          CompetentNL SPARQL Agent - Quick Start               ║
-echo ║                v4.1.0 - with CV Processing                    ║
+echo ║           v4.2.0 - with Auto-start GLiNER Service             ║
 echo ╚═══════════════════════════════════════════════════════════════╝
 echo.
 
@@ -97,15 +97,64 @@ if exist "%MARIADB_PATH%\mysql.exe" (
 )
 
 :: ============================================================
-:: STAP 4: Check GLiNER Service (voor CV Processing)
+:: STAP 4: GLiNER Service Setup en Start (voor CV Processing)
 :: ============================================================
 echo.
-echo [STAP 4] GLiNER Service controleren ^(optioneel voor CV upload^)...
+echo [STAP 4] GLiNER Service ^(PII detectie voor CV upload^)...
 
-:: Check of GLiNER draait op port 8001
+:: Check of GLiNER al draait op port 8001
 powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -TimeoutSec 2 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo [OK] GLiNER service draait op http://localhost:8001
+    echo [OK] GLiNER service draait al op http://localhost:8001
+    goto :gliner_done
+)
+
+:: GLiNER draait niet, probeer te starten
+echo [INFO] GLiNER service niet actief, proberen te starten...
+
+:: Check of Python beschikbaar is
+where python >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [WARN] Python niet gevonden - GLiNER kan niet starten
+    echo [INFO] Installeer Python 3.11+ van https://python.org
+    goto :gliner_done
+)
+
+:: Check of venv bestaat, zo niet maak aan
+if not exist "services\python\venv" (
+    echo [INFO] Python virtual environment aanmaken...
+    python -m venv services\python\venv
+    if %errorlevel% neq 0 (
+        echo [WARN] Kon venv niet aanmaken
+        goto :gliner_done
+    )
+    echo [OK] Virtual environment aangemaakt
+
+    echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
+    call services\python\venv\Scripts\activate.bat
+    pip install --quiet --upgrade pip
+    pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson
+    pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    pip install --quiet gliner onnxruntime huggingface_hub
+    if %errorlevel% neq 0 (
+        echo [WARN] Fout bij installeren dependencies
+        goto :gliner_done
+    )
+    echo [OK] Dependencies geinstalleerd
+)
+
+:: Start GLiNER service in apart venster
+echo [INFO] GLiNER service starten in apart venster...
+start "GLiNER PII Service" cmd /k "cd /d %~dp0services\python && call venv\Scripts\activate.bat && python gliner_service.py"
+
+:: Wacht even tot service opstart
+echo [INFO] Wachten op GLiNER service startup...
+timeout /t 5 >nul
+
+:: Verificatie dat service draait
+powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -TimeoutSec 5 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] GLiNER service succesvol gestart op http://localhost:8001
 ) else (
     echo [INFO] GLiNER service niet actief, starten in achtergrond...
     :: Start GLiNER in hidden window (no visible Python console)
@@ -113,6 +162,8 @@ if %errorlevel% equ 0 (
     timeout /t 2 >nul
     echo [OK] GLiNER service gestart ^(http://localhost:8001^)
 )
+
+:gliner_done
 
 :: ============================================================
 :: STAP 5: Check .env.local
@@ -164,10 +215,11 @@ echo.
 echo ╔════════════════════════════════════════════════════════════╗
 echo ║  Backend:  http://localhost:%BACKEND_PORT%                            ║
 echo ║  Frontend: http://localhost:%FRONTEND_PORT% of http://localhost:5173  ║
+echo ║  GLiNER:   http://localhost:8001 ^(PII detectie^)           ║
 echo ║  CV API:   http://localhost:%BACKEND_PORT%/api/cv                     ║
 echo ╠════════════════════════════════════════════════════════════╣
 echo ║  Test CV upload: open test-cv-upload.html in browser       ║
-echo ║  Sluit dit venster om de servers te stoppen                ║
+echo ║  Sluit BEIDE vensters om alle services te stoppen          ║
 echo ╚════════════════════════════════════════════════════════════╝
 echo.
 
