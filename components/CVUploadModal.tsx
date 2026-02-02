@@ -5,7 +5,6 @@
 
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import axios from 'axios';
 
 import { CVUploadResponse, CVStatusResponse } from '../types/cv';
 
@@ -123,9 +122,17 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
 
     const poll = async (): Promise<void> => {
       try {
-        const response = await axios.get<CVStatusResponse>(`${apiBase}/api/cv/${cvId}/status`);
+        console.log(`📊 Polling status for CV ${cvId}, attempt ${attempts + 1}`);
+        const fetchResponse = await fetch(`${apiBase}/api/cv/${cvId}/status`);
 
-        if (response.data.status === 'completed') {
+        if (!fetchResponse.ok) {
+          throw new Error(`HTTP ${fetchResponse.status}`);
+        }
+
+        const data = await fetchResponse.json() as CVStatusResponse;
+        console.log('📊 Status response:', data);
+
+        if (data.status === 'completed') {
           setStatus('completed');
           setProgress(100);
           setTimeout(() => {
@@ -134,13 +141,13 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
           return;
         }
 
-        if (response.data.status === 'failed') {
-          throw new Error(response.data.error || 'Processing failed');
+        if (data.status === 'failed') {
+          throw new Error(data.error || 'Processing failed');
         }
 
         // Update progress
-        if (response.data.progress) {
-          setProgress(Math.max(progress, response.data.progress));
+        if (data.progress) {
+          setProgress(Math.max(90, data.progress));
         }
 
         attempts++;
@@ -150,6 +157,7 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
           throw new Error('Processing timeout');
         }
       } catch (err) {
+        console.error('Polling error:', err);
         setStatus('error');
         setError('Verwerking mislukt. Probeer het opnieuw.');
       }
