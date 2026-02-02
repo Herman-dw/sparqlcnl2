@@ -15,14 +15,25 @@ set FRONTEND_PORT=3000
 set MARIADB_PATH=C:\Program Files\MariaDB 11.8\bin
 
 :: ============================================================
-:: STAP 1: Stop bestaande Node processen
+:: STAP 1: Stop bestaande processen
 :: ============================================================
-echo [STAP 1] Node processen stoppen...
+echo [STAP 1] Bestaande processen stoppen...
 taskkill /F /IM node.exe >nul 2>&1
 if %errorlevel% equ 0 (
     echo [OK] Node processen gestopt
 ) else (
     echo [OK] Geen Node processen actief
+)
+
+:: Stop ook Python GLiNER als die draait
+taskkill /F /IM python.exe /FI "WINDOWTITLE eq *gliner*" >nul 2>&1
+:: Kill any python process using port 8001
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8001"') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
+:: Kill any process using port 3000
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000"') do (
+    taskkill /F /PID %%a >nul 2>&1
 )
 timeout /t 1 >nul
 
@@ -143,9 +154,9 @@ if not exist "services\python\venv" (
     echo [OK] Dependencies geinstalleerd
 )
 
-:: Start GLiNER service in apart venster
-echo [INFO] GLiNER service starten in apart venster...
-start "GLiNER PII Service" cmd /k "cd /d %~dp0services\python && call venv\Scripts\activate.bat && python gliner_service.py"
+:: Start GLiNER service in achtergrond (geen zichtbaar venster)
+echo [INFO] GLiNER service starten in achtergrond...
+powershell -WindowStyle Hidden -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0services\python && call venv\Scripts\activate.bat && python gliner_service.py' -WindowStyle Hidden"
 
 :: Wacht even tot service opstart
 echo [INFO] Wachten op GLiNER service startup...

@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
     return {
       server: {
         port: 3000,
+        strictPort: true, // Don't switch to another port if 3000 is busy
         host: '0.0.0.0',
         proxy: {
           // Proxy API requests to backend
