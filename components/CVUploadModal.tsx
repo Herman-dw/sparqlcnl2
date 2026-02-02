@@ -14,6 +14,7 @@ interface CVUploadModalProps {
   onComplete: (cvId: number) => void;
   onClose: () => void;
   isOpen: boolean;
+  backendUrl?: string; // Optional: defaults to relative URL, but can use direct backend URL
 }
 
 type UploadStatus = 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
@@ -22,8 +23,11 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
   sessionId,
   onComplete,
   onClose,
-  isOpen
+  isOpen,
+  backendUrl = 'http://localhost:3001' // Default to direct backend URL
 }) => {
+  // Build API base URL
+  const apiBase = backendUrl;
   const [status, setStatus] = useState<UploadStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +55,7 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
       formData.append('sessionId', sessionId);
 
       const response = await axios.post<CVUploadResponse>(
-        '/api/cv/upload',
+        `${apiBase}/api/cv/upload`,
         formData,
         {
           headers: {
@@ -110,7 +114,7 @@ export const CVUploadModal: React.FC<CVUploadModalProps> = ({
 
     const poll = async (): Promise<void> => {
       try {
-        const response = await axios.get<CVStatusResponse>(`/api/cv/${cvId}/status`);
+        const response = await axios.get<CVStatusResponse>(`${apiBase}/api/cv/${cvId}/status`);
 
         if (response.data.status === 'completed') {
           setStatus('completed');

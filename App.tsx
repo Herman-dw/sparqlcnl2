@@ -1420,6 +1420,7 @@ const App: React.FC = () => {
       <CVUploadModal
         isOpen={showCVUpload}
         sessionId={sessionId}
+        backendUrl={localBackendUrl}
         onClose={() => setShowCVUpload(false)}
         onComplete={(cvId) => {
           setCurrentCvId(cvId);
