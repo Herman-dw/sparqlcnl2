@@ -8,7 +8,7 @@ import {
   Send, Database, Download, Filter, Info, Trash2, Loader2,
   Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
   HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target, ListChecks,
-  Mic, MicOff, InfoIcon, RefreshCw, AlertCircle, Moon, Sun
+  Mic, MicOff, InfoIcon, RefreshCw, AlertCircle, Moon, Sun, Upload, FileText
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS } from './constants';  // EXAMPLES verwijderd - nu dynamisch
@@ -28,6 +28,8 @@ import RiasecTest, { RiasecResult } from './components/RiasecTest';
 import RiasecSkillSelector, { SelectedCapability } from './components/RiasecSkillSelector';
 import MatchModal from './components/MatchModal';
 import ProfileHistoryWizard from './components/ProfileHistoryWizard';
+import CVUploadModal from './components/CVUploadModal';
+import CVReviewScreen from './components/CVReviewScreen';
 import { useProfileStore } from './state/profileStore';
 import { ProfileItemWithSource, SessionProfile } from './types/profile';
 import { mergeProfileLists } from './state/profileUtils';
@@ -194,6 +196,11 @@ const App: React.FC = () => {
   // Match Modal state
   const [showMatchModal, setShowMatchModal] = useState(false);
   const [showProfileWizard, setShowProfileWizard] = useState(false);
+
+  // CV Upload flow state
+  const [showCVUpload, setShowCVUpload] = useState(false);
+  const [showCVReview, setShowCVReview] = useState(false);
+  const [currentCvId, setCurrentCvId] = useState<number | null>(null);
 
   const { profile, mergeProfile } = useProfileStore();
 
@@ -928,6 +935,23 @@ const App: React.FC = () => {
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
               <Target className="w-3 h-3" /> Matching
             </h3>
+
+            {/* CV Upload - Primary CTA */}
+            <button
+              onClick={() => setShowCVUpload(true)}
+              className="w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/25"
+            >
+              <Upload className="w-4 h-4" />
+              Upload CV voor analyse
+            </button>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
+              Upload je CV en we analyseren automatisch je vaardigheden en werkervaring voor matching.
+            </p>
+
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
+              <p className="text-[9px] text-slate-400 uppercase tracking-widest mb-2">Of bouw handmatig:</p>
+            </div>
+
             <button
               onClick={() => setShowProfileWizard(true)}
               className="w-full flex items-center justify-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-slate-700 border border-emerald-100 dark:border-slate-600 px-4 py-3 rounded-xl hover:bg-emerald-100 dark:hover:bg-slate-600 transition-all"
@@ -1391,6 +1415,36 @@ const App: React.FC = () => {
         onClose={() => setShowProfileWizard(false)}
         onProfileReady={() => setShowMatchModal(true)}
       />
+
+      {/* CV Upload Modal */}
+      <CVUploadModal
+        isOpen={showCVUpload}
+        sessionId={sessionId}
+        onClose={() => setShowCVUpload(false)}
+        onComplete={(cvId) => {
+          setCurrentCvId(cvId);
+          setShowCVUpload(false);
+          setShowCVReview(true);
+        }}
+      />
+
+      {/* CV Review Screen - shown as full page overlay */}
+      {showCVReview && currentCvId && (
+        <div className="fixed inset-0 bg-white dark:bg-slate-900 z-50 overflow-y-auto">
+          <CVReviewScreen
+            cvId={currentCvId}
+            onBack={() => {
+              setShowCVReview(false);
+              setCurrentCvId(null);
+            }}
+            onComplete={() => {
+              setShowCVReview(false);
+              // Open match modal with CV data
+              setShowMatchModal(true);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 };
