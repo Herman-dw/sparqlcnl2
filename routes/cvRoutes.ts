@@ -3,7 +3,8 @@
  * RESTful endpoints voor CV upload, processing, review, en classificatie
  */
 
-import { Router, Request, Response } from 'express';
+import express from 'express';
+import type { Request, Response, Router } from 'express';
 import multer from 'multer';
 import mysql from 'mysql2/promise';
 
@@ -42,7 +43,7 @@ const upload = multer({
 });
 
 export function createCVRoutes(db: Pool): Router {
-  const router = Router();
+  const router = express.Router();
   const cvService = new CVProcessingService(db);
   const privacyLogger = new PrivacyLogger(db);
 
