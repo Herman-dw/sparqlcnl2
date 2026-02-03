@@ -41,11 +41,97 @@ const DB_CONFIG = {
 };
 
 // SPARQL endpoint voor CNL concepten
-const SPARQL_ENDPOINT = process.env.SPARQL_ENDPOINT || 'https://linkeddata.competentnl.nl/sparql';
+const SPARQL_ENDPOINT = process.env.SPARQL_ENDPOINT || process.env.COMPETENTNL_ENDPOINT || 'https://sparql.competentnl.nl';
+const SPARQL_API_KEY = process.env.COMPETENTNL_API_KEY || '';
 
 // ============================================================================
 // STAP 1: DATABASE MIGRATIE
 // ============================================================================
+
+/**
+ * Fallback: Create tables manually if batch migration fails
+ */
+async function createTablesManually(connection: mysql.Connection): Promise<void> {
+  // Create cnl_concept_embeddings table
+  try {
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS cnl_concept_embeddings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        concept_uri VARCHAR(500) NOT NULL,
+        concept_type ENUM('occupation', 'education', 'capability', 'knowledge', 'task', 'workingCondition') NOT NULL,
+        pref_label VARCHAR(255) NOT NULL,
+        embedding BLOB NOT NULL,
+        embedding_model VARCHAR(100) DEFAULT 'all-MiniLM-L6-v2',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_concept (concept_uri),
+        INDEX idx_concept_type (concept_type),
+        INDEX idx_pref_label (pref_label)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    console.log('  ✓ Tabel cnl_concept_embeddings aangemaakt');
+  } catch (error: any) {
+    if (error.code === 'ER_TABLE_EXISTS_ERROR') {
+      console.log('  ⚠ Tabel cnl_concept_embeddings bestaat al');
+    } else {
+      console.error('  ❌ Kon cnl_concept_embeddings niet aanmaken:', error.message);
+    }
+  }
+
+  // Create cv_classification_feedback table
+  try {
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS cv_classification_feedback (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        extraction_id INT NOT NULL,
+        cv_id INT NOT NULL,
+        original_uri VARCHAR(500) NULL,
+        original_label VARCHAR(255) NULL,
+        original_method ENUM('exact', 'fuzzy', 'semantic', 'llm', 'manual') NULL,
+        original_confidence DECIMAL(3,2) NULL,
+        corrected_uri VARCHAR(500) NOT NULL,
+        corrected_label VARCHAR(255) NOT NULL,
+        feedback_type ENUM('confirmed', 'corrected', 'rejected', 'added') NOT NULL,
+        user_notes TEXT NULL,
+        session_id VARCHAR(255) NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_extraction_id (extraction_id),
+        INDEX idx_cv_id (cv_id),
+        INDEX idx_feedback_type (feedback_type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    console.log('  ✓ Tabel cv_classification_feedback aangemaakt');
+  } catch (error: any) {
+    if (error.code === 'ER_TABLE_EXISTS_ERROR') {
+      console.log('  ⚠ Tabel cv_classification_feedback bestaat al');
+    } else {
+      console.error('  ❌ Kon cv_classification_feedback niet aanmaken:', error.message);
+    }
+  }
+
+  // Add columns to cv_extractions if they don't exist
+  const columnsToAdd = [
+    { name: 'matched_cnl_uri', definition: 'VARCHAR(500) NULL' },
+    { name: 'matched_cnl_label', definition: 'VARCHAR(255) NULL' },
+    { name: 'classification_method', definition: "ENUM('exact', 'fuzzy', 'semantic', 'llm', 'manual') NULL" },
+    { name: 'alternative_matches', definition: 'JSON NULL' },
+    { name: 'classification_confirmed', definition: 'BOOLEAN DEFAULT FALSE' },
+    { name: 'classified_at', definition: 'DATETIME NULL' }
+  ];
+
+  for (const col of columnsToAdd) {
+    try {
+      await connection.execute(`ALTER TABLE cv_extractions ADD COLUMN ${col.name} ${col.definition}`);
+      console.log(`  ✓ Kolom ${col.name} toegevoegd aan cv_extractions`);
+    } catch (error: any) {
+      if (error.code === 'ER_DUP_FIELDNAME') {
+        // Column already exists, this is OK
+      } else {
+        console.error(`  ❌ Kon kolom ${col.name} niet toevoegen:`, error.message);
+      }
+    }
+  }
+}
 
 async function runMigration(): Promise<void> {
   console.log('\n' + '='.repeat(60));
@@ -72,46 +158,44 @@ async function runMigration(): Promise<void> {
     }
 
     console.log(`📄 Lezen migratie: ${migrationPath}`);
-    const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
+    let migrationSQL = fs.readFileSync(migrationPath, 'utf8');
+
+    // Remove USE statement since we're already connected to the correct database
+    migrationSQL = migrationSQL.replace(/USE\s+\w+;/gi, '');
 
     console.log('🔄 Uitvoeren migratie...\n');
 
-    // Split by semicolon and execute each statement
-    const statements = migrationSQL
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'));
+    // Execute the entire migration as one batch (multipleStatements is enabled)
+    try {
+      const results = await connection.query(migrationSQL);
+      console.log('  ✓ Migratie SQL uitgevoerd');
 
-    let successCount = 0;
-    let errorCount = 0;
+      // Count successful statements (results is an array for multiple statements)
+      const resultArray = Array.isArray(results[0]) ? results[0] : [results[0]];
+      console.log(`  📊 ${resultArray.length} resultaten ontvangen`);
 
-    for (const statement of statements) {
-      if (statement.toLowerCase().startsWith('use ')) {
-        // Skip USE statements, we're already connected to the database
-        continue;
-      }
+    } catch (error: any) {
+      // Handle specific errors that are OK
+      if (error.code === 'ER_DUP_FIELDNAME' ||
+          error.code === 'ER_TABLE_EXISTS_ERROR' ||
+          error.message.includes('Duplicate column') ||
+          error.message.includes('already exists')) {
+        console.log(`  ⚠ Sommige objecten bestaan al (dit is OK)`);
+      } else {
+        console.error(`  ❌ Migratie error: ${error.message}`);
+        console.error(`     Code: ${error.code}`);
 
-      try {
-        await connection.execute(statement);
-        successCount++;
-
-        // Log wat we doen
-        const firstLine = statement.split('\n')[0].substring(0, 60);
-        console.log(`  ✓ ${firstLine}...`);
-      } catch (error: any) {
-        // Sommige errors zijn OK (bijv. column already exists)
-        if (error.code === 'ER_DUP_FIELDNAME' ||
-            error.code === 'ER_TABLE_EXISTS_ERROR' ||
-            error.message.includes('Duplicate column')) {
-          console.log(`  ⚠ Overgeslagen (bestaat al): ${statement.substring(0, 50)}...`);
-        } else {
-          console.error(`  ❌ Error: ${error.message}`);
-          errorCount++;
-        }
+        // Try to continue with individual table creation
+        console.log('\n🔄 Proberen individuele tabellen aan te maken...\n');
+        await createTablesManually(connection);
       }
     }
 
-    console.log(`\n📊 Migratie voltooid: ${successCount} statements, ${errorCount} errors`);
+    // Always ensure tables exist (fallback for MariaDB compatibility issues)
+    console.log('\n🔄 Controleren/aanmaken tabellen...\n');
+    await createTablesManually(connection);
+
+    console.log(`\n📊 Migratie voltooid`);
 
     // Verificatie
     console.log('\n🔍 Verificatie...');
@@ -162,9 +246,34 @@ async function generateCNLEmbeddings(): Promise<void> {
     return;
   }
 
+  // Check for API key
+  console.log(`📌 SPARQL configuratie:`);
+  console.log(`   Endpoint: ${SPARQL_ENDPOINT}`);
+  console.log(`   API Key: ${SPARQL_API_KEY ? SPARQL_API_KEY.substring(0, 8) + '...' : '(niet ingesteld)'}\n`);
+
+  if (!SPARQL_API_KEY) {
+    console.log('⚠️  Geen COMPETENTNL_API_KEY gevonden in environment.');
+    console.log('   Embeddings genereren wordt overgeslagen.');
+    console.log('   Stel COMPETENTNL_API_KEY in .env.local in om embeddings te genereren.\n');
+    return;
+  }
+
   const connection = await mysql.createConnection(DB_CONFIG);
 
   try {
+    // Eerst controleren of de embeddings tabel bestaat
+    try {
+      await connection.execute('SELECT 1 FROM cnl_concept_embeddings LIMIT 1');
+    } catch (tableError: any) {
+      if (tableError.code === 'ER_NO_SUCH_TABLE') {
+        console.log('⚠️  Tabel cnl_concept_embeddings bestaat niet.');
+        console.log('   Voer eerst de database migratie uit met: npm run cnl:migrate');
+        console.log('   Of run het SQL bestand direct: mysql -u root -p competentnl_rag < database/005-cv-classification-step.sql\n');
+        return;
+      }
+      throw tableError;
+    }
+
     // Haal CNL concepten op via SPARQL
     console.log('📡 Ophalen CNL concepten via SPARQL...\n');
 
@@ -192,12 +301,19 @@ async function generateCNLEmbeddings(): Promise<void> {
       `;
 
       try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/sparql-results+json'
+        };
+
+        // Add API key if available
+        if (SPARQL_API_KEY) {
+          headers['X-API-Key'] = SPARQL_API_KEY;
+        }
+
         const response = await fetch(SPARQL_ENDPOINT, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/sparql-results+json'
-          },
+          headers,
           body: `query=${encodeURIComponent(sparqlQuery)}`
         });
 
