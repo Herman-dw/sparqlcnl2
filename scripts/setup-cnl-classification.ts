@@ -15,6 +15,7 @@
  *   --embeddings  Genereer CNL concept embeddings (kan lang duren)
  *   --test        Test classificatie met voorbeelddata
  *   --all         Voer alle stappen uit
+ *   --reset       Leeg embeddings tabel voor regeneratie (gebruik met --embeddings)
  */
 
 import mysql from 'mysql2/promise';
@@ -271,6 +272,17 @@ async function generateCNLEmbeddings(): Promise<void> {
   }
 
   const connection = await mysql.createConnection(DB_CONFIG);
+
+  // Check for --reset flag to truncate embeddings table
+  if (process.argv.includes('--reset')) {
+    console.log('🗑️  Reset flag gedetecteerd - tabel wordt geleegd...');
+    try {
+      await connection.execute('TRUNCATE TABLE cnl_concept_embeddings');
+      console.log('  ✓ Tabel cnl_concept_embeddings geleegd\n');
+    } catch (error: any) {
+      console.error('  ❌ Kon tabel niet legen:', error.message);
+    }
+  }
 
   try {
     // Eerst controleren of de embeddings tabel bestaat
@@ -566,18 +578,21 @@ async function main() {
 ╠════════════════════════════════════════════════════════════════╣
 ║                                                                ║
 ║  Gebruik:                                                      ║
-║    npx ts-node --esm scripts/setup-cnl-classification.ts       ║
+║    npm run cnl:setup        (alle stappen)                     ║
+║    npm run cnl:migrate      (alleen migratie)                  ║
+║    npm run cnl:embeddings   (alleen embeddings)                ║
+║    npm run cnl:test         (alleen test)                      ║
 ║                                                                ║
 ║  Opties:                                                       ║
 ║    --migrate     Database migratie uitvoeren                   ║
 ║    --embeddings  CNL concept embeddings genereren              ║
 ║    --test        Test classificatie met voorbeelddata          ║
 ║    --all         Alle stappen uitvoeren                        ║
+║    --reset       Leeg embeddings tabel (met --embeddings)      ║
 ║                                                                ║
 ║  Voorbeelden:                                                  ║
-║    npx ts-node --esm scripts/setup-cnl-classification.ts --all ║
-║    npx ts-node --esm scripts/setup-cnl-classification.ts       ║
-║        --migrate --test                                        ║
+║    npm run cnl:embeddings -- --reset   (herlaad alle embed.)   ║
+║    npm run cnl:setup                   (alle stappen)          ║
 ║                                                                ║
 ╚════════════════════════════════════════════════════════════════╝
     `);
