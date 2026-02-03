@@ -17,12 +17,12 @@ import {
   ConceptMatch,
   CONCEPT_CONFIGS,
   normalizeText
-} from './conceptResolver';
+} from './conceptResolver.ts';
 import {
   generateEmbedding,
   cosineSimilarity,
   findMostSimilar
-} from './embeddingService';
+} from './embeddingService.ts';
 
 type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;
