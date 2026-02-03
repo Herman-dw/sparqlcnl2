@@ -337,6 +337,11 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
                 [id]: { ...piiModifications[id], ...changes }
               })}
               onRemoveAdditionalPII={(index) => setAdditionalPII(additionalPII.filter((_, i) => i !== index))}
+              onModifyAdditionalPII={(index, changes) => {
+                const updated = [...additionalPII];
+                updated[index] = { ...updated[index], ...changes };
+                setAdditionalPII(updated);
+              }}
             />
           )}
 
@@ -829,6 +834,7 @@ const Step2View: React.FC<{
   onRestorePII: (id: number) => void;
   onModifyPII: (id: number, changes: Partial<PIIDetection>) => void;
   onRemoveAdditionalPII: (index: number) => void;
+  onModifyAdditionalPII: (index: number, changes: Partial<PIIDetection>) => void;
 }> = ({
   data,
   additionalPII,
@@ -838,7 +844,8 @@ const Step2View: React.FC<{
   onDeletePII,
   onRestorePII,
   onModifyPII,
-  onRemoveAdditionalPII
+  onRemoveAdditionalPII,
+  onModifyAdditionalPII
 }) => {
   const [selectedText, setSelectedText] = useState('');
   const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
@@ -847,9 +854,12 @@ const Step2View: React.FC<{
   const [newPIIReplacement, setNewPIIReplacement] = useState('');
   const textRef = React.useRef<HTMLDivElement>(null);
 
+  // Defensive: ensure detections is always an array
+  const detections = data.detections || [];
+
   // Calculate active detections (excluding deleted ones)
-  const activeDetections = data.detections.filter(d => d.id !== undefined && !deletedPIIIds.has(d.id));
-  const deletedDetections = data.detections.filter(d => d.id !== undefined && deletedPIIIds.has(d.id));
+  const activeDetections = detections.filter(d => d.id !== undefined && !deletedPIIIds.has(d.id));
+  const deletedDetections = detections.filter(d => d.id !== undefined && deletedPIIIds.has(d.id));
   const totalActive = activeDetections.length + additionalPII.length;
 
   // Recalculate summary by type
@@ -1054,16 +1064,9 @@ const Step2View: React.FC<{
               <input
                 type="text"
                 value={pii.replacementText || ''}
-                onChange={(e) => {
-                  const updated = [...additionalPII];
-                  updated[idx] = { ...pii, replacementText: e.target.value };
-                  // We need to update the whole array through the parent
-                  onRemoveAdditionalPII(idx);
-                  onAddPII(updated[idx]);
-                }}
+                onChange={(e) => onModifyAdditionalPII(idx, { replacementText: e.target.value })}
                 className="replacement-input"
                 placeholder="Vervangingstekst"
-                readOnly
               />
             </div>
             <span className="user-badge">Handmatig</span>
