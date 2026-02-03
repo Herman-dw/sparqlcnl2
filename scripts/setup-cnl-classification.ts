@@ -298,6 +298,23 @@ async function generateCNLEmbeddings(): Promise<void> {
       throw tableError;
     }
 
+    // Ensure label_type column exists (added for altLabels support)
+    try {
+      await connection.execute(`
+        ALTER TABLE cnl_concept_embeddings
+        ADD COLUMN label_type ENUM('pref', 'alt') DEFAULT 'pref'
+        COMMENT 'Type label: pref=officieel, alt=synoniem'
+        AFTER pref_label
+      `);
+      console.log('  ✓ Kolom label_type toegevoegd aan cnl_concept_embeddings\n');
+    } catch (alterError: any) {
+      if (alterError.code === 'ER_DUP_FIELDNAME') {
+        // Column already exists, this is OK
+      } else {
+        console.log(`  ⚠ Kon label_type kolom niet toevoegen: ${alterError.message}`);
+      }
+    }
+
     // Haal CNL concepten op via SPARQL
     console.log('📡 Ophalen CNL concepten via SPARQL...\n');
 
