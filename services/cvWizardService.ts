@@ -26,6 +26,7 @@ import type {
   Step3AnonymizeResponse,
   Step4ParseResponse,
   Step5FinalizeResponse,
+  Step6ClassifyResponse,
   PIIDetection,
   ParsedExperience,
   ParsedEducation,
@@ -45,12 +46,13 @@ import {
   assessReIdentificationRisk
 } from './employerGeneralizer.ts';
 import { assessCVRisk } from './riskAssessment.ts';
+import { CNLClassificationService } from './cnlClassificationService.ts';
 
 const GLINER_SERVICE_URL = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
 
 interface StepInfo {
-  stepNumber: 1 | 2 | 3 | 4 | 5;
+  stepNumber: 1 | 2 | 3 | 4 | 5 | 6;
   stepName: WizardStepName;
   label: string;
   labelNL: string;
@@ -61,7 +63,8 @@ const WIZARD_STEPS: StepInfo[] = [
   { stepNumber: 2, stepName: 'detect_pii', label: 'PII Detection', labelNL: 'PII Detectie' },
   { stepNumber: 3, stepName: 'anonymize', label: 'Anonymization Preview', labelNL: 'Anonimisering Preview' },
   { stepNumber: 4, stepName: 'parse', label: 'Structure Parsing', labelNL: 'Structuur Parsing' },
-  { stepNumber: 5, stepName: 'finalize', label: 'Privacy & Employers', labelNL: 'Privacy & Werkgevers' }
+  { stepNumber: 5, stepName: 'finalize', label: 'Privacy & Employers', labelNL: 'Privacy & Werkgevers' },
+  { stepNumber: 6, stepName: 'classify', label: 'CNL Classification', labelNL: 'CNL Classificatie' }
 ];
 
 export class CVWizardService {
@@ -120,7 +123,7 @@ export class CVWizardService {
     modifiedDetections?: PIIDetection[],
     privacyLevel?: PrivacyLevel
   ): Promise<{
-    nextStep?: Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse;
+    nextStep?: Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse | Step6ClassifyResponse;
     isComplete: boolean;
   }> {
     // Get current step
@@ -141,14 +144,19 @@ export class CVWizardService {
       console.log(`📝 Stored ${modifiedDetections.length} modified PII detections for CV ${cvId}`);
     }
 
-    // If this was the last step, complete the wizard
+    // If confirming Step 5, store extractions before proceeding to Step 6
     if (currentStep.stepNumber === 5) {
+      await this.storeExtractionsBeforeClassification(cvId, privacyLevel || 'medium');
+    }
+
+    // If this was the last step (Step 6), complete the wizard
+    if (currentStep.stepNumber === 6) {
       await this.completeWizard(cvId, privacyLevel || 'medium');
       return { isComplete: true };
     }
 
     // Execute next step
-    const nextStepNumber = (currentStep.stepNumber + 1) as 1 | 2 | 3 | 4 | 5;
+    const nextStepNumber = (currentStep.stepNumber + 1) as 1 | 2 | 3 | 4 | 5 | 6;
     const nextStep = await this.executeStep(cvId, nextStepNumber, modifiedDetections);
 
     return { nextStep, isComplete: false };
@@ -251,9 +259,9 @@ export class CVWizardService {
 
   private async executeStep(
     cvId: number,
-    stepNumber: 1 | 2 | 3 | 4 | 5,
+    stepNumber: 1 | 2 | 3 | 4 | 5 | 6,
     modifiedDetections?: PIIDetection[]
-  ): Promise<Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse> {
+  ): Promise<Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse | Step6ClassifyResponse> {
     switch (stepNumber) {
       case 1:
         const cache = this.stepDataCache.get(cvId);
@@ -269,6 +277,8 @@ export class CVWizardService {
         return this.executeStep4(cvId);
       case 5:
         return this.executeStep5(cvId);
+      case 6:
+        return this.executeStep6(cvId);
       default:
         throw new CVProcessingError(`Invalid step number: ${stepNumber}`, 'INVALID_STEP', cvId);
     }
@@ -781,6 +791,75 @@ export class CVWizardService {
         error instanceof Error ? error.message : String(error));
       throw error;
     }
+  }
+
+  /**
+   * Step 6: CNL Taxonomie Classificatie
+   */
+  private async executeStep6(cvId: number): Promise<Step6ClassifyResponse> {
+    const startTime = Date.now();
+    await this.updateStepStatus(cvId, 6, 'processing');
+
+    try {
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`Step 6: CNL Classification for CV ${cvId}`);
+      console.log(`${'='.repeat(60)}\n`);
+
+      // Initialize classification service
+      const classificationService = new CNLClassificationService(this.db);
+
+      // Run classification
+      const result = await classificationService.classifyCV(cvId, {
+        useSemanticMatching: false, // Disable semantic for now, can be enabled later
+        useLLMFallback: false
+      });
+
+      const processingTimeMs = Date.now() - startTime;
+
+      // Update result with processing time
+      const finalResult: Step6ClassifyResponse = {
+        ...result,
+        processingTimeMs
+      };
+
+      await this.updateStepOutput(cvId, 6, finalResult);
+      await this.updateStepStatus(cvId, 6, 'completed', processingTimeMs);
+      await this.db.execute(`UPDATE user_cvs SET current_wizard_step = 6 WHERE id = ?`, [cvId]);
+
+      console.log(`✅ Step 6 completed: ${result.summary.classified}/${result.summary.total} classified`);
+
+      return finalResult;
+
+    } catch (error) {
+      await this.updateStepStatus(cvId, 6, 'failed', Date.now() - startTime,
+        error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Store extractions before classification (called after Step 5 confirmation)
+   */
+  private async storeExtractionsBeforeClassification(cvId: number, privacyLevel: PrivacyLevel): Promise<void> {
+    const cache = this.stepDataCache.get(cvId);
+    if (!cache?.parsedData) {
+      console.warn(`No parsed data in cache for CV ${cvId}`);
+      return;
+    }
+
+    // Check if extractions already exist
+    const [existing] = await this.db.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) as count FROM cv_extractions WHERE cv_id = ?`,
+      [cvId]
+    );
+
+    if (existing[0].count > 0) {
+      console.log(`Extractions already exist for CV ${cvId}, skipping`);
+      return;
+    }
+
+    await this.storeExtractions(cvId, cache.parsedData, privacyLevel);
+    console.log(`✅ Stored extractions for CV ${cvId} before classification`);
   }
 
   // ========================================================================

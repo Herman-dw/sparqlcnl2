@@ -14,6 +14,7 @@ type Pool = mysql.Pool;
 import CVProcessingService from '../services/cvProcessingService.ts';
 import CVWizardService from '../services/cvWizardService.ts';
 import PrivacyLogger from '../services/privacyLogger.ts';
+import { CNLClassificationService } from '../services/cnlClassificationService.ts';
 import type {
   CVUploadResponse,
   CVStatusResponse,
@@ -722,6 +723,273 @@ export function createCVRoutes(db: Pool): Router {
       res.status(500).json({
         error: 'Failed to get current step',
         code: 'GET_STEP_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // CNL CLASSIFICATION ROUTES
+  // ========================================================================
+
+  // ========================================================================
+  // GET /api/cv/:cvId/classifications
+  // Get classification results for a CV
+  // ========================================================================
+  router.get('/:cvId/classifications', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      const [rows] = await db.execute<any[]>(
+        `SELECT
+          id,
+          section_type,
+          content,
+          matched_cnl_uri,
+          matched_cnl_label,
+          confidence_score,
+          classification_method,
+          alternative_matches,
+          classification_confirmed,
+          needs_review
+        FROM cv_extractions
+        WHERE cv_id = ?
+        ORDER BY section_type, id`,
+        [cvId]
+      );
+
+      // Group by section type
+      const classifications = {
+        experience: [] as any[],
+        education: [] as any[],
+        skills: [] as any[]
+      };
+
+      for (const row of rows) {
+        const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content;
+        const alternatives = row.alternative_matches
+          ? (typeof row.alternative_matches === 'string' ? JSON.parse(row.alternative_matches) : row.alternative_matches)
+          : [];
+
+        const item = {
+          extractionId: row.id,
+          content,
+          classification: {
+            found: !!row.matched_cnl_uri,
+            confidence: row.confidence_score || 0,
+            method: row.classification_method || 'pending',
+            match: row.matched_cnl_uri ? {
+              uri: row.matched_cnl_uri,
+              prefLabel: row.matched_cnl_label
+            } : undefined,
+            alternatives,
+            needsReview: row.needs_review || false,
+            confirmed: row.classification_confirmed || false
+          }
+        };
+
+        if (row.section_type === 'experience') {
+          classifications.experience.push({
+            ...item,
+            jobTitle: content.job_title || content.jobTitle,
+            organization: content.organization
+          });
+        } else if (row.section_type === 'education') {
+          classifications.education.push({
+            ...item,
+            degree: content.degree,
+            institution: content.institution
+          });
+        } else if (row.section_type === 'skill') {
+          classifications.skills.push({
+            ...item,
+            skillName: content.skill_name || content.skillName
+          });
+        }
+      }
+
+      // Calculate summary
+      const total = rows.length;
+      const classified = rows.filter(r => r.matched_cnl_uri).length;
+      const needsReview = rows.filter(r => r.needs_review).length;
+      const confirmed = rows.filter(r => r.classification_confirmed).length;
+
+      res.json({
+        cvId,
+        classifications,
+        summary: {
+          total,
+          classified,
+          needsReview,
+          confirmed,
+          completionRate: total > 0 ? Math.round((classified / total) * 100) : 0
+        }
+      });
+
+    } catch (error) {
+      console.error('Get classifications error:', error);
+      res.status(500).json({
+        error: 'Failed to get classifications',
+        code: 'GET_CLASSIFICATIONS_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // PUT /api/cv/extraction/:extractionId/classification
+  // Update classification (user selection from alternatives)
+  // ========================================================================
+  router.put('/extraction/:extractionId/classification', async (req: Request, res: Response) => {
+    try {
+      const extractionId = parseInt(req.params.extractionId);
+      const { uri, label, confirmed } = req.body;
+
+      if (isNaN(extractionId)) {
+        return res.status(400).json({
+          error: 'Invalid Extraction ID',
+          code: 'INVALID_ID',
+          message: 'Extraction ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      if (!uri || !label) {
+        return res.status(400).json({
+          error: 'Missing required fields',
+          code: 'MISSING_FIELDS',
+          message: 'URI and label are required',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      const classificationService = new CNLClassificationService(db);
+      await classificationService.updateClassification(
+        extractionId,
+        uri,
+        label,
+        'manual'
+      );
+
+      // If confirmed, also mark as confirmed
+      if (confirmed) {
+        await db.execute(
+          `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
+          [extractionId]
+        );
+      }
+
+      res.json({
+        success: true,
+        message: 'Classification updated',
+        extractionId,
+        classification: { uri, label, method: 'manual', confirmed: !!confirmed }
+      });
+
+    } catch (error) {
+      console.error('Update classification error:', error);
+      res.status(500).json({
+        error: 'Update failed',
+        code: 'UPDATE_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // POST /api/cv/extraction/:extractionId/confirm
+  // Confirm a classification without changing it
+  // ========================================================================
+  router.post('/extraction/:extractionId/confirm', async (req: Request, res: Response) => {
+    try {
+      const extractionId = parseInt(req.params.extractionId);
+
+      if (isNaN(extractionId)) {
+        return res.status(400).json({
+          error: 'Invalid Extraction ID',
+          code: 'INVALID_ID',
+          message: 'Extraction ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      await db.execute(
+        `UPDATE cv_extractions SET
+          classification_confirmed = TRUE,
+          needs_review = FALSE,
+          updated_at = NOW()
+        WHERE id = ?`,
+        [extractionId]
+      );
+
+      res.json({
+        success: true,
+        message: 'Classification confirmed',
+        extractionId
+      });
+
+    } catch (error) {
+      console.error('Confirm classification error:', error);
+      res.status(500).json({
+        error: 'Confirmation failed',
+        code: 'CONFIRM_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // GET /api/cv/cnl/search
+  // Search CNL concepts for manual selection
+  // ========================================================================
+  router.get('/cnl/search', async (req: Request, res: Response) => {
+    try {
+      const { q, type, limit } = req.query;
+
+      if (!q || typeof q !== 'string') {
+        return res.status(400).json({
+          error: 'Missing search query',
+          code: 'MISSING_QUERY',
+          message: 'Search query (q) is required',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      const conceptType = (type as string) || 'occupation';
+      const searchLimit = parseInt(limit as string) || 10;
+
+      const classificationService = new CNLClassificationService(db);
+      const results = await classificationService.searchConcepts(
+        q,
+        conceptType as any,
+        searchLimit
+      );
+
+      res.json({
+        query: q,
+        conceptType,
+        results,
+        count: results.length
+      });
+
+    } catch (error) {
+      console.error('CNL search error:', error);
+      res.status(500).json({
+        error: 'Search failed',
+        code: 'SEARCH_FAILED',
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date()
       } as ErrorResponse);

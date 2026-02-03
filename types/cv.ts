@@ -456,13 +456,13 @@ export interface ErrorResponse {
 // Wizard Step Types
 // ============================================================================
 
-export type WizardStepName = 'extract' | 'detect_pii' | 'anonymize' | 'parse' | 'finalize';
+export type WizardStepName = 'extract' | 'detect_pii' | 'anonymize' | 'parse' | 'finalize' | 'classify';
 export type WizardStepStatus = 'pending' | 'processing' | 'completed' | 'confirmed' | 'failed';
 
 export interface WizardStep {
   id?: number;
   cvId: number;
-  stepNumber: 1 | 2 | 3 | 4 | 5;
+  stepNumber: 1 | 2 | 3 | 4 | 5 | 6;
   stepName: WizardStepName;
   status: WizardStepStatus;
   startedAt?: Date;
@@ -612,13 +612,73 @@ export interface Step5FinalizeResponse {
   processingTimeMs: number;
 }
 
+// Stap 6: CNL Taxonomie Classificatie
+export interface ClassificationResult {
+  found: boolean;
+  confidence: number;
+  method: 'exact' | 'fuzzy' | 'semantic' | 'llm' | 'manual';
+  match?: {
+    uri: string;
+    prefLabel: string;
+    matchedLabel: string;
+    conceptType: string;
+  };
+  alternatives?: Array<{
+    uri: string;
+    prefLabel: string;
+    matchedLabel: string;
+    confidence: number;
+    matchType: 'exact' | 'fuzzy' | 'semantic';
+  }>;
+  needsReview: boolean;
+}
+
+export interface ExperienceClassification {
+  extractionId: number;
+  jobTitle: string;
+  organization?: string;
+  classification: ClassificationResult;
+}
+
+export interface EducationClassification {
+  extractionId: number;
+  degree: string;
+  institution?: string;
+  classification: ClassificationResult;
+}
+
+export interface SkillClassification {
+  extractionId: number;
+  skillName: string;
+  classification: ClassificationResult;
+}
+
+export interface Step6ClassifyResponse {
+  stepNumber: 6;
+  stepName: 'classify';
+  classifications: {
+    experience: ExperienceClassification[];
+    education: EducationClassification[];
+    skills: SkillClassification[];
+  };
+  summary: {
+    total: number;
+    classified: number;
+    needsReview: number;
+    byMethod: Record<string, number>;
+    averageConfidence: number;
+  };
+  processingTimeMs: number;
+}
+
 // Union type for all step responses
 export type WizardStepResponse =
   | Step1ExtractResponse
   | Step2PIIResponse
   | Step3AnonymizeResponse
   | Step4ParseResponse
-  | Step5FinalizeResponse;
+  | Step5FinalizeResponse
+  | Step6ClassifyResponse;
 
 // API Request/Response types for wizard
 export interface WizardStartRequest {
