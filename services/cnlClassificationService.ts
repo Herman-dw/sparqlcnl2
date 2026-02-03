@@ -295,7 +295,7 @@ export class CNLClassificationService {
    */
   async classifyItem(
     extraction: {
-      id: number;
+      id?: number;
       section_type: string;
       content: any;
     },
@@ -304,6 +304,11 @@ export class CNLClassificationService {
       useLLMFallback?: boolean;
     }
   ): Promise<ClassificationResult> {
+    // Preload embeddings cache if semantic matching is enabled
+    if (options?.useSemanticMatching && !this.embeddingsCacheLoaded) {
+      await this.loadEmbeddingsCache();
+    }
+
     const conceptType = this.mapSectionToConceptType(extraction.section_type);
     const value = this.extractValueForClassification(extraction);
     const context = this.extractContextForClassification(extraction);
