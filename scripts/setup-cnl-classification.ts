@@ -278,14 +278,14 @@ async function generateCNLEmbeddings(): Promise<void> {
     console.log('📡 Ophalen CNL concepten via SPARQL...\n');
 
     const conceptTypes = [
-      { type: 'occupation', query: 'cnlo:Occupation' },
-      { type: 'education', query: 'cnlo:EducationalNorm' },
-      { type: 'capability', query: 'cnlo:HumanCapability' }
+      { type: 'occupation', query: 'cnlo:Occupation', limit: 5000 },
+      { type: 'education', query: 'cnlo:EducationalNorm', limit: 2000 },
+      { type: 'capability', query: 'cnlo:HumanCapability', limit: 2000 }
     ];
 
     let totalProcessed = 0;
 
-    for (const { type, query } of conceptTypes) {
+    for (const { type, query, limit } of conceptTypes) {
       console.log(`\n🔍 Verwerken ${type}...`);
 
       const sparqlQuery = `
@@ -297,7 +297,7 @@ async function generateCNLEmbeddings(): Promise<void> {
           ?uri skos:prefLabel ?label .
           FILTER(LANG(?label) = "nl")
         }
-        LIMIT 500
+        LIMIT ${limit}
       `;
 
       try {
