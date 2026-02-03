@@ -64,7 +64,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
 
   // User modifications for Step 2: PII Detection
   const [additionalPII, setAdditionalPII] = useState<PIIDetection[]>([]);
-  const [deletedPIIIds, setDeletedPIIIds] = useState<Set<number>>(new Set());
+  const [deletedPIIIds, setDeletedPIIIds] = useState<number[]>([]);
   const [piiModifications, setPiiModifications] = useState<Record<number, Partial<PIIDetection>>>({});
   const [selectedPrivacyLevel, setSelectedPrivacyLevel] = useState<PrivacyLevel>('medium');
 
@@ -142,15 +142,15 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
       // Add step-specific data
       if (currentStep === 2 && step2Data) {
         // Combine original detections (with modifications) and additional PII
-        const modifiedDetections = step2Data.detections
-          .filter(d => d.id !== undefined && !deletedPIIIds.has(d.id))
+        const modifiedDetections = (step2Data.detections || [])
+          .filter(d => d.id !== undefined && !deletedPIIIds.includes(d.id))
           .map(d => ({
             ...d,
             ...(d.id !== undefined ? piiModifications[d.id] : {})
           }));
 
         body.detections = [...modifiedDetections, ...additionalPII];
-        body.deletedIds = Array.from(deletedPIIIds);
+        body.deletedIds = deletedPIIIds;
       }
       if (currentStep === 5) {
         body.privacyLevel = selectedPrivacyLevel;
@@ -243,7 +243,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
     setStep4Data(null);
     setStep5Data(null);
     setAdditionalPII([]);
-    setDeletedPIIIds(new Set());
+    setDeletedPIIIds([]);
     setPiiModifications({});
     setSelectedPrivacyLevel('medium');
   };
@@ -326,12 +326,8 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
               deletedPIIIds={deletedPIIIds}
               piiModifications={piiModifications}
               onAddPII={(pii) => setAdditionalPII([...additionalPII, pii])}
-              onDeletePII={(id) => setDeletedPIIIds(new Set([...deletedPIIIds, id]))}
-              onRestorePII={(id) => {
-                const newSet = new Set(deletedPIIIds);
-                newSet.delete(id);
-                setDeletedPIIIds(newSet);
-              }}
+              onDeletePII={(id) => setDeletedPIIIds([...deletedPIIIds, id])}
+              onRestorePII={(id) => setDeletedPIIIds(deletedPIIIds.filter(i => i !== id))}
               onModifyPII={(id, changes) => setPiiModifications({
                 ...piiModifications,
                 [id]: { ...piiModifications[id], ...changes }
@@ -827,7 +823,7 @@ const Step1View: React.FC<{ data: Step1ExtractResponse }> = ({ data }) => (
 const Step2View: React.FC<{
   data: Step2PIIResponse;
   additionalPII: PIIDetection[];
-  deletedPIIIds: Set<number>;
+  deletedPIIIds: number[];
   piiModifications: Record<number, Partial<PIIDetection>>;
   onAddPII: (pii: PIIDetection) => void;
   onDeletePII: (id: number) => void;
@@ -858,8 +854,8 @@ const Step2View: React.FC<{
   const detections = data.detections || [];
 
   // Calculate active detections (excluding deleted ones)
-  const activeDetections = detections.filter(d => d.id !== undefined && !deletedPIIIds.has(d.id));
-  const deletedDetections = detections.filter(d => d.id !== undefined && deletedPIIIds.has(d.id));
+  const activeDetections = detections.filter(d => d.id !== undefined && !deletedPIIIds.includes(d.id));
+  const deletedDetections = detections.filter(d => d.id !== undefined && deletedPIIIds.includes(d.id));
   const totalActive = activeDetections.length + additionalPII.length;
 
   // Recalculate summary by type
