@@ -507,7 +507,6 @@ export interface Step2PIIResponse {
   stepNumber: 2;
   stepName: 'detect_pii';
   detections: PIIDetection[];
-  rawText: string; // Original text for selection
   textWithHighlights: string; // HTML-safe text with highlights
   summary: {
     totalDetections: number;
