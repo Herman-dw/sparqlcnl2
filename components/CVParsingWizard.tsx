@@ -62,8 +62,10 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
   const [step4Data, setStep4Data] = useState<Step4ParseResponse | null>(null);
   const [step5Data, setStep5Data] = useState<Step5FinalizeResponse | null>(null);
 
-  // User modifications
+  // User modifications for Step 2: PII Detection
   const [additionalPII, setAdditionalPII] = useState<PIIDetection[]>([]);
+  const [deletedPIIIds, setDeletedPIIIds] = useState<number[]>([]);
+  const [piiModifications, setPiiModifications] = useState<Record<number, Partial<PIIDetection>>>({});
   const [selectedPrivacyLevel, setSelectedPrivacyLevel] = useState<PrivacyLevel>('medium');
 
   // File upload
@@ -138,8 +140,17 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
       const body: any = { confirmed: true };
 
       // Add step-specific data
-      if (currentStep === 2 && additionalPII.length > 0) {
-        body.additionalPII = additionalPII;
+      if (currentStep === 2 && step2Data) {
+        // Combine original detections (with modifications) and additional PII
+        const modifiedDetections = (step2Data.detections || [])
+          .filter(d => d.id !== undefined && !deletedPIIIds.includes(d.id))
+          .map(d => ({
+            ...d,
+            ...(d.id !== undefined ? piiModifications[d.id] : {})
+          }));
+
+        body.detections = [...modifiedDetections, ...additionalPII];
+        body.deletedIds = deletedPIIIds;
       }
       if (currentStep === 5) {
         body.privacyLevel = selectedPrivacyLevel;
@@ -232,6 +243,8 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
     setStep4Data(null);
     setStep5Data(null);
     setAdditionalPII([]);
+    setDeletedPIIIds([]);
+    setPiiModifications({});
     setSelectedPrivacyLevel('medium');
   };
 
@@ -310,7 +323,21 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
             <Step2View
               data={step2Data}
               additionalPII={additionalPII}
+              deletedPIIIds={deletedPIIIds}
+              piiModifications={piiModifications}
               onAddPII={(pii) => setAdditionalPII([...additionalPII, pii])}
+              onDeletePII={(id) => setDeletedPIIIds([...deletedPIIIds, id])}
+              onRestorePII={(id) => setDeletedPIIIds(deletedPIIIds.filter(i => i !== id))}
+              onModifyPII={(id, changes) => setPiiModifications({
+                ...piiModifications,
+                [id]: { ...piiModifications[id], ...changes }
+              })}
+              onRemoveAdditionalPII={(index) => setAdditionalPII(additionalPII.filter((_, i) => i !== index))}
+              onModifyAdditionalPII={(index, changes) => {
+                const updated = [...additionalPII];
+                updated[index] = { ...updated[index], ...changes };
+                setAdditionalPII(updated);
+              }}
             />
           )}
 
@@ -796,164 +823,663 @@ const Step1View: React.FC<{ data: Step1ExtractResponse }> = ({ data }) => (
 const Step2View: React.FC<{
   data: Step2PIIResponse;
   additionalPII: PIIDetection[];
+  deletedPIIIds: number[];
+  piiModifications: Record<number, Partial<PIIDetection>>;
   onAddPII: (pii: PIIDetection) => void;
-}> = ({ data, additionalPII, onAddPII }) => (
-  <div className="step-view">
-    <h3>Stap 2: PII Detectie</h3>
-    <p className="step-description">
-      De volgende persoonsgegevens zijn gedetecteerd. Je kunt extra items toevoegen als iets gemist is.
-    </p>
+  onDeletePII: (id: number) => void;
+  onRestorePII: (id: number) => void;
+  onModifyPII: (id: number, changes: Partial<PIIDetection>) => void;
+  onRemoveAdditionalPII: (index: number) => void;
+  onModifyAdditionalPII: (index: number, changes: Partial<PIIDetection>) => void;
+}> = ({
+  data,
+  additionalPII,
+  deletedPIIIds,
+  piiModifications,
+  onAddPII,
+  onDeletePII,
+  onRestorePII,
+  onModifyPII,
+  onRemoveAdditionalPII,
+  onModifyAdditionalPII
+}) => {
+  const [selectedText, setSelectedText] = useState('');
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newPIIType, setNewPIIType] = useState<PIIDetection['type']>('other');
+  const [newPIIReplacement, setNewPIIReplacement] = useState('');
+  const textRef = React.useRef<HTMLDivElement>(null);
 
-    <div className="pii-summary">
-      <div className="total">
-        <span className="count">{data.summary.totalDetections}</span>
-        <span className="label">PII items gedetecteerd</span>
-      </div>
-      <div className="by-type">
-        {Object.entries(data.summary.byType).map(([type, count]) => (
-          <span key={type} className={`badge badge-${type}`}>
-            {type}: {count}
-          </span>
-        ))}
-      </div>
-    </div>
+  // Defensive: ensure detections is always an array
+  const detections = data.detections || [];
 
-    <div className="detections-list">
-      <h4>Gedetecteerde items:</h4>
-      {data.detections.map((detection, idx) => (
-        <div key={idx} className={`detection-item type-${detection.type}`}>
-          <span className="type-badge">{detection.type}</span>
-          <span className="text">"{detection.text}"</span>
-          <span className="confidence">{(detection.confidence * 100).toFixed(0)}% zeker</span>
+  // Calculate active detections (excluding deleted ones)
+  const activeDetections = detections.filter(d => d.id !== undefined && !deletedPIIIds.includes(d.id));
+  const deletedDetections = detections.filter(d => d.id !== undefined && deletedPIIIds.includes(d.id));
+  const totalActive = activeDetections.length + additionalPII.length;
+
+  // Recalculate summary by type
+  const byType: Record<string, number> = {};
+  [...activeDetections, ...additionalPII].forEach(d => {
+    byType[d.type] = (byType[d.type] || 0) + 1;
+  });
+
+  // Handle text selection in the raw text area
+  const handleTextSelection = () => {
+    try {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !textRef.current) {
+        setSelectedText('');
+        setSelectionRange(null);
+        return;
+      }
+
+      const text = selection.toString().trim();
+      if (text.length < 2) {
+        setSelectedText('');
+        setSelectionRange(null);
+        return;
+      }
+
+      // Verify selection is within our text element
+      if (!textRef.current.contains(selection.anchorNode)) {
+        return;
+      }
+
+      // Get actual selection offsets from the DOM range
+      const range = selection.getRangeAt(0);
+      const preSelectionRange = document.createRange();
+      preSelectionRange.selectNodeContents(textRef.current);
+      preSelectionRange.setEnd(range.startContainer, range.startOffset);
+      const startOffset = preSelectionRange.toString().length;
+      const endOffset = startOffset + text.length;
+
+      setSelectedText(text);
+      setSelectionRange({ start: startOffset, end: endOffset });
+      setNewPIIReplacement(`[${text.charAt(0).toUpperCase() + text.slice(1)}]`);
+      setShowAddModal(true);
+    } catch (error) {
+      console.error('Text selection error:', error);
+      setSelectedText('');
+      setSelectionRange(null);
+    }
+  };
+
+  const handleAddPII = () => {
+    if (!selectedText || !selectionRange) return;
+
+    const newPII: PIIDetection = {
+      id: Date.now(), // Temporary ID for user-added items
+      type: newPIIType,
+      text: selectedText,
+      startPosition: selectionRange.start,
+      endPosition: selectionRange.end,
+      confidence: 1.0,
+      replacementText: newPIIReplacement || `[${selectedText}]`,
+      userApproved: true,
+      userAdded: true
+    };
+
+    onAddPII(newPII);
+    setShowAddModal(false);
+    setSelectedText('');
+    setSelectionRange(null);
+    setNewPIIType('other');
+    setNewPIIReplacement('');
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const getDefaultReplacement = (type: PIIDetection['type']): string => {
+    const defaults: Record<string, string> = {
+      name: '[Naam]',
+      email: '[E-mailadres]',
+      phone: '[Telefoonnummer]',
+      address: '[Adres]',
+      date: '[Datum]',
+      organization: '[Werkgever]',
+      other: '[Verwijderd]'
+    };
+    return defaults[type] || '[Verwijderd]';
+  };
+
+  return (
+    <div className="step-view">
+      <h3>Stap 2: PII Detectie</h3>
+      <p className="step-description">
+        De volgende persoonsgegevens zijn gedetecteerd. Je kunt items verwijderen, vervangingstekst aanpassen, of extra items toevoegen door tekst te selecteren.
+      </p>
+
+      <div className="pii-summary">
+        <div className="total">
+          <span className="count">{totalActive}</span>
+          <span className="label">PII items gedetecteerd</span>
         </div>
-      ))}
+        <div className="by-type">
+          {Object.entries(byType).map(([type, count]) => (
+            <span key={type} className={`badge badge-${type}`}>
+              {type}: {count}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Raw text with selection capability */}
+      {data.rawText && (
+        <div className="text-selection-area">
+          <h4>Selecteer tekst om toe te voegen als PII:</h4>
+          <div
+            ref={textRef}
+            className="raw-text"
+            onMouseUp={handleTextSelection}
+          >
+            {data.rawText}
+          </div>
+        </div>
+      )}
+
+      {/* Add PII Modal */}
+      {showAddModal && (
+        <div className="add-pii-modal">
+          <div className="modal-content">
+            <h4>Voeg PII item toe</h4>
+            <p className="selected-preview">Geselecteerde tekst: <strong>"{selectedText}"</strong></p>
+
+            <div className="form-group">
+              <label>Type:</label>
+              <select
+                value={newPIIType}
+                onChange={(e) => {
+                  setNewPIIType(e.target.value as PIIDetection['type']);
+                  setNewPIIReplacement(getDefaultReplacement(e.target.value as PIIDetection['type']));
+                }}
+              >
+                <option value="name">Naam</option>
+                <option value="email">E-mail</option>
+                <option value="phone">Telefoon</option>
+                <option value="address">Adres</option>
+                <option value="date">Datum</option>
+                <option value="organization">Organisatie</option>
+                <option value="other">Anders</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Vervangen door:</label>
+              <input
+                type="text"
+                value={newPIIReplacement}
+                onChange={(e) => setNewPIIReplacement(e.target.value)}
+                placeholder="bijv. [Voornaam] of [Werkgever]"
+              />
+            </div>
+
+            <div className="modal-buttons">
+              <button className="btn-cancel" onClick={() => {
+                setShowAddModal(false);
+                setSelectedText('');
+                setSelectionRange(null);
+                window.getSelection()?.removeAllRanges();
+              }}>
+                Annuleren
+              </button>
+              <button className="btn-add" onClick={handleAddPII}>
+                Toevoegen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="detections-list">
+        <h4>Gedetecteerde items ({totalActive}):</h4>
+
+        {/* Active detections from automatic detection */}
+        {activeDetections.map((detection) => {
+          const modifications = detection.id !== undefined ? piiModifications[detection.id] : {};
+          const currentReplacement = modifications?.replacementText ?? detection.replacementText ?? getDefaultReplacement(detection.type);
+
+          return (
+            <div key={detection.id} className={`detection-item type-${detection.type}`}>
+              <span className="type-badge">{detection.type.toUpperCase()}</span>
+              <span className="text">"{detection.text}"</span>
+              <div className="replacement-edit">
+                <span className="arrow">→</span>
+                <input
+                  type="text"
+                  value={currentReplacement}
+                  onChange={(e) => detection.id !== undefined && onModifyPII(detection.id, { replacementText: e.target.value })}
+                  className="replacement-input"
+                  placeholder="Vervangingstekst"
+                />
+              </div>
+              <span className="confidence">{(detection.confidence * 100).toFixed(0)}%</span>
+              <button
+                className="btn-delete"
+                onClick={() => detection.id !== undefined && onDeletePII(detection.id)}
+                title="Verwijderen"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+
+        {/* User-added PII items */}
+        {additionalPII.map((pii, idx) => (
+          <div key={`additional-${idx}`} className={`detection-item type-${pii.type} user-added`}>
+            <span className="type-badge">{pii.type.toUpperCase()}</span>
+            <span className="text">"{pii.text}"</span>
+            <div className="replacement-edit">
+              <span className="arrow">→</span>
+              <input
+                type="text"
+                value={pii.replacementText || ''}
+                onChange={(e) => onModifyAdditionalPII(idx, { replacementText: e.target.value })}
+                className="replacement-input"
+                placeholder="Vervangingstekst"
+              />
+            </div>
+            <span className="user-badge">Handmatig</span>
+            <button
+              className="btn-delete"
+              onClick={() => onRemoveAdditionalPII(idx)}
+              title="Verwijderen"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+
+        {totalActive === 0 && (
+          <p className="no-items">Geen PII items. Selecteer tekst hierboven om toe te voegen.</p>
+        )}
+      </div>
+
+      {/* Deleted items (can be restored) */}
+      {deletedDetections.length > 0 && (
+        <div className="deleted-items">
+          <h4>Verwijderde items ({deletedDetections.length}):</h4>
+          {deletedDetections.map((detection) => (
+            <div key={detection.id} className="deleted-item">
+              <span className="type-badge">{detection.type.toUpperCase()}</span>
+              <span className="text">"{detection.text}"</span>
+              <button
+                className="btn-restore"
+                onClick={() => detection.id !== undefined && onRestorePII(detection.id)}
+              >
+                Herstellen
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="info-box">
+        <span className="icon">ℹ️</span>
+        <p>Zijn dit alle gevoelige gegevens? Je kunt extra items markeren in de tekst hierboven.</p>
+      </div>
+
+      <style jsx>{`
+        .step-view { padding: 0; }
+        .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
+        .step-description { color: #6b7280; margin: 0 0 20px 0; }
+
+        .pii-summary {
+          display: flex;
+          align-items: center;
+          gap: 24px;
+          padding: 16px;
+          background: #fef3c7;
+          border: 1px solid #fcd34d;
+          border-radius: 8px;
+          margin-bottom: 20px;
+        }
+
+        .pii-summary .total {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+
+        .pii-summary .count {
+          font-size: 32px;
+          font-weight: 700;
+          color: #92400e;
+        }
+
+        .pii-summary .label {
+          color: #92400e;
+        }
+
+        .by-type {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .badge {
+          padding: 4px 10px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+
+        .badge-name { background: #fce7f3; color: #be185d; }
+        .badge-email { background: #dbeafe; color: #1e40af; }
+        .badge-phone { background: #d1fae5; color: #065f46; }
+        .badge-address { background: #fef3c7; color: #92400e; }
+        .badge-date { background: #fef9c3; color: #854d0e; }
+        .badge-organization { background: #e0e7ff; color: #3730a3; }
+        .badge-other { background: #f3f4f6; color: #4b5563; }
+
+        .text-selection-area {
+          margin-bottom: 20px;
+        }
+
+        .text-selection-area h4 {
+          margin: 0 0 8px 0;
+          font-size: 14px;
+          color: #374151;
+        }
+
+        .raw-text {
+          background: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          padding: 12px;
+          max-height: 150px;
+          overflow-y: auto;
+          font-size: 13px;
+          line-height: 1.6;
+          white-space: pre-wrap;
+          cursor: text;
+          user-select: text;
+        }
+
+        .raw-text::selection {
+          background: #bfdbfe;
+        }
+
+        .add-pii-modal {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1100;
+        }
+
+        .modal-content {
+          background: white;
+          border-radius: 12px;
+          padding: 24px;
+          max-width: 400px;
+          width: 90%;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-content h4 {
+          margin: 0 0 16px 0;
+          color: #1f2937;
+        }
+
+        .selected-preview {
+          background: #f3f4f6;
+          padding: 8px 12px;
+          border-radius: 6px;
+          margin-bottom: 16px;
+          font-size: 14px;
+        }
+
+        .form-group {
+          margin-bottom: 16px;
+        }
+
+        .form-group label {
+          display: block;
+          font-size: 14px;
+          font-weight: 500;
+          color: #374151;
+          margin-bottom: 6px;
+        }
+
+        .form-group select,
+        .form-group input {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          font-size: 14px;
+        }
+
+        .modal-buttons {
+          display: flex;
+          gap: 12px;
+          justify-content: flex-end;
+          margin-top: 20px;
+        }
+
+        .btn-cancel {
+          padding: 8px 16px;
+          background: #f3f4f6;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+
+        .btn-add {
+          padding: 8px 16px;
+          background: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+
+        .btn-add:hover {
+          background: #2563eb;
+        }
+
+        .detections-list {
+          background: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          padding: 16px;
+          max-height: 250px;
+          overflow-y: auto;
+        }
+
+        .detections-list h4 {
+          margin: 0 0 12px 0;
+          font-size: 14px;
+          color: #374151;
+        }
+
+        .detection-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: white;
+          border-radius: 6px;
+          margin-bottom: 8px;
+          border-left: 3px solid #d1d5db;
+        }
+
+        .detection-item.user-added {
+          border-left-style: dashed;
+        }
+
+        .detection-item.type-name { border-left-color: #ec4899; }
+        .detection-item.type-email { border-left-color: #3b82f6; }
+        .detection-item.type-phone { border-left-color: #10b981; }
+        .detection-item.type-address { border-left-color: #f59e0b; }
+        .detection-item.type-date { border-left-color: #eab308; }
+        .detection-item.type-organization { border-left-color: #6366f1; }
+        .detection-item.type-other { border-left-color: #9ca3af; }
+
+        .type-badge {
+          padding: 2px 8px;
+          background: #f3f4f6;
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          color: #6b7280;
+          flex-shrink: 0;
+        }
+
+        .detection-item .text {
+          font-family: ui-monospace, monospace;
+          font-size: 12px;
+          color: #1f2937;
+          flex-shrink: 0;
+          max-width: 150px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .replacement-edit {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .arrow {
+          color: #9ca3af;
+          font-size: 14px;
+          flex-shrink: 0;
+        }
+
+        .replacement-input {
+          flex: 1;
+          min-width: 0;
+          padding: 4px 8px;
+          border: 1px solid #d1d5db;
+          border-radius: 4px;
+          font-size: 12px;
+          background: #fefce8;
+        }
+
+        .replacement-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+          background: white;
+        }
+
+        .confidence {
+          font-size: 11px;
+          color: #9ca3af;
+          flex-shrink: 0;
+        }
+
+        .user-badge {
+          font-size: 10px;
+          color: #059669;
+          background: #d1fae5;
+          padding: 2px 6px;
+          border-radius: 4px;
+          flex-shrink: 0;
+        }
+
+        .btn-delete {
+          width: 24px;
+          height: 24px;
+          border: none;
+          background: #fee2e2;
+          color: #dc2626;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .btn-delete:hover {
+          background: #fecaca;
+        }
+
+        .no-items {
+          color: #6b7280;
+          font-style: italic;
+          text-align: center;
+          padding: 20px;
+        }
+
+        .deleted-items {
+          margin-top: 16px;
+          padding: 12px;
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+          border-radius: 8px;
+        }
+
+        .deleted-items h4 {
+          margin: 0 0 12px 0;
+          font-size: 14px;
+          color: #991b1b;
+        }
+
+        .deleted-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 6px 10px;
+          background: white;
+          border-radius: 4px;
+          margin-bottom: 6px;
+          opacity: 0.7;
+        }
+
+        .deleted-item .text {
+          flex: 1;
+          font-family: ui-monospace, monospace;
+          font-size: 12px;
+          color: #6b7280;
+          text-decoration: line-through;
+        }
+
+        .btn-restore {
+          padding: 4px 10px;
+          background: #dbeafe;
+          color: #1e40af;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+        }
+
+        .btn-restore:hover {
+          background: #bfdbfe;
+        }
+
+        .info-box {
+          display: flex;
+          gap: 12px;
+          margin-top: 16px;
+          padding: 12px 16px;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          border-radius: 8px;
+        }
+
+        .info-box .icon { font-size: 18px; }
+        .info-box p { margin: 0; color: #1e40af; font-size: 14px; }
+      `}</style>
     </div>
-
-    <div className="info-box">
-      <span className="icon">ℹ️</span>
-      <p>Zijn dit alle gevoelige gegevens? Je kunt extra items markeren in de tekst hierboven.</p>
-    </div>
-
-    <style jsx>{`
-      .step-view { padding: 0; }
-      .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
-      .step-description { color: #6b7280; margin: 0 0 20px 0; }
-
-      .pii-summary {
-        display: flex;
-        align-items: center;
-        gap: 24px;
-        padding: 16px;
-        background: #fef3c7;
-        border: 1px solid #fcd34d;
-        border-radius: 8px;
-        margin-bottom: 20px;
-      }
-
-      .pii-summary .total {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-      }
-
-      .pii-summary .count {
-        font-size: 32px;
-        font-weight: 700;
-        color: #92400e;
-      }
-
-      .pii-summary .label {
-        color: #92400e;
-      }
-
-      .by-type {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-
-      .badge {
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 500;
-      }
-
-      .badge-name { background: #fce7f3; color: #be185d; }
-      .badge-email { background: #dbeafe; color: #1e40af; }
-      .badge-phone { background: #d1fae5; color: #065f46; }
-      .badge-address { background: #fef3c7; color: #92400e; }
-      .badge-organization { background: #e0e7ff; color: #3730a3; }
-
-      .detections-list {
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        padding: 16px;
-        max-height: 250px;
-        overflow-y: auto;
-      }
-
-      .detections-list h4 {
-        margin: 0 0 12px 0;
-        font-size: 14px;
-        color: #374151;
-      }
-
-      .detection-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 8px 12px;
-        background: white;
-        border-radius: 6px;
-        margin-bottom: 8px;
-        border-left: 3px solid #d1d5db;
-      }
-
-      .detection-item.type-name { border-left-color: #ec4899; }
-      .detection-item.type-email { border-left-color: #3b82f6; }
-      .detection-item.type-phone { border-left-color: #10b981; }
-      .detection-item.type-address { border-left-color: #f59e0b; }
-      .detection-item.type-organization { border-left-color: #6366f1; }
-
-      .type-badge {
-        padding: 2px 8px;
-        background: #f3f4f6;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        color: #6b7280;
-      }
-
-      .detection-item .text {
-        flex: 1;
-        font-family: ui-monospace, monospace;
-        font-size: 13px;
-        color: #1f2937;
-      }
-
-      .confidence {
-        font-size: 12px;
-        color: #9ca3af;
-      }
-
-      .info-box {
-        display: flex;
-        gap: 12px;
-        margin-top: 16px;
-        padding: 12px 16px;
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        border-radius: 8px;
-      }
-
-      .info-box .icon { font-size: 18px; }
-      .info-box p { margin: 0; color: #1e40af; font-size: 14px; }
-    `}</style>
-  </div>
-);
+  );
+};
 
 const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
   <div className="step-view">
