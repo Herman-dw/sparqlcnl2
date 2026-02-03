@@ -15,7 +15,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
 type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;
@@ -1180,8 +1180,7 @@ export class CVWizardService {
     }
 
     try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      const genAI = new GoogleGenAI({ apiKey });
 
       const prompt = `Analyseer het volgende geanonimiseerde CV en extraheer de structuur.
 Let op: persoonlijke gegevens zijn al vervangen door placeholders zoals [Naam], [Werkgever], [Adres] etc.
@@ -1224,8 +1223,11 @@ Belangrijke instructies:
 - Sorteer ervaring van nieuwste naar oudste
 - Wees grondig: extraheer ALLE genoemde ervaringen, opleidingen en vaardigheden`;
 
-      const result = await model.generateContent(prompt);
-      const response = result.response.text();
+      const result = await genAI.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt
+      });
+      const response = result.text;
 
       // Extract JSON from response (handle potential markdown code blocks)
       let jsonStr = response;
