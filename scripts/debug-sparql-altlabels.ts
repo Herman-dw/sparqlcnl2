@@ -1,5 +1,8 @@
 /**
- * Debug Script: Check altLabels in CNL SPARQL endpoint
+ * Debug Script: Check SKOS-XL labels in CNL SPARQL endpoint
+ *
+ * CNL gebruikt SKOS-XL (extended labels) in plaats van standaard SKOS.
+ * Labels zijn DetailedLabel objecten met de tekst in skosxl:literalForm.
  */
 
 import dotenv from 'dotenv';
@@ -50,173 +53,11 @@ async function runQuery(name: string, sparqlQuery: string): Promise<any[]> {
 }
 
 async function main() {
-  console.log('🔍 CNL SPARQL AltLabels Debug\n');
+  console.log('🔍 CNL SPARQL SKOS-XL Labels Debug\n');
   console.log(`Endpoint: ${SPARQL_ENDPOINT}`);
   console.log(`API Key: ${SPARQL_API_KEY ? SPARQL_API_KEY.substring(0, 8) + '...' : '(niet ingesteld)'}`);
 
-  // Query 1: Count prefLabels and altLabels for occupations
-  const countQuery = `
-    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-    SELECT
-      (COUNT(DISTINCT ?prefLabel) AS ?prefCount)
-      (COUNT(DISTINCT ?altLabel) AS ?altCount)
-    WHERE {
-      ?uri a cnlo:Occupation .
-      OPTIONAL { ?uri skos:prefLabel ?prefLabel . FILTER(LANG(?prefLabel) = "nl") }
-      OPTIONAL { ?uri skos:altLabel ?altLabel . FILTER(LANG(?altLabel) = "nl") }
-    }
-  `;
-
-  const countResults = await runQuery('Telling prefLabels en altLabels voor Occupations', countQuery);
-  if (countResults.length > 0) {
-    console.log(`  prefLabels: ${countResults[0].prefCount?.value || 0}`);
-    console.log(`  altLabels: ${countResults[0].altCount?.value || 0}`);
-  }
-
-  // Query 2: Check if altLabels exist without language filter
-  const altLabelsNoLangQuery = `
-    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-    SELECT (COUNT(?altLabel) AS ?count) WHERE {
-      ?uri a cnlo:Occupation .
-      ?uri skos:altLabel ?altLabel .
-    }
-  `;
-
-  const altNoLangResults = await runQuery('AltLabels zonder taalfilter', altLabelsNoLangQuery);
-  if (altNoLangResults.length > 0) {
-    console.log(`  Totaal altLabels (alle talen): ${altNoLangResults[0].count?.value || 0}`);
-  }
-
-  // Query 3: Check what language tags altLabels have
-  const langTagsQuery = `
-    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-    SELECT ?lang (COUNT(?altLabel) AS ?count) WHERE {
-      ?uri a cnlo:Occupation .
-      ?uri skos:altLabel ?altLabel .
-      BIND(LANG(?altLabel) AS ?lang)
-    }
-    GROUP BY ?lang
-    ORDER BY DESC(?count)
-    LIMIT 10
-  `;
-
-  const langResults = await runQuery('Talen van altLabels', langTagsQuery);
-  console.log('  Verdeling:');
-  for (const row of langResults) {
-    const lang = row.lang?.value || '(geen)';
-    const count = row.count?.value || 0;
-    console.log(`    ${lang}: ${count}`);
-  }
-
-  // Query 4: Sample some altLabels to see what they look like
-  const sampleAltQuery = `
-    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-    SELECT ?uri ?prefLabel ?altLabel (LANG(?altLabel) AS ?lang) WHERE {
-      ?uri a cnlo:Occupation .
-      ?uri skos:prefLabel ?prefLabel .
-      ?uri skos:altLabel ?altLabel .
-      FILTER(LANG(?prefLabel) = "nl")
-    }
-    LIMIT 10
-  `;
-
-  const sampleResults = await runQuery('Voorbeeld altLabels', sampleAltQuery);
-  for (const row of sampleResults) {
-    const prefLabel = row.prefLabel?.value || '?';
-    const altLabel = row.altLabel?.value || '?';
-    const lang = row.lang?.value || '(geen)';
-    console.log(`  - ${prefLabel} → ${altLabel} [${lang}]`);
-  }
-
-  // Query 5: Check if maybe hiddenLabel or other properties are used
-  const otherLabelsQuery = `
-    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-
-    SELECT ?predicate (COUNT(?label) AS ?count) WHERE {
-      ?uri a cnlo:Occupation .
-      ?uri ?predicate ?label .
-      FILTER(
-        ?predicate = skos:prefLabel ||
-        ?predicate = skos:altLabel ||
-        ?predicate = skos:hiddenLabel ||
-        ?predicate = rdfs:label
-      )
-    }
-    GROUP BY ?predicate
-    ORDER BY DESC(?count)
-  `;
-
-  const otherLabelsResults = await runQuery('Alle label predicates', otherLabelsQuery);
-  for (const row of otherLabelsResults) {
-    const predicate = row.predicate?.value?.split('#').pop() || row.predicate?.value || '?';
-    const count = row.count?.value || 0;
-    console.log(`  - ${predicate}: ${count}`);
-  }
-
-  // Query 6: Test the UNION query directly
-  const unionTestQuery = `
-    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-    SELECT ?labelType (COUNT(?label) AS ?count) WHERE {
-      ?uri a cnlo:Occupation .
-      {
-        ?uri skos:prefLabel ?label .
-        BIND("pref" AS ?labelType)
-      } UNION {
-        ?uri skos:altLabel ?label .
-        BIND("alt" AS ?labelType)
-      }
-      FILTER(LANG(?label) = "nl")
-    }
-    GROUP BY ?labelType
-  `;
-
-  const unionResults = await runQuery('UNION query test (met nl filter)', unionTestQuery);
-  for (const row of unionResults) {
-    const labelType = row.labelType?.value || '?';
-    const count = row.count?.value || 0;
-    console.log(`  - ${labelType}: ${count}`);
-  }
-
-  // Query 7: Test UNION without language filter
-  const unionNoLangQuery = `
-    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-
-    SELECT ?labelType (COUNT(?label) AS ?count) WHERE {
-      ?uri a cnlo:Occupation .
-      {
-        ?uri skos:prefLabel ?label .
-        BIND("pref" AS ?labelType)
-      } UNION {
-        ?uri skos:altLabel ?label .
-        BIND("alt" AS ?labelType)
-      }
-    }
-    GROUP BY ?labelType
-  `;
-
-  const unionNoLangResults = await runQuery('UNION query test (zonder taalfilter)', unionNoLangQuery);
-  for (const row of unionNoLangResults) {
-    const labelType = row.labelType?.value || '?';
-    const count = row.count?.value || 0;
-    console.log(`  - ${labelType}: ${count}`);
-  }
-
-  // Query 8: Test SKOS-XL labels (extended labels)
-  console.log('\n--- SKOS-XL Tests (Extended Labels) ---');
-
+  // Query 1: Count SKOS-XL labels per type
   const skosxlCountQuery = `
     PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
     PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
@@ -242,17 +83,21 @@ async function main() {
     GROUP BY ?labelType
   `;
 
-  const skosxlResults = await runQuery('SKOS-XL labels (pref/alt/spec) met nl filter', skosxlCountQuery);
+  const skosxlResults = await runQuery('SKOS-XL labels telling (pref/alt/spec) voor Occupations', skosxlCountQuery);
+  let totalLabels = 0;
   for (const row of skosxlResults) {
     const labelType = row.labelType?.value || '?';
-    const count = row.count?.value || 0;
-    const labelName = labelType === 'pref' ? 'prefLabels' :
+    const count = parseInt(row.count?.value || '0');
+    totalLabels += count;
+    const labelName = labelType === 'pref' ? 'prefLabels (officiële naam)' :
                      labelType === 'alt' ? 'altLabels (synoniemen)' :
                      'specializations (verbijzonderingen)';
     console.log(`  - ${labelName}: ${count}`);
   }
+  console.log(`  ─────────────────────────────`);
+  console.log(`  Totaal: ${totalLabels} labels`);
 
-  // Query 9: Sample SKOS-XL altLabels
+  // Query 2: Sample SKOS-XL altLabels and specializations
   const skosxlSampleQuery = `
     PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
     PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
@@ -283,6 +128,86 @@ async function main() {
     const type = row.type?.value || '?';
     console.log(`  - ${prefLabel} → ${altLabel} [${type}]`);
   }
+
+  // Query 3: Count labels for Education
+  const educationCountQuery = `
+    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+    PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
+    PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+
+    SELECT ?labelType (COUNT(?label) AS ?count) WHERE {
+      ?uri a cnlo:EducationalNorm .
+      {
+        ?uri skosxl:prefLabel ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("pref" AS ?labelType)
+      } UNION {
+        ?uri skosxl:altLabel ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("alt" AS ?labelType)
+      } UNION {
+        ?uri cnluwvo:specialization ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("spec" AS ?labelType)
+      }
+      FILTER(LANG(?label) = "nl")
+    }
+    GROUP BY ?labelType
+  `;
+
+  const educationResults = await runQuery('SKOS-XL labels telling voor Education', educationCountQuery);
+  totalLabels = 0;
+  for (const row of educationResults) {
+    const labelType = row.labelType?.value || '?';
+    const count = parseInt(row.count?.value || '0');
+    totalLabels += count;
+    const labelName = labelType === 'pref' ? 'prefLabels' :
+                     labelType === 'alt' ? 'altLabels' :
+                     'specializations';
+    console.log(`  - ${labelName}: ${count}`);
+  }
+  console.log(`  ─────────────────────────────`);
+  console.log(`  Totaal: ${totalLabels} labels`);
+
+  // Query 4: Count labels for Capability
+  const capabilityCountQuery = `
+    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+    PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
+    PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+
+    SELECT ?labelType (COUNT(?label) AS ?count) WHERE {
+      ?uri a cnlo:HumanCapability .
+      {
+        ?uri skosxl:prefLabel ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("pref" AS ?labelType)
+      } UNION {
+        ?uri skosxl:altLabel ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("alt" AS ?labelType)
+      } UNION {
+        ?uri cnluwvo:specialization ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("spec" AS ?labelType)
+      }
+      FILTER(LANG(?label) = "nl")
+    }
+    GROUP BY ?labelType
+  `;
+
+  const capabilityResults = await runQuery('SKOS-XL labels telling voor Capability', capabilityCountQuery);
+  totalLabels = 0;
+  for (const row of capabilityResults) {
+    const labelType = row.labelType?.value || '?';
+    const count = parseInt(row.count?.value || '0');
+    totalLabels += count;
+    const labelName = labelType === 'pref' ? 'prefLabels' :
+                     labelType === 'alt' ? 'altLabels' :
+                     'specializations';
+    console.log(`  - ${labelName}: ${count}`);
+  }
+  console.log(`  ─────────────────────────────`);
+  console.log(`  Totaal: ${totalLabels} labels`);
 
   console.log('\n✅ Debug voltooid\n');
 }
