@@ -1080,3 +1080,103 @@ Gerelateerde competenties:
 | CV Processing | `services/cvProcessingService.ts` | `parseStructure`, `storeExtractions` |
 | Matching API | `profile-matching-api.mjs` | `resolveLabelsToUris`, `matchProfile` |
 | Database Schema | `types/cv.ts` | `CVExtraction`, `ClassificationResult` |
+
+---
+
+## 11. Setup Instructies
+
+### 11.1 Snelle Setup (Aanbevolen)
+
+Voer alle stappen in één keer uit:
+
+```bash
+npm run cnl:setup
+```
+
+Dit voert de volgende acties uit:
+1. Database migratie
+2. CNL concept embeddings genereren
+3. Test classificatie uitvoeren
+
+### 11.2 Stap-voor-stap Setup
+
+#### Stap 1: Database Migratie
+
+```bash
+# Via npm script
+npm run cnl:migrate
+
+# Of direct via mysql
+mysql -u root -p competentnl_rag < database/005-cv-classification-step.sql
+```
+
+Dit voegt toe:
+- Nieuwe kolommen aan `cv_extractions` tabel
+- `cnl_concept_embeddings` tabel voor semantic matching
+- `cv_classification_feedback` tabel voor feedback tracking
+- Views voor statistieken
+
+#### Stap 2: CNL Embeddings Genereren (Optioneel)
+
+```bash
+npm run cnl:embeddings
+```
+
+Dit genereert embeddings voor CNL concepten via SPARQL:
+- Beroepen (Occupations)
+- Opleidingen (EducationalNorm)
+- Vaardigheden (HumanCapability)
+
+**Let op**: Dit kan 5-15 minuten duren afhankelijk van de hoeveelheid concepten.
+
+#### Stap 3: Test Classificatie
+
+```bash
+npm run cnl:test
+```
+
+Test de classificatie met voorbeelddata om te verifiëren dat alles werkt.
+
+### 11.3 Environment Variables
+
+Zorg dat de volgende environment variables zijn ingesteld:
+
+```env
+# Database
+MARIADB_HOST=localhost
+MARIADB_PORT=3306
+MARIADB_USER=root
+MARIADB_PASSWORD=your_password
+MARIADB_DATABASE=competentnl_rag
+
+# Gemini API (voor LLM fallback)
+GEMINI_API_KEY=your_gemini_api_key
+
+# SPARQL Endpoint
+SPARQL_ENDPOINT=https://linkeddata.competentnl.nl/sparql
+```
+
+### 11.4 Verificatie
+
+Na de setup kun je verifiëren dat alles werkt:
+
+```sql
+-- Check nieuwe kolommen
+DESCRIBE cv_extractions;
+
+-- Check embeddings tabel
+SELECT concept_type, COUNT(*) FROM cnl_concept_embeddings GROUP BY concept_type;
+
+-- Check classificatie stats view
+SELECT * FROM v_classification_stats;
+```
+
+### 11.5 Troubleshooting
+
+| Probleem | Oplossing |
+|----------|-----------|
+| "Table doesn't exist" | Voer eerst de basis migraties uit (001-004) |
+| "Cannot connect to database" | Check MARIADB_* environment variables |
+| "SPARQL query failed" | Check internetverbinding en SPARQL_ENDPOINT |
+| "No Gemini API key" | LLM fallback is uitgeschakeld, andere strategies werken nog |
+| "Embedding service error" | Installeer `@xenova/transformers`: `npm install @xenova/transformers` |

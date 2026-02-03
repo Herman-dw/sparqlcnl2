@@ -10,7 +10,11 @@
     "start": "concurrently \"npm run start-backend\" \"npm run start-frontend\"",
     "dev": "npm start",
     "seed-db": "node --loader ts-node/esm database/seed-embeddings.ts",
-    "db-setup": "mysql -u root -p < database/schema.sql"
+    "db-setup": "mysql -u root -p < database/schema.sql",
+    "cnl:migrate": "node --loader ts-node/esm scripts/setup-cnl-classification.ts --migrate",
+    "cnl:embeddings": "node --loader ts-node/esm scripts/setup-cnl-classification.ts --embeddings",
+    "cnl:test": "node --loader ts-node/esm scripts/setup-cnl-classification.ts --test",
+    "cnl:setup": "node --loader ts-node/esm scripts/setup-cnl-classification.ts --all"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
