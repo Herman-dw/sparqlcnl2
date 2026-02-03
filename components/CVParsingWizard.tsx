@@ -942,6 +942,58 @@ const Step2View: React.FC<{
     return defaults[type] || '[Verwijderd]';
   };
 
+  // Render text with highlighted PII items
+  const renderHighlightedText = () => {
+    const rawText = data.rawText || '';
+    if (!rawText) return null;
+
+    // Combine all active detections for highlighting
+    const allDetections = [...activeDetections, ...additionalPII]
+      .filter(d => d.startPosition !== undefined && d.endPosition !== undefined)
+      .sort((a, b) => a.startPosition - b.startPosition);
+
+    if (allDetections.length === 0) {
+      return rawText;
+    }
+
+    const elements: React.ReactNode[] = [];
+    let lastEnd = 0;
+
+    allDetections.forEach((detection, idx) => {
+      // Add text before this detection
+      if (detection.startPosition > lastEnd) {
+        elements.push(
+          <span key={`text-${idx}`}>
+            {rawText.substring(lastEnd, detection.startPosition)}
+          </span>
+        );
+      }
+
+      // Add highlighted detection (only if not overlapping with previous)
+      if (detection.startPosition >= lastEnd) {
+        elements.push(
+          <mark
+            key={`pii-${idx}`}
+            className={`pii-highlight pii-${detection.type}`}
+            title={`${detection.type}: ${detection.replacementText || getDefaultReplacement(detection.type)}`}
+          >
+            {rawText.substring(detection.startPosition, detection.endPosition)}
+          </mark>
+        );
+        lastEnd = detection.endPosition;
+      }
+    });
+
+    // Add remaining text after last detection
+    if (lastEnd < rawText.length) {
+      elements.push(
+        <span key="text-end">{rawText.substring(lastEnd)}</span>
+      );
+    }
+
+    return elements;
+  };
+
   return (
     <div className="step-view">
       <h3>Stap 2: PII Detectie</h3>
@@ -963,7 +1015,7 @@ const Step2View: React.FC<{
         </div>
       </div>
 
-      {/* Raw text with selection capability */}
+      {/* Raw text with selection capability and highlights */}
       {data.rawText && (
         <div className="text-selection-area">
           <h4>Selecteer tekst om toe te voegen als PII:</h4>
@@ -972,7 +1024,7 @@ const Step2View: React.FC<{
             className="raw-text"
             onMouseUp={handleTextSelection}
           >
-            {data.rawText}
+            {renderHighlightedText()}
           </div>
         </div>
       )}
@@ -1198,6 +1250,48 @@ const Step2View: React.FC<{
 
         .raw-text::selection {
           background: #bfdbfe;
+        }
+
+        /* PII Highlight styles */
+        .pii-highlight {
+          padding: 1px 3px;
+          border-radius: 3px;
+          cursor: help;
+        }
+
+        .pii-name {
+          background: #fce7f3;
+          border-bottom: 2px solid #ec4899;
+        }
+
+        .pii-email {
+          background: #dbeafe;
+          border-bottom: 2px solid #3b82f6;
+        }
+
+        .pii-phone {
+          background: #d1fae5;
+          border-bottom: 2px solid #10b981;
+        }
+
+        .pii-address {
+          background: #fef3c7;
+          border-bottom: 2px solid #f59e0b;
+        }
+
+        .pii-date {
+          background: #fef9c3;
+          border-bottom: 2px solid #eab308;
+        }
+
+        .pii-organization {
+          background: #e0e7ff;
+          border-bottom: 2px solid #6366f1;
+        }
+
+        .pii-other {
+          background: #f3f4f6;
+          border-bottom: 2px solid #9ca3af;
         }
 
         .add-pii-modal {
