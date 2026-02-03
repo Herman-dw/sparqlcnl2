@@ -290,8 +290,8 @@ async function generateCNLEmbeddings(): Promise<void> {
     console.log('📡 Ophalen CNL concepten via SPARQL...\n');
 
     const conceptTypes = [
-      { type: 'occupation', query: 'cnlo:Occupation', limit: 10000 },
-      { type: 'education', query: 'cnlo:EducationalNorm', limit: 5000 },
+      { type: 'occupation', query: 'cnlo:Occupation', limit: 20000 },  // ~3500 pref + ~10000+ alt
+      { type: 'education', query: 'cnlo:EducationalNorm', limit: 10000 },
       { type: 'capability', query: 'cnlo:HumanCapability', limit: 5000 }
     ];
 
