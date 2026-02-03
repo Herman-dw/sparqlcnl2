@@ -575,8 +575,15 @@ export function createCVRoutes(db: Pool): Router {
       const {
         modifications,
         additionalPII,
+        detections,
+        deletedIds,
         privacyLevel
-      }: WizardStepConfirmRequest & { additionalPII?: PIIDetection[]; privacyLevel?: PrivacyLevel } = req.body;
+      }: WizardStepConfirmRequest & {
+        additionalPII?: PIIDetection[];
+        detections?: PIIDetection[];
+        deletedIds?: number[];
+        privacyLevel?: PrivacyLevel
+      } = req.body;
 
       if (isNaN(cvId)) {
         return res.status(400).json({
@@ -592,7 +599,7 @@ export function createCVRoutes(db: Pool): Router {
       const result = await wizardService.confirmStepAndProceed(
         cvId,
         modifications,
-        additionalPII,
+        detections || additionalPII, // Use modified detections if provided, else additionalPII for backwards compat
         privacyLevel
       );
 

@@ -117,7 +117,7 @@ export class CVWizardService {
   async confirmStepAndProceed(
     cvId: number,
     modifications?: any,
-    additionalPII?: PIIDetection[],
+    modifiedDetections?: PIIDetection[],
     privacyLevel?: PrivacyLevel
   ): Promise<{
     nextStep?: Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse;
@@ -133,6 +133,14 @@ export class CVWizardService {
     // Mark current step as confirmed
     await this.confirmStep(cvId, currentStep.stepNumber, modifications);
 
+    // If confirming Step 2 with modified detections, store them in cache for Step 3
+    if (currentStep.stepNumber === 2 && modifiedDetections && modifiedDetections.length > 0) {
+      const cache = this.stepDataCache.get(cvId) || {};
+      cache.piiDetections = modifiedDetections;
+      this.stepDataCache.set(cvId, cache);
+      console.log(`📝 Stored ${modifiedDetections.length} modified PII detections for CV ${cvId}`);
+    }
+
     // If this was the last step, complete the wizard
     if (currentStep.stepNumber === 5) {
       await this.completeWizard(cvId, privacyLevel || 'medium');
@@ -141,7 +149,7 @@ export class CVWizardService {
 
     // Execute next step
     const nextStepNumber = (currentStep.stepNumber + 1) as 1 | 2 | 3 | 4 | 5;
-    const nextStep = await this.executeStep(cvId, nextStepNumber, additionalPII);
+    const nextStep = await this.executeStep(cvId, nextStepNumber, modifiedDetections);
 
     return { nextStep, isComplete: false };
   }
@@ -244,7 +252,7 @@ export class CVWizardService {
   private async executeStep(
     cvId: number,
     stepNumber: 1 | 2 | 3 | 4 | 5,
-    additionalPII?: PIIDetection[]
+    modifiedDetections?: PIIDetection[]
   ): Promise<Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse> {
     switch (stepNumber) {
       case 1:
@@ -256,7 +264,7 @@ export class CVWizardService {
       case 2:
         return this.executeStep2(cvId);
       case 3:
-        return this.executeStep3(cvId, additionalPII);
+        return this.executeStep3(cvId, modifiedDetections);
       case 4:
         return this.executeStep4(cvId);
       case 5:
@@ -381,18 +389,24 @@ export class CVWizardService {
 
       const entities = response.data.entities || [];
 
-      // Convert to PIIDetection format
-      const detections: PIIDetection[] = entities.map((entity: any, index: number) => ({
-        id: index + 1,
-        type: this.mapEntityType(entity.label),
-        text: entity.text,
-        startPosition: entity.start,
-        endPosition: entity.end,
-        confidence: entity.score,
-        replacementText: this.getReplacementText(entity.label),
-        userApproved: true,
-        userAdded: false
-      }));
+      // Convert to PIIDetection format with semantic replacements
+      const detections: PIIDetection[] = [];
+      for (let index = 0; index < entities.length; index++) {
+        const entity = entities[index];
+        const type = this.mapEntityType(entity.label);
+        const detection: PIIDetection = {
+          id: index + 1,
+          type,
+          text: entity.text,
+          startPosition: entity.start,
+          endPosition: entity.end,
+          confidence: entity.score,
+          replacementText: this.getSemanticReplacementText(type, entity.text, detections),
+          userApproved: true,
+          userAdded: false
+        };
+        detections.push(detection);
+      }
 
       // Create text with highlights (HTML-safe)
       const textWithHighlights = this.createHighlightedText(rawText, detections);
@@ -415,6 +429,7 @@ export class CVWizardService {
         stepNumber: 2,
         stepName: 'detect_pii',
         detections,
+        rawText,
         textWithHighlights,
         summary: {
           totalDetections: detections.length,
@@ -448,7 +463,7 @@ export class CVWizardService {
    */
   private async executeStep3(
     cvId: number,
-    additionalPII?: PIIDetection[]
+    modifiedDetections?: PIIDetection[]
   ): Promise<Step3AnonymizeResponse> {
     const startTime = Date.now();
     await this.updateStepStatus(cvId, 3, 'processing');
@@ -456,6 +471,9 @@ export class CVWizardService {
     try {
       let cache = this.stepDataCache.get(cvId);
       let rawText = cache?.rawText;
+
+      // Use modified detections from cache (set by confirmStepAndProceed when Step 2 is confirmed)
+      // This includes user edits to replacement text, deletions, and additions
       let detections = cache?.piiDetections || [];
 
       if (!rawText) {
@@ -469,7 +487,7 @@ export class CVWizardService {
         }
       }
 
-      // Try to get PII detections from DB if not in cache
+      // Try to get PII detections from DB if not in cache (fallback for backwards compatibility)
       if (detections.length === 0) {
         const step2Data = await this.getStepOutputFromDB(cvId, 2);
         detections = step2Data?.detections || [];
@@ -482,9 +500,9 @@ export class CVWizardService {
         throw new CVProcessingError('No text available for anonymization', 'NO_TEXT', cvId);
       }
 
-      // Add any additional PII marked by user
-      if (additionalPII && additionalPII.length > 0) {
-        detections = [...detections, ...additionalPII.map(p => ({ ...p, userAdded: true }))];
+      // If modifiedDetections are explicitly passed (legacy support), use those instead
+      if (modifiedDetections && modifiedDetections.length > 0) {
+        detections = modifiedDetections;
       }
 
       // Sort detections by position (descending for replacement)
@@ -1036,18 +1054,91 @@ export class CVWizardService {
     return mapping[label.toLowerCase()] || 'other';
   }
 
+  private getSemanticReplacementText(type: string, text: string, existingDetections: PIIDetection[]): string {
+    // Count existing items of same type to create unique labels
+    const sameTypeCount = existingDetections.filter(d => d.type === type).length;
+    const suffix = sameTypeCount > 0 ? ` ${sameTypeCount + 1}` : '';
+
+    // Generate semantic replacement suggestions based on type and text content
+    switch (type) {
+      case 'name':
+        // Try to detect if it's a first name, last name, or full name
+        const nameParts = text.trim().split(/\s+/);
+        if (nameParts.length === 1) {
+          // Single word - could be first or last name
+          const isLikelyLastName = /^[A-Z][a-z]+$/.test(text) && text.length > 6;
+          return isLikelyLastName ? `[Achternaam${suffix}]` : `[Voornaam${suffix}]`;
+        } else if (nameParts.length === 2) {
+          return `[Volledige Naam${suffix}]`;
+        }
+        return `[Naam${suffix}]`;
+
+      case 'email':
+        return `[E-mailadres${suffix}]`;
+
+      case 'phone':
+        return `[Telefoonnummer${suffix}]`;
+
+      case 'address':
+        // Try to detect address components
+        if (/\d{4}\s*[A-Z]{2}/.test(text)) {
+          return `[Postcode${suffix}]`;
+        } else if (/^\d+/.test(text) || /straat|weg|laan|plein/i.test(text)) {
+          return `[Straatnaam${suffix}]`;
+        } else if (/^[A-Z][a-z]+$/.test(text) && text.length < 15) {
+          return `[Plaatsnaam${suffix}]`;
+        }
+        return `[Adres${suffix}]`;
+
+      case 'date':
+        // Keep dates somewhat meaningful
+        if (/^\d{4}$/.test(text)) {
+          return `[Jaar${suffix}]`;
+        } else if (/\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(text)) {
+          return `[Datum${suffix}]`;
+        } else if (/\d{4}\s*[-–]\s*\d{4}/.test(text) || /\d{4}\s*[-–]\s*(heden|nu|present)/i.test(text)) {
+          return `[Periode${suffix}]`;
+        }
+        return `[Datum${suffix}]`;
+
+      case 'organization':
+        // Try to categorize organization type
+        const lowerText = text.toLowerCase();
+        if (/universiteit|hogeschool|school|college|academy|academie|opleiding/i.test(lowerText)) {
+          return `[Onderwijsinstelling${suffix}]`;
+        } else if (/gemeente|provincie|rijk|overheid|ministerie/i.test(lowerText)) {
+          return `[Overheidsinstantie${suffix}]`;
+        } else if (/ziekenhuis|kliniek|huisarts|apotheek|zorg/i.test(lowerText)) {
+          return `[Zorginstelling${suffix}]`;
+        } else if (/bank|verzeker|financ/i.test(lowerText)) {
+          return `[Financiële Instelling${suffix}]`;
+        } else if (/transport|vervoer|logistiek|bus|trein|vlieg/i.test(lowerText)) {
+          return `[Vervoersbedrijf${suffix}]`;
+        } else if (/tech|software|it |ict|digital/i.test(lowerText)) {
+          return `[Techbedrijf${suffix}]`;
+        } else if (/winkel|retail|supermarkt|horeca|restaurant|café/i.test(lowerText)) {
+          return `[Retailbedrijf${suffix}]`;
+        }
+        return `[Werkgever${suffix}]`;
+
+      default:
+        return `[Verwijderd${suffix}]`;
+    }
+  }
+
+  // Legacy method for backwards compatibility
   private getReplacementText(type: string): string {
     const replacements: Record<string, string> = {
-      'name': '[NAAM]',
-      'email': '[EMAIL]',
-      'phone': '[TELEFOON]',
-      'address': '[ADRES]',
-      'date': '[DATUM]',
-      'organization': '[ORGANISATIE]',
-      'other': '[VERWIJDERD]'
+      'name': '[Naam]',
+      'email': '[E-mailadres]',
+      'phone': '[Telefoonnummer]',
+      'address': '[Adres]',
+      'date': '[Datum]',
+      'organization': '[Werkgever]',
+      'other': '[Verwijderd]'
     };
 
-    return replacements[type] || '[VERWIJDERD]';
+    return replacements[type] || '[Verwijderd]';
   }
 
   private createHighlightedText(text: string, detections: PIIDetection[]): string {
