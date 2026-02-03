@@ -978,11 +978,18 @@ REDEN: [korte reden in max 10 woorden]`;
           WHERE concept_type = ?
         `, [conceptType]);
 
-        const embeddings = rows.map(row => ({
-          uri: row.concept_uri,
-          label: row.pref_label,
-          embedding: Array.from(new Float32Array(row.embedding.buffer))
-        }));
+        const embeddings = rows.map(row => {
+          // Convert MySQL Buffer to Float32Array correctly
+          // row.embedding is a Buffer, we need to create a proper ArrayBuffer from it
+          const buffer = row.embedding;
+          const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+          const floatArray = new Float32Array(arrayBuffer);
+          return {
+            uri: row.concept_uri,
+            label: row.pref_label,
+            embedding: Array.from(floatArray)
+          };
+        });
 
         this.embeddingsCache.set(conceptType, embeddings);
         console.log(`  Loaded ${embeddings.length} embeddings for ${conceptType}`);
