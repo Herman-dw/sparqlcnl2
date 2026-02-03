@@ -315,6 +315,21 @@ async function generateCNLEmbeddings(): Promise<void> {
       }
     }
 
+    // Extend pref_label column to VARCHAR(500) to prevent truncation of long labels
+    try {
+      await connection.execute(`
+        ALTER TABLE cnl_concept_embeddings
+        MODIFY COLUMN pref_label VARCHAR(500) NOT NULL
+        COMMENT 'Label tekst (kan prefLabel of altLabel zijn)'
+      `);
+      console.log('  ✓ Kolom pref_label vergroot naar VARCHAR(500)\n');
+    } catch (alterError: any) {
+      // Ignore if column is already the right size or other non-critical errors
+      if (!alterError.message.includes('already')) {
+        console.log(`  ⚠ Kon pref_label kolom niet vergroten: ${alterError.message}`);
+      }
+    }
+
     // Haal CNL concepten op via SPARQL
     console.log('📡 Ophalen CNL concepten via SPARQL...\n');
 
