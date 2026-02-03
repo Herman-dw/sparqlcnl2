@@ -53,26 +53,38 @@ const SPARQL_API_KEY = process.env.COMPETENTNL_API_KEY || '';
  */
 async function createTablesManually(connection: mysql.Connection): Promise<void> {
   // Create cnl_concept_embeddings table
+  // Note: unique key is on (concept_uri, pref_label) to allow multiple labels per concept (prefLabel + altLabels)
   try {
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS cnl_concept_embeddings (
         id INT AUTO_INCREMENT PRIMARY KEY,
         concept_uri VARCHAR(500) NOT NULL,
         concept_type ENUM('occupation', 'education', 'capability', 'knowledge', 'task', 'workingCondition') NOT NULL,
-        pref_label VARCHAR(255) NOT NULL,
+        pref_label VARCHAR(255) NOT NULL COMMENT 'Label tekst (kan prefLabel of altLabel zijn)',
+        label_type ENUM('pref', 'alt') DEFAULT 'pref' COMMENT 'Type label: pref=officieel, alt=synoniem',
         embedding BLOB NOT NULL,
         embedding_model VARCHAR(100) DEFAULT 'all-MiniLM-L6-v2',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY unique_concept (concept_uri),
+        UNIQUE KEY unique_concept_label (concept_uri, pref_label),
         INDEX idx_concept_type (concept_type),
-        INDEX idx_pref_label (pref_label)
+        INDEX idx_pref_label (pref_label),
+        INDEX idx_label_type (label_type)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     console.log('  ✓ Tabel cnl_concept_embeddings aangemaakt');
   } catch (error: any) {
     if (error.code === 'ER_TABLE_EXISTS_ERROR') {
       console.log('  ⚠ Tabel cnl_concept_embeddings bestaat al');
+      // Try to add label_type column if it doesn't exist
+      try {
+        await connection.execute(`ALTER TABLE cnl_concept_embeddings ADD COLUMN label_type ENUM('pref', 'alt') DEFAULT 'pref' AFTER pref_label`);
+        console.log('  ✓ Kolom label_type toegevoegd');
+      } catch (e: any) {
+        if (e.code !== 'ER_DUP_FIELDNAME') {
+          // Ignore if column already exists
+        }
+      }
     } else {
       console.error('  ❌ Kon cnl_concept_embeddings niet aanmaken:', error.message);
     }
@@ -278,25 +290,35 @@ async function generateCNLEmbeddings(): Promise<void> {
     console.log('📡 Ophalen CNL concepten via SPARQL...\n');
 
     const conceptTypes = [
-      { type: 'occupation', query: 'cnlo:Occupation', limit: 5000 },
-      { type: 'education', query: 'cnlo:EducationalNorm', limit: 2000 },
-      { type: 'capability', query: 'cnlo:HumanCapability', limit: 2000 }
+      { type: 'occupation', query: 'cnlo:Occupation', limit: 10000 },
+      { type: 'education', query: 'cnlo:EducationalNorm', limit: 5000 },
+      { type: 'capability', query: 'cnlo:HumanCapability', limit: 5000 }
     ];
 
     let totalProcessed = 0;
 
     for (const { type, query, limit } of conceptTypes) {
-      console.log(`\n🔍 Verwerken ${type}...`);
+      console.log(`\n🔍 Verwerken ${type} (prefLabels + altLabels)...`);
 
+      // Query voor zowel prefLabels als altLabels (synoniemen)
+      // labelType: 'pref' = officiële naam, 'alt' = synoniem/alternatieve naam
       const sparqlQuery = `
         PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
         PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 
-        SELECT DISTINCT ?uri ?label WHERE {
+        SELECT DISTINCT ?uri ?label ?labelType ?description WHERE {
           ?uri a ${query} .
-          ?uri skos:prefLabel ?label .
+          {
+            ?uri skos:prefLabel ?label .
+            BIND("pref" AS ?labelType)
+          } UNION {
+            ?uri skos:altLabel ?label .
+            BIND("alt" AS ?labelType)
+          }
+          OPTIONAL { ?uri skos:definition ?description . FILTER(LANG(?description) = "nl") }
           FILTER(LANG(?label) = "nl")
         }
+        ORDER BY ?uri ?labelType
         LIMIT ${limit}
       `;
 
@@ -331,47 +353,61 @@ async function generateCNLEmbeddings(): Promise<void> {
         const data = await response.json();
         const concepts = data.results?.bindings || [];
 
-        console.log(`  📝 ${concepts.length} concepten gevonden`);
+        // Tel unieke labels (niet unieke URIs)
+        const uniqueLabels = new Set(concepts.map((c: any) => `${c.uri?.value}|${c.label?.value}`));
+        console.log(`  📝 ${concepts.length} labels gevonden (${uniqueLabels.size} unieke combinaties)`);
 
         let processed = 0;
+        let prefCount = 0;
+        let altCount = 0;
+
         for (const concept of concepts) {
           const uri = concept.uri?.value;
           const label = concept.label?.value;
+          const labelType = concept.labelType?.value || 'pref';
+          const description = concept.description?.value || '';
 
           if (!uri || !label) continue;
 
-          // Check of embedding al bestaat
+          // Check of embedding al bestaat voor deze URI+label combinatie
           const [existing] = await connection.execute(
-            'SELECT id FROM cnl_concept_embeddings WHERE concept_uri = ?',
-            [uri]
+            'SELECT id FROM cnl_concept_embeddings WHERE concept_uri = ? AND pref_label = ?',
+            [uri, label]
           );
 
           if ((existing as any[]).length > 0) {
             continue; // Skip existing
           }
 
-          // Genereer embedding
-          const embedding = await generateEmbedding(label);
+          // Genereer embedding - combineer label met beschrijving voor betere matching
+          const embeddingText = description
+            ? `${label} - ${description.substring(0, 200)}`
+            : label;
+          const embedding = await generateEmbedding(embeddingText);
 
           // Sla op als binary blob
           const embeddingBuffer = Buffer.from(new Float32Array(embedding).buffer);
 
+          // Insert met ON DUPLICATE KEY UPDATE voor robuustheid
           await connection.execute(
             `INSERT INTO cnl_concept_embeddings
-             (concept_uri, concept_type, pref_label, embedding)
-             VALUES (?, ?, ?, ?)`,
-            [uri, type, label, embeddingBuffer]
+             (concept_uri, concept_type, pref_label, embedding, label_type)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE embedding = VALUES(embedding)`,
+            [uri, type, label, embeddingBuffer, labelType]
           );
 
           processed++;
           totalProcessed++;
+          if (labelType === 'pref') prefCount++;
+          else altCount++;
 
           if (processed % 50 === 0) {
             console.log(`  📊 ${processed}/${concepts.length} verwerkt...`);
           }
         }
 
-        console.log(`  ✓ ${processed} nieuwe embeddings gegenereerd`);
+        console.log(`  ✓ ${processed} nieuwe embeddings gegenereerd (${prefCount} prefLabels, ${altCount} altLabels)`);
 
       } catch (error) {
         console.error(`  ❌ Error bij ${type}:`, error);
@@ -380,17 +416,38 @@ async function generateCNLEmbeddings(): Promise<void> {
 
     console.log(`\n📊 Totaal: ${totalProcessed} embeddings gegenereerd`);
 
-    // Statistieken
+    // Statistieken per type en label type
     const [stats] = await connection.execute(`
-      SELECT concept_type, COUNT(*) as count
+      SELECT concept_type, label_type, COUNT(*) as count
       FROM cnl_concept_embeddings
-      GROUP BY concept_type
+      GROUP BY concept_type, label_type
+      ORDER BY concept_type, label_type
     `);
 
     console.log('\n📈 Embeddings per type:');
+    let currentType = '';
     for (const row of stats as any[]) {
-      console.log(`  - ${row.concept_type}: ${row.count}`);
+      if (row.concept_type !== currentType) {
+        currentType = row.concept_type;
+        console.log(`  ${row.concept_type}:`);
+      }
+      const labelTypeLabel = row.label_type === 'pref' ? 'prefLabels' : 'altLabels (synoniemen)';
+      console.log(`    - ${labelTypeLabel}: ${row.count}`);
     }
+
+    // Totalen
+    const [totals] = await connection.execute(`
+      SELECT
+        COUNT(DISTINCT concept_uri) as unique_concepts,
+        COUNT(*) as total_labels,
+        SUM(CASE WHEN label_type = 'pref' THEN 1 ELSE 0 END) as pref_count,
+        SUM(CASE WHEN label_type = 'alt' THEN 1 ELSE 0 END) as alt_count
+      FROM cnl_concept_embeddings
+    `);
+    const t = (totals as any[])[0];
+    console.log(`\n📊 Totalen:`);
+    console.log(`  - Unieke concepten: ${t.unique_concepts}`);
+    console.log(`  - Totaal labels: ${t.total_labels} (${t.pref_count} pref + ${t.alt_count} alt)`);
 
   } finally {
     await connection.end();
@@ -423,15 +480,17 @@ async function testClassification(): Promise<void> {
   try {
     const service = new CNLClassificationService(pool);
 
-    // Test data
+    // Test data - aangepast voor CNL taxonomie
+    // Note: CNL education bevat alleen MBO opleidingen, geen HBO
     const testCases = [
       { type: 'occupation', value: 'Software Developer', context: 'Ontwikkelen van web applicaties' },
-      { type: 'occupation', value: 'Kapper', context: 'Haarverzorging en styling' },
+      { type: 'occupation', value: 'ICT Architect', context: 'Ontwerpen van IT systemen en infrastructuur' },
       { type: 'occupation', value: 'Verpleegkundige', context: 'Zorg voor patiënten in ziekenhuis' },
-      { type: 'education', value: 'HBO Informatica', context: 'Bachelor programma' },
-      { type: 'education', value: 'MBO Verzorging', context: 'Niveau 3 opleiding' },
+      { type: 'occupation', value: 'Systeembeheerder', context: 'Beheer van servers en netwerken' },
+      { type: 'education', value: 'MBO Applicatieontwikkelaar', context: 'Niveau 4 opleiding' },
+      { type: 'education', value: 'MBO Verzorgende IG', context: 'Niveau 3 opleiding' },
       { type: 'capability', value: 'Programmeren', context: 'Python, JavaScript' },
-      { type: 'capability', value: 'Communicatieve vaardigheden', context: 'Klantcontact' },
+      { type: 'capability', value: 'Analyseren', context: 'Data analyse en probleemoplossing' },
     ];
 
     console.log('🧪 Uitvoeren test classificaties...\n');

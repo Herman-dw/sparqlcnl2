@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS cnl_concept_embeddings (
     -- Concept identification
     concept_uri VARCHAR(500) NOT NULL,
     concept_type ENUM('occupation', 'education', 'capability', 'knowledge', 'task', 'workingCondition') NOT NULL,
-    pref_label VARCHAR(255) NOT NULL,
+    pref_label VARCHAR(255) NOT NULL COMMENT 'Label tekst (kan prefLabel of altLabel zijn)',
+    label_type ENUM('pref', 'alt') DEFAULT 'pref' COMMENT 'Type label: pref=officieel, alt=synoniem/alternatieve naam',
 
     -- Embedding data
     embedding BLOB NOT NULL COMMENT 'Binary vector embedding (384 dimensions float32)',
@@ -72,11 +73,13 @@ CREATE TABLE IF NOT EXISTS cnl_concept_embeddings (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-    UNIQUE KEY unique_concept (concept_uri),
+    -- Unique per URI+label combinatie (één concept kan meerdere labels hebben)
+    UNIQUE KEY unique_concept_label (concept_uri, pref_label),
     INDEX idx_concept_type (concept_type),
-    INDEX idx_pref_label (pref_label)
+    INDEX idx_pref_label (pref_label),
+    INDEX idx_label_type (label_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='Cached embeddings voor CNL concepten (semantic matching)';
+COMMENT='Cached embeddings voor CNL concepten inclusief synoniemen (semantic matching)';
 
 -- ============================================================================
 -- 4. Classification feedback/correction tracking
