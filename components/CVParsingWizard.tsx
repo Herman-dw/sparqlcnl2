@@ -884,15 +884,18 @@ const Step2View: React.FC<{
       return;
     }
 
-    // Calculate position in raw text
-    const rawText = data.rawText || '';
-    const startIndex = rawText.indexOf(text);
-    if (startIndex !== -1) {
-      setSelectedText(text);
-      setSelectionRange({ start: startIndex, end: startIndex + text.length });
-      setNewPIIReplacement(`[${text.charAt(0).toUpperCase() + text.slice(1)}]`);
-      setShowAddModal(true);
-    }
+    // Get actual selection offsets from the DOM range
+    const range = selection.getRangeAt(0);
+    const preSelectionRange = document.createRange();
+    preSelectionRange.selectNodeContents(textRef.current);
+    preSelectionRange.setEnd(range.startContainer, range.startOffset);
+    const startOffset = preSelectionRange.toString().length;
+    const endOffset = startOffset + text.length;
+
+    setSelectedText(text);
+    setSelectionRange({ start: startOffset, end: endOffset });
+    setNewPIIReplacement(`[${text.charAt(0).toUpperCase() + text.slice(1)}]`);
+    setShowAddModal(true);
   };
 
   const handleAddPII = () => {
