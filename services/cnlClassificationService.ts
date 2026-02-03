@@ -7,10 +7,11 @@
  * 1. Exact Match - directe database lookup
  * 2. Fuzzy Match - Levenshtein distance voor typo's
  * 3. Semantic Match - vector embeddings voor synoniemen
- * 4. LLM Fallback - voor complexe gevallen (optioneel)
+ * 4. LLM Fallback - voor complexe/ambigue gevallen
  */
 
 import mysql from 'mysql2/promise';
+import { GoogleGenAI } from '@google/genai';
 import {
   ConceptType,
   ConceptMatch,
@@ -133,8 +134,14 @@ const CLASSIFICATION_CONFIG = {
   exactMatchMinConfidence: 0.95,
   fuzzyMatchMinConfidence: 0.70,
   semanticMatchMinConfidence: 0.75,
+  llmMatchMinConfidence: 0.80,
   reviewThreshold: 0.85,
-  maxAlternatives: 5
+  maxAlternatives: 5,
+  llm: {
+    model: 'gemini-2.0-flash',
+    temperature: 0.1,
+    maxCandidates: 10
+  }
 };
 
 // ============================================================================
@@ -145,9 +152,24 @@ export class CNLClassificationService {
   private db: Pool;
   private embeddingsCache: Map<string, { uri: string; label: string; embedding: number[] }[]> = new Map();
   private embeddingsCacheLoaded = false;
+  private geminiAI: GoogleGenAI | null = null;
 
-  constructor(database: Pool) {
+  constructor(database: Pool, geminiApiKey?: string) {
     this.db = database;
+
+    // Initialize Gemini AI if API key is provided
+    // Check multiple env var names for compatibility
+    const apiKey = geminiApiKey ||
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      process.env.VITE_GEMINI_API_KEY;
+
+    if (apiKey) {
+      this.geminiAI = new GoogleGenAI({ apiKey });
+      console.log('[CNL Classification] Gemini AI initialized for LLM fallback');
+    } else {
+      console.log('[CNL Classification] No Gemini API key - LLM fallback disabled');
+    }
   }
 
   // ==========================================================================
@@ -284,28 +306,46 @@ export class CNLClassificationService {
     }
 
     // Strategy 3: Semantic match (optional)
+    let semanticMatch: ClassificationResult | null = null;
     if (options?.useSemanticMatching) {
-      const semanticMatch = await this.trySemanticMatch(value, context, conceptType);
+      semanticMatch = await this.trySemanticMatch(value, context, conceptType);
       if (semanticMatch.found && semanticMatch.confidence >= CLASSIFICATION_CONFIG.semanticMatchMinConfidence) {
         console.log(`    ✓ Semantic match: ${semanticMatch.match?.prefLabel} (${(semanticMatch.confidence * 100).toFixed(0)}%)`);
         return semanticMatch;
       }
     }
 
-    // Strategy 4: Return best alternative or mark for manual review
+    // Collect all alternatives for LLM consideration
     const allAlternatives = [
       ...(exactMatch.alternatives || []),
-      ...(fuzzyMatch.alternatives || [])
-    ].sort((a, b) => b.confidence - a.confidence)
-      .slice(0, CLASSIFICATION_CONFIG.maxAlternatives);
+      ...(fuzzyMatch.alternatives || []),
+      ...(semanticMatch?.alternatives || [])
+    ];
 
-    console.log(`    ⚠ No confident match, ${allAlternatives.length} alternatives`);
+    // Deduplicate alternatives by URI
+    const uniqueAlternatives = this.deduplicateAlternatives(allAlternatives)
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, CLASSIFICATION_CONFIG.llm.maxCandidates);
+
+    // Strategy 4: LLM Fallback (for complex/ambiguous cases)
+    if (options?.useLLMFallback && this.geminiAI && uniqueAlternatives.length > 0) {
+      const llmMatch = await this.tryLLMMatch(value, context, conceptType, uniqueAlternatives);
+      if (llmMatch.found && llmMatch.confidence >= CLASSIFICATION_CONFIG.llmMatchMinConfidence) {
+        console.log(`    ✓ LLM match: ${llmMatch.match?.prefLabel} (${(llmMatch.confidence * 100).toFixed(0)}%)`);
+        return llmMatch;
+      }
+    }
+
+    // Strategy 5: Return best alternative or mark for manual review
+    const topAlternatives = uniqueAlternatives.slice(0, CLASSIFICATION_CONFIG.maxAlternatives);
+
+    console.log(`    ⚠ No confident match, ${topAlternatives.length} alternatives`);
 
     return {
       found: false,
-      confidence: allAlternatives.length > 0 ? allAlternatives[0].confidence : 0,
+      confidence: topAlternatives.length > 0 ? topAlternatives[0].confidence : 0,
       method: 'manual',
-      alternatives: allAlternatives,
+      alternatives: topAlternatives,
       needsReview: true
     };
   }
@@ -611,6 +651,160 @@ export class CNLClassificationService {
       console.warn('Semantic match failed:', error);
       return { found: false, confidence: 0, method: 'semantic', needsReview: true };
     }
+  }
+
+  /**
+   * Strategy 4: LLM Fallback - Voor complexe/ambigue gevallen
+   *
+   * Gebruikt Gemini AI om het beste CNL concept te selecteren uit de kandidaten.
+   * Dit is nuttig wanneer:
+   * - Meerdere concepten lijken te matchen
+   * - De tekst in het CV niet exact overeenkomt met CNL labels
+   * - Context nodig is om de juiste keuze te maken
+   */
+  private async tryLLMMatch(
+    value: string,
+    context: string | undefined,
+    conceptType: ConceptType,
+    candidates: AlternativeMatch[]
+  ): Promise<ClassificationResult> {
+    if (!this.geminiAI || candidates.length === 0) {
+      return { found: false, confidence: 0, method: 'llm', needsReview: true };
+    }
+
+    try {
+      console.log(`    [LLM] Attempting LLM match for: "${value}" with ${candidates.length} candidates`);
+
+      // Build the prompt
+      const conceptTypeLabels: Record<ConceptType, string> = {
+        occupation: 'beroep/functie',
+        education: 'opleiding',
+        capability: 'vaardigheid/competentie',
+        knowledge: 'kennisgebied',
+        task: 'taak',
+        workingCondition: 'werkomstandigheid'
+      };
+
+      const candidateList = candidates
+        .map((c, i) => `${i + 1}. "${c.prefLabel}" (URI: ${c.uri})`)
+        .join('\n');
+
+      const prompt = `Je bent een expert in het matchen van CV-inhoud naar de CompetentNL taxonomie (beroepen, opleidingen, vaardigheden).
+
+TAAK: Selecteer het beste ${conceptTypeLabels[conceptType]} concept uit de kandidatenlijst voor de gegeven CV-tekst.
+
+CV TEKST: "${value}"
+${context ? `CONTEXT: "${context}"` : ''}
+
+KANDIDATEN:
+${candidateList}
+
+INSTRUCTIES:
+1. Analyseer de CV-tekst en de context
+2. Vergelijk met elk kandidaat-concept
+3. Selecteer het concept dat het beste past
+4. Als geen enkel concept goed past, antwoord met "GEEN_MATCH"
+
+ANTWOORD FORMAT (ALLEEN dit, geen uitleg):
+SELECTIE: [nummer van je keuze, bijv. 1, 2, 3, etc. OF "GEEN_MATCH"]
+CONFIDENCE: [0.0 tot 1.0, waar 1.0 = perfecte match]
+REDEN: [korte reden in max 10 woorden]`;
+
+      // Use @google/genai API syntax
+      const result = await this.geminiAI.models.generateContent({
+        model: CLASSIFICATION_CONFIG.llm.model,
+        contents: prompt,
+        config: {
+          temperature: CLASSIFICATION_CONFIG.llm.temperature,
+          maxOutputTokens: 500
+        }
+      });
+
+      const response = result.text || '';
+
+      console.log(`    [LLM] Raw response: ${response}`);
+
+      // Parse the response
+      const selectionMatch = response.match(/SELECTIE:\s*(\d+|GEEN_MATCH)/i);
+      const confidenceMatch = response.match(/CONFIDENCE:\s*([\d.]+)/i);
+      const reasonMatch = response.match(/REDEN:\s*(.+?)(?:\n|$)/i);
+
+      if (!selectionMatch || selectionMatch[1].toUpperCase() === 'GEEN_MATCH') {
+        console.log(`    [LLM] No confident match from LLM`);
+        return {
+          found: false,
+          confidence: 0,
+          method: 'llm',
+          alternatives: candidates.slice(0, CLASSIFICATION_CONFIG.maxAlternatives),
+          needsReview: true
+        };
+      }
+
+      const selectedIndex = parseInt(selectionMatch[1], 10) - 1;
+      const confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.85;
+      const reason = reasonMatch ? reasonMatch[1].trim() : undefined;
+
+      if (selectedIndex < 0 || selectedIndex >= candidates.length) {
+        console.log(`    [LLM] Invalid selection index: ${selectedIndex + 1}`);
+        return {
+          found: false,
+          confidence: 0,
+          method: 'llm',
+          alternatives: candidates.slice(0, CLASSIFICATION_CONFIG.maxAlternatives),
+          needsReview: true
+        };
+      }
+
+      const selectedCandidate = candidates[selectedIndex];
+
+      console.log(`    [LLM] Selected: "${selectedCandidate.prefLabel}" (confidence: ${confidence})`);
+      if (reason) {
+        console.log(`    [LLM] Reason: ${reason}`);
+      }
+
+      // Remaining candidates become alternatives
+      const remainingAlternatives = candidates
+        .filter((_, i) => i !== selectedIndex)
+        .slice(0, CLASSIFICATION_CONFIG.maxAlternatives - 1);
+
+      return {
+        found: true,
+        confidence,
+        method: 'llm',
+        match: {
+          uri: selectedCandidate.uri,
+          prefLabel: selectedCandidate.prefLabel,
+          matchedLabel: selectedCandidate.matchedLabel,
+          conceptType
+        },
+        alternatives: remainingAlternatives,
+        needsReview: confidence < CLASSIFICATION_CONFIG.reviewThreshold
+      };
+
+    } catch (error) {
+      console.warn('    [LLM] LLM match failed:', error);
+      return {
+        found: false,
+        confidence: 0,
+        method: 'llm',
+        alternatives: candidates.slice(0, CLASSIFICATION_CONFIG.maxAlternatives),
+        needsReview: true
+      };
+    }
+  }
+
+  /**
+   * Deduplicate alternatives by URI
+   */
+  private deduplicateAlternatives(alternatives: AlternativeMatch[]): AlternativeMatch[] {
+    const seen = new Set<string>();
+    return alternatives.filter(alt => {
+      if (seen.has(alt.uri)) {
+        return false;
+      }
+      seen.add(alt.uri);
+      return true;
+    });
   }
 
   // ==========================================================================
