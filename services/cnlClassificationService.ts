@@ -31,6 +31,25 @@ type RowDataPacket = mysql.RowDataPacket;
 // TYPES
 // ============================================================================
 
+// Database row interfaces for proper typing
+interface ConceptRow extends RowDataPacket {
+  uri: string;
+  pref_label: string;
+  label: string;
+  label_normalized: string;
+}
+
+interface ExactMatchRow extends RowDataPacket {
+  uri: string;
+  pref_label: string;
+  label: string;
+  label_type: string;
+}
+
+interface ScoredConceptRow extends ConceptRow {
+  similarity: number;
+}
+
 export interface ClassificationResult {
   found: boolean;
   confidence: number;
@@ -435,7 +454,7 @@ export class CNLClassificationService {
     const normalized = normalizeText(value);
 
     // Exact match op normalized label
-    const [rows] = await this.db.execute<RowDataPacket[]>(`
+    const [rows] = await this.db.execute<ExactMatchRow[]>(`
       SELECT
         ${config.uriColumn} as uri,
         pref_label,
@@ -478,7 +497,7 @@ export class CNLClassificationService {
     }
 
     // Try partial matches for alternatives
-    const [partialRows] = await this.db.execute<RowDataPacket[]>(`
+    const [partialRows] = await this.db.execute<ConceptRow[]>(`
       SELECT DISTINCT
         ${config.uriColumn} as uri,
         pref_label,
@@ -517,7 +536,7 @@ export class CNLClassificationService {
     const normalized = normalizeText(value);
 
     // Get candidates with LIKE
-    const [rows] = await this.db.execute<RowDataPacket[]>(`
+    const [rows] = await this.db.execute<ConceptRow[]>(`
       SELECT DISTINCT
         ${config.uriColumn} as uri,
         pref_label,
@@ -536,7 +555,7 @@ export class CNLClassificationService {
     }
 
     // Calculate similarity scores
-    const scored = rows.map(row => ({
+    const scored: ScoredConceptRow[] = rows.map(row => ({
       ...row,
       similarity: this.calculateSimilarity(normalized, row.label_normalized)
     })).sort((a, b) => b.similarity - a.similarity);

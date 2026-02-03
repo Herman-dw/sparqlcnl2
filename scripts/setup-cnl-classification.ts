@@ -303,18 +303,24 @@ async function generateCNLEmbeddings(): Promise<void> {
       try {
         const headers: Record<string, string> = {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/sparql-results+json'
+          'Accept': 'application/sparql-results+json',
+          'User-Agent': 'CompetentNL-CNL-Setup/1.0'
         };
 
-        // Add API key if available
+        // Add API key with correct header name (lowercase 'apikey')
         if (SPARQL_API_KEY) {
-          headers['X-API-Key'] = SPARQL_API_KEY;
+          headers['apikey'] = SPARQL_API_KEY;
         }
+
+        // Build request body with URLSearchParams
+        const params = new URLSearchParams();
+        params.append('query', sparqlQuery);
+        params.append('format', 'application/sparql-results+json');
 
         const response = await fetch(SPARQL_ENDPOINT, {
           method: 'POST',
           headers,
-          body: `query=${encodeURIComponent(sparqlQuery)}`
+          body: params
         });
 
         if (!response.ok) {
