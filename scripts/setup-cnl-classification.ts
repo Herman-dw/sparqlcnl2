@@ -21,17 +21,22 @@ import mysql from 'mysql2/promise';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Database configuratie
+// Load environment variables from .env.local (takes precedence) and .env
+dotenv.config({ path: path.join(__dirname, '../.env.local') });
+dotenv.config({ path: path.join(__dirname, '../.env') });
+
+// Database configuratie (ondersteunt zowel MARIADB_* als DB_* variabelen, zoals server.js)
 const DB_CONFIG = {
-  host: process.env.MARIADB_HOST || 'localhost',
-  port: parseInt(process.env.MARIADB_PORT || '3306'),
-  user: process.env.MARIADB_USER || 'root',
-  password: process.env.MARIADB_PASSWORD || '',
-  database: process.env.MARIADB_DATABASE || 'competentnl_rag',
+  host: process.env.MARIADB_HOST || process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.MARIADB_PORT || process.env.DB_PORT || '3306'),
+  user: process.env.MARIADB_USER || process.env.DB_USER || 'root',
+  password: process.env.MARIADB_PASSWORD || process.env.DB_PASSWORD || '',
+  database: process.env.MARIADB_DATABASE || process.env.DB_NAME || 'competentnl_rag',
   multipleStatements: true
 };
 
@@ -46,6 +51,12 @@ async function runMigration(): Promise<void> {
   console.log('\n' + '='.repeat(60));
   console.log('STAP 1: Database Migratie');
   console.log('='.repeat(60) + '\n');
+
+  console.log(`📌 Database configuratie:`);
+  console.log(`   Host: ${DB_CONFIG.host}:${DB_CONFIG.port}`);
+  console.log(`   User: ${DB_CONFIG.user}`);
+  console.log(`   Database: ${DB_CONFIG.database}`);
+  console.log(`   Password: ${DB_CONFIG.password ? '********' : '(leeg)'}\n`);
 
   const connection = await mysql.createConnection({
     ...DB_CONFIG,
