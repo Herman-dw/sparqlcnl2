@@ -318,50 +318,72 @@ async function generateCNLEmbeddings(): Promise<void> {
     // Haal CNL concepten op via SPARQL
     console.log('📡 Ophalen CNL concepten via SPARQL...\n');
 
+    // Occupation gebruikt SKOS-XL, Education en Capability gebruiken standaard SKOS
     const conceptTypes = [
-      { type: 'occupation', query: 'cnlo:Occupation', limit: 20000 },  // ~3500 pref + ~10000+ alt
-      { type: 'education', query: 'cnlo:EducationalNorm', limit: 10000 },
-      { type: 'capability', query: 'cnlo:HumanCapability', limit: 5000 }
+      { type: 'occupation', query: 'cnlo:Occupation', limit: 35000, useSkosXL: true },  // ~3500 pref + ~25000 alt/spec
+      { type: 'education', query: 'cnlo:EducationalNorm', limit: 10000, useSkosXL: false },
+      { type: 'capability', query: 'cnlo:HumanCapability', limit: 5000, useSkosXL: false }
     ];
 
     let totalProcessed = 0;
 
-    for (const { type, query, limit } of conceptTypes) {
+    for (const { type, query, limit, useSkosXL } of conceptTypes) {
       console.log(`\n🔍 Verwerken ${type} (prefLabels + altLabels)...`);
 
-      // Query voor zowel prefLabels als altLabels (synoniemen) en verbijzonderingen
-      // CNL gebruikt SKOS-XL (extended labels) - labels zijn DetailedLabel objecten
-      // labelType: 'pref' = officiële naam, 'alt' = synoniem of verbijzondering
-      const sparqlQuery = `
-        PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
-        PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-        PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
-        PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+      // Bouw query afhankelijk van of het type SKOS-XL of standaard SKOS gebruikt
+      let sparqlQuery: string;
 
-        SELECT DISTINCT ?uri ?label ?labelType ?description WHERE {
-          ?uri a ${query} .
-          {
-            # SKOS-XL prefLabel: uri -> skosxl:prefLabel -> DetailedLabel -> skosxl:literalForm -> label
-            ?uri skosxl:prefLabel ?labelNode .
-            ?labelNode skosxl:literalForm ?label .
-            BIND("pref" AS ?labelType)
-          } UNION {
-            # SKOS-XL altLabel (synoniemen): uri -> skosxl:altLabel -> DetailedLabel -> skosxl:literalForm -> label
-            ?uri skosxl:altLabel ?labelNode .
-            ?labelNode skosxl:literalForm ?label .
-            BIND("alt" AS ?labelType)
-          } UNION {
-            # Verbijzonderingen (specializations): uri -> cnluwvo:specialization -> DetailedLabel -> skosxl:literalForm -> label
-            ?uri cnluwvo:specialization ?labelNode .
-            ?labelNode skosxl:literalForm ?label .
-            BIND("alt" AS ?labelType)
+      if (useSkosXL) {
+        // SKOS-XL query voor Occupation - labels zijn DetailedLabel objecten
+        sparqlQuery = `
+          PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+          PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+          PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
+          PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+
+          SELECT DISTINCT ?uri ?label ?labelType ?description WHERE {
+            ?uri a ${query} .
+            {
+              ?uri skosxl:prefLabel ?labelNode .
+              ?labelNode skosxl:literalForm ?label .
+              BIND("pref" AS ?labelType)
+            } UNION {
+              ?uri skosxl:altLabel ?labelNode .
+              ?labelNode skosxl:literalForm ?label .
+              BIND("alt" AS ?labelType)
+            } UNION {
+              ?uri cnluwvo:specialization ?labelNode .
+              ?labelNode skosxl:literalForm ?label .
+              BIND("alt" AS ?labelType)
+            }
+            OPTIONAL { ?uri skos:definition ?description . FILTER(LANG(?description) = "nl") }
+            FILTER(LANG(?label) = "nl")
           }
-          OPTIONAL { ?uri skos:definition ?description . FILTER(LANG(?description) = "nl") }
-          FILTER(LANG(?label) = "nl")
-        }
-        ORDER BY ?uri ?labelType
-        LIMIT ${limit}
-      `;
+          ORDER BY ?uri ?labelType
+          LIMIT ${limit}
+        `;
+      } else {
+        // Standaard SKOS query voor Education en Capability
+        sparqlQuery = `
+          PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+          PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+
+          SELECT DISTINCT ?uri ?label ?labelType ?description WHERE {
+            ?uri a ${query} .
+            {
+              ?uri skos:prefLabel ?label .
+              BIND("pref" AS ?labelType)
+            } UNION {
+              ?uri skos:altLabel ?label .
+              BIND("alt" AS ?labelType)
+            }
+            OPTIONAL { ?uri skos:definition ?description . FILTER(LANG(?description) = "nl") }
+            FILTER(LANG(?label) = "nl")
+          }
+          ORDER BY ?uri ?labelType
+          LIMIT ${limit}
+        `;
+      }
 
       try {
         const headers: Record<string, string> = {
