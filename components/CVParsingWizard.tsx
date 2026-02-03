@@ -10,7 +10,7 @@
  * 5. Privacy & Werkgevers - Kies privacy niveau en finaliseer
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 
 import type {
@@ -1575,7 +1575,31 @@ const Step2View: React.FC<{
   );
 };
 
-const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
+const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
+  const originalRef = useRef<HTMLDivElement>(null);
+  const anonymizedRef = useRef<HTMLDivElement>(null);
+  const isSyncingRef = useRef(false);
+
+  // Synchronized scrolling between the two panels
+  const handleScroll = useCallback((source: 'original' | 'anonymized') => {
+    if (isSyncingRef.current) return;
+
+    isSyncingRef.current = true;
+
+    const sourceEl = source === 'original' ? originalRef.current : anonymizedRef.current;
+    const targetEl = source === 'original' ? anonymizedRef.current : originalRef.current;
+
+    if (sourceEl && targetEl) {
+      targetEl.scrollTop = sourceEl.scrollTop;
+    }
+
+    // Reset syncing flag after a short delay
+    requestAnimationFrame(() => {
+      isSyncingRef.current = false;
+    });
+  }, []);
+
+  return (
   <div className="step-view">
     <h3>Stap 3: Anonimisering Preview</h3>
     <p className="step-description">
@@ -1585,7 +1609,11 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
     <div className="comparison-container">
       <div className="comparison-column original">
         <h4>Origineel</h4>
-        <div className="text-content">
+        <div
+          ref={originalRef}
+          className="text-content"
+          onScroll={() => handleScroll('original')}
+        >
           {data.comparisonView.original.map((line, idx) => (
             <div
               key={idx}
@@ -1599,7 +1627,11 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
 
       <div className="comparison-column anonymized">
         <h4>Geanonimiseerd</h4>
-        <div className="text-content">
+        <div
+          ref={anonymizedRef}
+          className="text-content"
+          onScroll={() => handleScroll('anonymized')}
+        >
           {data.comparisonView.anonymized.map((line, idx) => (
             <div
               key={idx}
@@ -1748,7 +1780,8 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
       }
     `}</style>
   </div>
-);
+  );
+};
 
 const Step4View: React.FC<{ data: Step4ParseResponse }> = ({ data }) => (
   <div className="step-view">
