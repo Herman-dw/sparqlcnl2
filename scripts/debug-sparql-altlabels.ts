@@ -214,6 +214,76 @@ async function main() {
     console.log(`  - ${labelType}: ${count}`);
   }
 
+  // Query 8: Test SKOS-XL labels (extended labels)
+  console.log('\n--- SKOS-XL Tests (Extended Labels) ---');
+
+  const skosxlCountQuery = `
+    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+    PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
+    PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+
+    SELECT ?labelType (COUNT(?label) AS ?count) WHERE {
+      ?uri a cnlo:Occupation .
+      {
+        ?uri skosxl:prefLabel ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("pref" AS ?labelType)
+      } UNION {
+        ?uri skosxl:altLabel ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("alt" AS ?labelType)
+      } UNION {
+        ?uri cnluwvo:specialization ?labelNode .
+        ?labelNode skosxl:literalForm ?label .
+        BIND("spec" AS ?labelType)
+      }
+      FILTER(LANG(?label) = "nl")
+    }
+    GROUP BY ?labelType
+  `;
+
+  const skosxlResults = await runQuery('SKOS-XL labels (pref/alt/spec) met nl filter', skosxlCountQuery);
+  for (const row of skosxlResults) {
+    const labelType = row.labelType?.value || '?';
+    const count = row.count?.value || 0;
+    const labelName = labelType === 'pref' ? 'prefLabels' :
+                     labelType === 'alt' ? 'altLabels (synoniemen)' :
+                     'specializations (verbijzonderingen)';
+    console.log(`  - ${labelName}: ${count}`);
+  }
+
+  // Query 9: Sample SKOS-XL altLabels
+  const skosxlSampleQuery = `
+    PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
+    PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
+    PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
+
+    SELECT ?uri ?prefLabel ?altLabel ?type WHERE {
+      ?uri a cnlo:Occupation .
+      ?uri skosxl:prefLabel ?prefNode .
+      ?prefNode skosxl:literalForm ?prefLabel .
+      {
+        ?uri skosxl:altLabel ?altNode .
+        ?altNode skosxl:literalForm ?altLabel .
+        BIND("synoniem" AS ?type)
+      } UNION {
+        ?uri cnluwvo:specialization ?altNode .
+        ?altNode skosxl:literalForm ?altLabel .
+        BIND("verbijzondering" AS ?type)
+      }
+      FILTER(LANG(?prefLabel) = "nl" && LANG(?altLabel) = "nl")
+    }
+    LIMIT 15
+  `;
+
+  const skosxlSampleResults = await runQuery('Voorbeeld SKOS-XL altLabels en specializations', skosxlSampleQuery);
+  for (const row of skosxlSampleResults) {
+    const prefLabel = row.prefLabel?.value || '?';
+    const altLabel = row.altLabel?.value || '?';
+    const type = row.type?.value || '?';
+    console.log(`  - ${prefLabel} → ${altLabel} [${type}]`);
+  }
+
   console.log('\n✅ Debug voltooid\n');
 }
 

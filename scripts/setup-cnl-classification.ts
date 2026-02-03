@@ -329,19 +329,31 @@ async function generateCNLEmbeddings(): Promise<void> {
     for (const { type, query, limit } of conceptTypes) {
       console.log(`\n🔍 Verwerken ${type} (prefLabels + altLabels)...`);
 
-      // Query voor zowel prefLabels als altLabels (synoniemen)
-      // labelType: 'pref' = officiële naam, 'alt' = synoniem/alternatieve naam
+      // Query voor zowel prefLabels als altLabels (synoniemen) en verbijzonderingen
+      // CNL gebruikt SKOS-XL (extended labels) - labels zijn DetailedLabel objecten
+      // labelType: 'pref' = officiële naam, 'alt' = synoniem of verbijzondering
       const sparqlQuery = `
         PREFIX cnlo: <https://linkeddata.competentnl.nl/def/competentnl#>
         PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+        PREFIX skosxl: <http://www.w3.org/2008/05/skos-xl#>
+        PREFIX cnluwvo: <https://linkeddata.competentnl.nl/uwv/def/competentnl_uwv#>
 
         SELECT DISTINCT ?uri ?label ?labelType ?description WHERE {
           ?uri a ${query} .
           {
-            ?uri skos:prefLabel ?label .
+            # SKOS-XL prefLabel: uri -> skosxl:prefLabel -> DetailedLabel -> skosxl:literalForm -> label
+            ?uri skosxl:prefLabel ?labelNode .
+            ?labelNode skosxl:literalForm ?label .
             BIND("pref" AS ?labelType)
           } UNION {
-            ?uri skos:altLabel ?label .
+            # SKOS-XL altLabel (synoniemen): uri -> skosxl:altLabel -> DetailedLabel -> skosxl:literalForm -> label
+            ?uri skosxl:altLabel ?labelNode .
+            ?labelNode skosxl:literalForm ?label .
+            BIND("alt" AS ?labelType)
+          } UNION {
+            # Verbijzonderingen (specializations): uri -> cnluwvo:specialization -> DetailedLabel -> skosxl:literalForm -> label
+            ?uri cnluwvo:specialization ?labelNode .
+            ?labelNode skosxl:literalForm ?label .
             BIND("alt" AS ?labelType)
           }
           OPTIONAL { ?uri skos:definition ?description . FILTER(LANG(?description) = "nl") }
