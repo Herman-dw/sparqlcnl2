@@ -870,32 +870,43 @@ const Step2View: React.FC<{
 
   // Handle text selection in the raw text area
   const handleTextSelection = () => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !textRef.current) {
+    try {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !textRef.current) {
+        setSelectedText('');
+        setSelectionRange(null);
+        return;
+      }
+
+      const text = selection.toString().trim();
+      if (text.length < 2) {
+        setSelectedText('');
+        setSelectionRange(null);
+        return;
+      }
+
+      // Verify selection is within our text element
+      if (!textRef.current.contains(selection.anchorNode)) {
+        return;
+      }
+
+      // Get actual selection offsets from the DOM range
+      const range = selection.getRangeAt(0);
+      const preSelectionRange = document.createRange();
+      preSelectionRange.selectNodeContents(textRef.current);
+      preSelectionRange.setEnd(range.startContainer, range.startOffset);
+      const startOffset = preSelectionRange.toString().length;
+      const endOffset = startOffset + text.length;
+
+      setSelectedText(text);
+      setSelectionRange({ start: startOffset, end: endOffset });
+      setNewPIIReplacement(`[${text.charAt(0).toUpperCase() + text.slice(1)}]`);
+      setShowAddModal(true);
+    } catch (error) {
+      console.error('Text selection error:', error);
       setSelectedText('');
       setSelectionRange(null);
-      return;
     }
-
-    const text = selection.toString().trim();
-    if (text.length < 2) {
-      setSelectedText('');
-      setSelectionRange(null);
-      return;
-    }
-
-    // Get actual selection offsets from the DOM range
-    const range = selection.getRangeAt(0);
-    const preSelectionRange = document.createRange();
-    preSelectionRange.selectNodeContents(textRef.current);
-    preSelectionRange.setEnd(range.startContainer, range.startOffset);
-    const startOffset = preSelectionRange.toString().length;
-    const endOffset = startOffset + text.length;
-
-    setSelectedText(text);
-    setSelectionRange({ start: startOffset, end: endOffset });
-    setNewPIIReplacement(`[${text.charAt(0).toUpperCase() + text.slice(1)}]`);
-    setShowAddModal(true);
   };
 
   const handleAddPII = () => {
