@@ -1472,8 +1472,19 @@ const App: React.FC = () => {
         }}
         onComplete={(result) => {
           setShowQuickMatch(false);
-          // Open match modal with the results pre-loaded
-          // The results are already processed, so we can show them directly
+          // Store match results and open match modal with results
+          if (result && result.matches) {
+            console.log('[App] Quick match results received:', result.matchCount, 'matches');
+            setCvMatchResults({
+              matches: result.matches,
+              matchCount: result.matchCount || result.matches.length,
+              profile: result.skillSources ? {
+                capabilities: result.skillSources.combined?.length || 0,
+                knowledge: 0,
+                tasks: 0
+              } : undefined
+            });
+          }
           setShowMatchModal(true);
         }}
       />

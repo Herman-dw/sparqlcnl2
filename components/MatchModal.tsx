@@ -383,8 +383,8 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
     if (isOpen) {
       setError(null);
 
-      // If CV match data is provided, show results directly
-      if (cvMatchData && cvMatchData.matches && cvMatchData.matches.length > 0) {
+      // If CV match data is provided, show results directly (even if empty)
+      if (cvMatchData && cvMatchData.matches) {
         console.log('[MatchModal] Using pre-computed CV match results:', cvMatchData.matches.length, 'matches');
         setResults(cvMatchData.matches);
         setView('results');
