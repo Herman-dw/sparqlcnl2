@@ -1722,7 +1722,7 @@ ORDER BY ?relatietype`;
       occupationFilter = `VALUES ?occupation { <${resolvedUri}> }`;
     } else {
       // Probeer beroep uit vraag te halen
-      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zeeiouaÃƒÂ aaeeiouc\-]+)/i);
+      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+)/i);
       if (occupationMatch) {
         const occName = occupationMatch[1];
         // Try to resolve to URI first
@@ -2741,7 +2741,7 @@ app.post('/test/scenario', async (req, res) => {
   results.steps.push({ step: 'classify', result: classification });
 
   // Step 2: Extract occupation term if present
-  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zeeiouaÃƒÂ aaeeiouc\-]+)/i);
+  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zéëïöüáàâäèêîôûç\-]+)/i);
   if (occMatch) {
     const resolveRes = await fetch(`http://${HOST}:${PORT}/concept/resolve`, {
       method: 'POST',
