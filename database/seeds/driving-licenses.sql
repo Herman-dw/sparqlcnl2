@@ -8,14 +8,14 @@
 -- Basis URI: https://linkeddata.competentnl.nl/local/id/knowledge/
 -- =====================================================
 
--- Zorg dat de knowledge_labels tabel bestaat
+-- Zorg dat de knowledge_labels tabel bestaat (voor nieuwe installaties)
 CREATE TABLE IF NOT EXISTS knowledge_labels (
     id INT AUTO_INCREMENT PRIMARY KEY,
     knowledge_uri VARCHAR(500) NOT NULL,
     pref_label VARCHAR(500) NOT NULL,
     label VARCHAR(500) NOT NULL,
     label_normalized VARCHAR(500) NOT NULL,
-    label_type ENUM('prefLabel', 'altLabel', 'specialization', 'synonym', 'abbreviation') DEFAULT 'prefLabel',
+    label_type ENUM('prefLabel', 'altLabel', 'hiddenLabel', 'specialization', 'synonym', 'abbreviation') DEFAULT 'prefLabel',
     source VARCHAR(100) DEFAULT 'local_seed',
     validated BOOLEAN DEFAULT TRUE,
     usage_count INT DEFAULT 0,
@@ -28,6 +28,46 @@ CREATE TABLE IF NOT EXISTS knowledge_labels (
     INDEX idx_know_pref (pref_label),
     FULLTEXT INDEX ft_know_label (label, pref_label)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =====================================================
+-- MIGRATION: Extend label_type enum for existing deployments
+-- =====================================================
+-- For existing tables, we need to add the new enum values.
+-- This ALTER will expand the existing enum to include new values.
+-- If the column already has these values, it's a no-op.
+--
+-- NOTE: Run this separately if the table already exists with old schema:
+--   ALTER TABLE knowledge_labels
+--   MODIFY COLUMN label_type ENUM('prefLabel', 'altLabel', 'hiddenLabel', 'specialization', 'synonym', 'abbreviation')
+--   DEFAULT 'prefLabel';
+--
+-- For MariaDB 11.x, you can also use a stored procedure for safer migration:
+
+DELIMITER //
+DROP PROCEDURE IF EXISTS migrate_knowledge_labels_enum//
+CREATE PROCEDURE migrate_knowledge_labels_enum()
+BEGIN
+    DECLARE col_type VARCHAR(500);
+
+    -- Check current enum definition
+    SELECT COLUMN_TYPE INTO col_type
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'knowledge_labels'
+      AND COLUMN_NAME = 'label_type';
+
+    -- Only alter if the new values are not present
+    IF col_type IS NOT NULL AND col_type NOT LIKE '%specialization%' THEN
+        ALTER TABLE knowledge_labels
+        MODIFY COLUMN label_type ENUM('prefLabel', 'altLabel', 'hiddenLabel', 'specialization', 'synonym', 'abbreviation')
+        DEFAULT 'prefLabel';
+    END IF;
+END//
+DELIMITER ;
+
+-- Execute the migration
+CALL migrate_knowledge_labels_enum();
+DROP PROCEDURE IF EXISTS migrate_knowledge_labels_enum;
 
 -- =====================================================
 -- CATEGORIE AM - BROMFIETS
