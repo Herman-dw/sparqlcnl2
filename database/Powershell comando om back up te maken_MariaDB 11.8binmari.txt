@@ -1,0 +1,1 @@
+ & "C:\Program Files\MariaDB 11.8\bin\mariadb-dump.exe" -u root -p --databases competentnl_rag competentnl_prompts > "database/database-backup-latest.sql"

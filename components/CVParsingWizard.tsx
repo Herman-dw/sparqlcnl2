@@ -19,9 +19,11 @@ import type {
   Step3AnonymizeResponse,
   Step4ParseResponse,
   Step5FinalizeResponse,
+  Step6ClassifyResponse,
   PIIDetection,
   PrivacyLevel,
-  WizardStepResponse
+  WizardStepResponse,
+  ClassificationResult
 } from '../types/cv';
 
 interface CVParsingWizardProps {
@@ -39,7 +41,8 @@ const STEP_INFO = [
   { number: 2, name: 'PII Detectie', description: 'Persoonsgegevens worden gedetecteerd' },
   { number: 3, name: 'Anonimisering', description: 'Preview van de anonimisering' },
   { number: 4, name: 'Structuur', description: 'Werkervaring en opleiding worden geparseerd' },
-  { number: 5, name: 'Privacy', description: 'Kies je privacy niveau' }
+  { number: 5, name: 'Privacy', description: 'Kies je privacy niveau' },
+  { number: 6, name: 'Classificatie', description: 'Koppelen aan CompetentNL taxonomie' }
 ];
 
 export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
@@ -61,6 +64,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
   const [step3Data, setStep3Data] = useState<Step3AnonymizeResponse | null>(null);
   const [step4Data, setStep4Data] = useState<Step4ParseResponse | null>(null);
   const [step5Data, setStep5Data] = useState<Step5FinalizeResponse | null>(null);
+  const [step6Data, setStep6Data] = useState<Step6ClassifyResponse | null>(null);
 
   // User modifications for Step 2: PII Detection
   const [additionalPII, setAdditionalPII] = useState<PIIDetection[]>([]);
@@ -190,6 +194,9 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
           case 5:
             setStep5Data(data.nextStep as Step5FinalizeResponse);
             break;
+          case 6:
+            setStep6Data(data.nextStep as Step6ClassifyResponse);
+            break;
         }
         setCurrentStep(data.nextStep.stepNumber);
       }
@@ -242,6 +249,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
     setStep3Data(null);
     setStep4Data(null);
     setStep5Data(null);
+    setStep6Data(null);
     setAdditionalPII([]);
     setDeletedPIIIds(new Set());
     setPiiModifications({});
@@ -364,6 +372,15 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
             />
           )}
 
+          {/* Step 6: CNL Classification */}
+          {status === 'step' && currentStep === 6 && step6Data && (
+            <Step6View
+              data={step6Data}
+              cvId={cvId!}
+              backendUrl={backendUrl}
+            />
+          )}
+
           {/* Completed */}
           {status === 'completed' && (
             <div className="success-container">
@@ -405,7 +422,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
             >
               {isProcessing ? (
                 <span className="btn-loading">Verwerken...</span>
-              ) : currentStep === 5 ? (
+              ) : currentStep === 6 ? (
                 'Voltooien ✓'
               ) : (
                 'Bevestig & Volgende →'
@@ -2133,5 +2150,460 @@ const Step5View: React.FC<{
     `}</style>
   </div>
 );
+
+// Step 6: CNL Classification View
+const Step6View: React.FC<{
+  data: Step6ClassifyResponse;
+  cvId: number;
+  backendUrl: string;
+}> = ({ data, cvId, backendUrl }) => {
+  const [selectedAlternatives, setSelectedAlternatives] = useState<Record<number, { uri: string; label: string } | null>>({});
+  const [expandedItem, setExpandedItem] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchingFor, setSearchingFor] = useState<{ extractionId: number; type: string } | null>(null);
+
+  const handleSelectAlternative = async (extractionId: number, uri: string, label: string) => {
+    try {
+      await fetch(`${backendUrl}/api/cv/extraction/${extractionId}/classification`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri, label, confirmed: true })
+      });
+
+      setSelectedAlternatives(prev => ({
+        ...prev,
+        [extractionId]: { uri, label }
+      }));
+    } catch (error) {
+      console.error('Failed to update classification:', error);
+    }
+  };
+
+  const handleSearch = async (query: string, conceptType: string) => {
+    if (query.length < 2) return;
+
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/cv/cnl/search?q=${encodeURIComponent(query)}&type=${conceptType}&limit=10`
+      );
+      const data = await response.json();
+      setSearchResults(data.results || []);
+    } catch (error) {
+      console.error('Search failed:', error);
+      setSearchResults([]);
+    }
+  };
+
+  const handleConfirmClassification = async (extractionId: number) => {
+    try {
+      await fetch(`${backendUrl}/api/cv/extraction/${extractionId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error('Failed to confirm classification:', error);
+    }
+  };
+
+  const renderClassificationItem = (
+    item: any,
+    type: 'experience' | 'education' | 'skill',
+    conceptType: string
+  ) => {
+    const classification = item.classification;
+    const selected = selectedAlternatives[item.extractionId];
+    const displayMatch = selected || classification.match;
+    const isExpanded = expandedItem === item.extractionId;
+
+    const getStatusIcon = () => {
+      if (selected) return '🔧';
+      if (classification.found && classification.confidence >= 0.85) return '✅';
+      if (classification.found && classification.confidence >= 0.70) return '⚠️';
+      return '❓';
+    };
+
+    const getStatusClass = () => {
+      if (selected) return 'manual';
+      if (classification.found && classification.confidence >= 0.85) return 'high';
+      if (classification.found && classification.confidence >= 0.70) return 'medium';
+      return 'low';
+    };
+
+    const label = type === 'experience' ? item.jobTitle :
+                  type === 'education' ? item.degree :
+                  item.skillName;
+
+    return (
+      <div key={item.extractionId} className={`classification-item status-${getStatusClass()}`}>
+        <div className="item-header" onClick={() => setExpandedItem(isExpanded ? null : item.extractionId)}>
+          <span className="status-icon">{getStatusIcon()}</span>
+          <div className="item-info">
+            <span className="original-value">{label}</span>
+            {displayMatch && (
+              <>
+                <span className="arrow">→</span>
+                <span className="matched-value">{displayMatch.prefLabel || displayMatch.label}</span>
+                <span className="confidence">({Math.round(classification.confidence * 100)}%)</span>
+              </>
+            )}
+            {!displayMatch && !classification.found && (
+              <span className="no-match">Geen match gevonden</span>
+            )}
+          </div>
+          <span className="expand-icon">{isExpanded ? '▼' : '▶'}</span>
+        </div>
+
+        {isExpanded && (
+          <div className="item-details">
+            {classification.alternatives && classification.alternatives.length > 0 && (
+              <div className="alternatives">
+                <h5>Alternatieven:</h5>
+                {classification.alternatives.map((alt: any, idx: number) => (
+                  <label key={idx} className="alternative-option">
+                    <input
+                      type="radio"
+                      name={`alt-${item.extractionId}`}
+                      checked={selected?.uri === alt.uri}
+                      onChange={() => handleSelectAlternative(item.extractionId, alt.uri, alt.prefLabel)}
+                    />
+                    <span className="alt-label">{alt.prefLabel}</span>
+                    <span className="alt-confidence">({Math.round(alt.confidence * 100)}%)</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="manual-search">
+              <button
+                className="search-btn"
+                onClick={() => {
+                  setSearchingFor({ extractionId: item.extractionId, type: conceptType });
+                  setSearchQuery(label);
+                  handleSearch(label, conceptType);
+                }}
+              >
+                🔍 Handmatig zoeken
+              </button>
+            </div>
+
+            {searchingFor?.extractionId === item.extractionId && (
+              <div className="search-panel">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    handleSearch(e.target.value, conceptType);
+                  }}
+                  placeholder={`Zoek in ${conceptType === 'occupation' ? 'beroepen' : conceptType === 'education' ? 'opleidingen' : 'vaardigheden'}...`}
+                />
+                {searchResults.length > 0 && (
+                  <div className="search-results">
+                    {searchResults.map((result, idx) => (
+                      <button
+                        key={idx}
+                        className="search-result"
+                        onClick={() => {
+                          handleSelectAlternative(item.extractionId, result.uri, result.prefLabel);
+                          setSearchingFor(null);
+                          setSearchResults([]);
+                        }}
+                      >
+                        <span className="result-label">{result.prefLabel}</span>
+                        <span className="result-confidence">({Math.round(result.confidence * 100)}%)</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="step-view step-6-view">
+      <h3>Stap 6: CNL Taxonomie Classificatie</h3>
+      <p className="step-description">
+        Je functies, opleidingen en vaardigheden worden gekoppeld aan de CompetentNL standaard.
+        Controleer de matches en pas aan waar nodig.
+      </p>
+
+      {/* Summary */}
+      <div className="classification-summary">
+        <div className="summary-stat">
+          <span className="stat-value">{data.summary.classified}</span>
+          <span className="stat-label">van {data.summary.total} geclassificeerd</span>
+        </div>
+        <div className="summary-stat needs-review">
+          <span className="stat-value">{data.summary.needsReview}</span>
+          <span className="stat-label">vereisen review</span>
+        </div>
+        <div className="summary-stat">
+          <span className="stat-value">{Math.round(data.summary.averageConfidence * 100)}%</span>
+          <span className="stat-label">gem. confidence</span>
+        </div>
+      </div>
+
+      {/* Experience Classifications */}
+      {data.classifications.experience.length > 0 && (
+        <div className="classification-section">
+          <h4>Functies → Beroepen</h4>
+          {data.classifications.experience.map(item =>
+            renderClassificationItem(item, 'experience', 'occupation')
+          )}
+        </div>
+      )}
+
+      {/* Education Classifications */}
+      {data.classifications.education.length > 0 && (
+        <div className="classification-section">
+          <h4>Opleidingen → Kwalificaties</h4>
+          {data.classifications.education.map(item =>
+            renderClassificationItem(item, 'education', 'education')
+          )}
+        </div>
+      )}
+
+      {/* Skills Classifications */}
+      {data.classifications.skills.length > 0 && (
+        <div className="classification-section">
+          <h4>Vaardigheden → Competenties</h4>
+          {data.classifications.skills.map(item =>
+            renderClassificationItem(item, 'skill', 'capability')
+          )}
+        </div>
+      )}
+
+      <style jsx>{`
+        .step-view { padding: 0; }
+        .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
+        .step-description { color: #6b7280; margin: 0 0 20px 0; }
+
+        .classification-summary {
+          display: flex;
+          gap: 20px;
+          padding: 16px;
+          background: #f9fafb;
+          border-radius: 8px;
+          margin-bottom: 20px;
+        }
+
+        .summary-stat {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .stat-value {
+          font-size: 24px;
+          font-weight: 700;
+          color: #1f2937;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        .summary-stat.needs-review .stat-value {
+          color: #d97706;
+        }
+
+        .classification-section {
+          margin-bottom: 24px;
+        }
+
+        .classification-section h4 {
+          font-size: 14px;
+          font-weight: 600;
+          color: #374151;
+          margin: 0 0 12px 0;
+          padding-bottom: 8px;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .classification-item {
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          margin-bottom: 8px;
+          overflow: hidden;
+        }
+
+        .classification-item.status-high {
+          border-left: 3px solid #22c55e;
+        }
+
+        .classification-item.status-medium {
+          border-left: 3px solid #f59e0b;
+        }
+
+        .classification-item.status-low {
+          border-left: 3px solid #ef4444;
+        }
+
+        .classification-item.status-manual {
+          border-left: 3px solid #3b82f6;
+        }
+
+        .item-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+
+        .item-header:hover {
+          background: #f9fafb;
+        }
+
+        .status-icon {
+          font-size: 18px;
+        }
+
+        .item-info {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .original-value {
+          font-weight: 500;
+          color: #1f2937;
+        }
+
+        .arrow {
+          color: #9ca3af;
+        }
+
+        .matched-value {
+          color: #16a34a;
+          font-weight: 500;
+        }
+
+        .confidence {
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        .no-match {
+          color: #ef4444;
+          font-style: italic;
+        }
+
+        .expand-icon {
+          color: #9ca3af;
+          font-size: 12px;
+        }
+
+        .item-details {
+          padding: 12px 16px;
+          background: #f9fafb;
+          border-top: 1px solid #e5e7eb;
+        }
+
+        .alternatives h5 {
+          margin: 0 0 8px 0;
+          font-size: 13px;
+          color: #374151;
+        }
+
+        .alternative-option {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 0;
+          cursor: pointer;
+        }
+
+        .alt-label {
+          flex: 1;
+          font-size: 14px;
+        }
+
+        .alt-confidence {
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        .manual-search {
+          margin-top: 12px;
+        }
+
+        .search-btn {
+          padding: 8px 12px;
+          background: white;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+        }
+
+        .search-btn:hover {
+          border-color: #3b82f6;
+        }
+
+        .search-panel {
+          margin-top: 12px;
+        }
+
+        .search-panel input {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          font-size: 14px;
+        }
+
+        .search-results {
+          margin-top: 8px;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          max-height: 200px;
+          overflow-y: auto;
+        }
+
+        .search-result {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          padding: 8px 12px;
+          background: white;
+          border: none;
+          border-bottom: 1px solid #e5e7eb;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .search-result:last-child {
+          border-bottom: none;
+        }
+
+        .search-result:hover {
+          background: #f3f4f6;
+        }
+
+        .result-label {
+          flex: 1;
+          font-size: 14px;
+        }
+
+        .result-confidence {
+          font-size: 12px;
+          color: #6b7280;
+        }
+      `}</style>
+    </div>
+  );
+};
 
 export default CVParsingWizard;
