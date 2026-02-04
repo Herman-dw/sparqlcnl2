@@ -36,6 +36,7 @@ import {
   assessReIdentificationRisk
 } from './employerGeneralizer.ts';
 import { assessCVRisk, generatePrivacySummary } from './riskAssessment.ts';
+import { CNLClassificationService } from './cnlClassificationService.ts';
 
 const GLINER_SERVICE_URL = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
@@ -938,6 +939,59 @@ export class CVProcessingService {
           `UPDATE user_cvs SET allow_exact_data = FALSE WHERE id = ?`,
           [cvId]
         );
+      }
+
+      // STAP 2: Run CNL classification to match extractions against taxonomy
+      if (options?.autoClassify !== false) {
+        console.log(`  🔄 Starting CNL classification for CV ${cvId}...`);
+
+        const classificationService = new CNLClassificationService(this.db);
+        const classifyResult = await classificationService.classifyCV(cvId, {
+          useSemanticMatching: true,
+          useLLMFallback: true
+        });
+
+        console.log(`  ✓ CNL classification completed:`);
+        console.log(`    - Items classified: ${classifyResult.statistics.classified}/${classifyResult.statistics.total}`);
+        console.log(`    - Needs review: ${classifyResult.statistics.needsReview}`);
+        console.log(`    - Avg confidence: ${(classifyResult.statistics.averageConfidence * 100).toFixed(1)}%`);
+
+        // If selectBestMatch is enabled, auto-confirm the best classification for each item
+        if (options?.selectBestMatch !== false) {
+          console.log(`  🔄 Auto-selecting best matches...`);
+
+          // Experience classifications
+          for (const exp of classifyResult.experience) {
+            if (exp.classification.found && !exp.classification.needsReview) {
+              await this.db.execute(
+                `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
+                [exp.extractionId]
+              );
+            }
+          }
+
+          // Education classifications
+          for (const edu of classifyResult.education) {
+            if (edu.classification.found && !edu.classification.needsReview) {
+              await this.db.execute(
+                `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
+                [edu.extractionId]
+              );
+            }
+          }
+
+          // Skill classifications
+          for (const skill of classifyResult.skills) {
+            if (skill.classification.found && !skill.classification.needsReview) {
+              await this.db.execute(
+                `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
+                [skill.extractionId]
+              );
+            }
+          }
+
+          console.log(`  ✓ Best matches auto-confirmed`);
+        }
       }
 
       console.log(`✅ Quick Process completed for CV ${cvId}`);
