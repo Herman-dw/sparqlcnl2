@@ -66,7 +66,7 @@ export async function executeQuickMatch(
 
     // Upload the file
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('cv', file);  // Backend expects 'cv' field name
     formData.append('sessionId', sessionId);
 
     const uploadResponse = await fetch(`${backendUrl}/api/cv/upload`, {
