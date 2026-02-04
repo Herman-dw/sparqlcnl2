@@ -127,8 +127,6 @@ if %errorlevel% equ 0 (
 
 :: GLiNER draait niet, probeer te starten
 echo [INFO] GLiNER service niet actief, proberen te starten...
-echo [TIP] Bij problemen, start handmatig in apart venster:
-echo       cd services\python ^&^& venv\Scripts\activate ^&^& python gliner_service.py
 
 :: Check of Python beschikbaar is
 where python >nul 2>&1
@@ -143,7 +141,12 @@ set VENV_DIR=
 if exist "services\python\venv311\Scripts\activate.bat" (
     set VENV_DIR=venv311
     echo [OK] Virtual environment gevonden: venv311
-    goto :venv_ready
+    :: Check of dependencies al geinstalleerd zijn (kijk of gliner module bestaat)
+    if exist "services\python\venv311\Lib\site-packages\gliner" (
+        echo [OK] Dependencies al geinstalleerd, skip installatie
+        goto :start_gliner
+    )
+    goto :install_deps
 )
 
 :: Fallback naar oude venv alleen als venv311 niet bestaat
@@ -151,7 +154,10 @@ if exist "services\python\venv\Scripts\activate.bat" (
     echo [WARN] Oude venv gevonden - GLiNER vereist Python 3.11!
     echo [INFO] Verwijder services\python\venv en herstart voor automatische venv311 setup
     set VENV_DIR=venv
-    goto :venv_ready
+    if exist "services\python\venv\Lib\site-packages\gliner" (
+        goto :start_gliner
+    )
+    goto :install_deps
 )
 
 :: Geen venv gevonden, maak venv311 aan met Python 3.11
@@ -171,29 +177,37 @@ if %errorlevel% neq 0 (
 set VENV_DIR=venv311
 echo [OK] Virtual environment venv311 aangemaakt
 
+:install_deps
 echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
-cmd /c "cd /d %~dp0services\python && call venv311\Scripts\activate.bat && python -m pip install --quiet --upgrade pip && python -m pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && python -m pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && python -m pip install --quiet gliner onnxruntime huggingface_hub"
+cmd /c "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && python -m pip install --quiet --upgrade pip && python -m pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && python -m pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && python -m pip install --quiet gliner onnxruntime huggingface_hub"
 if %errorlevel% neq 0 (
     echo [WARN] Fout bij installeren dependencies
     goto :gliner_done
 )
 echo [OK] Dependencies geinstalleerd
 
-:venv_ready
+:start_gliner
 
 :: Laad HF_TOKEN uit .env.local als die bestaat
-set HF_TOKEN_CMD=
+set HF_TOKEN_VAL=
 if exist ".env.local" (
     for /f "tokens=1,2 delims==" %%a in ('findstr /R "^HF_TOKEN=" .env.local 2^>nul') do (
-        set HF_TOKEN_CMD=set HF_TOKEN=%%b ^&^& set HUGGINGFACE_HUB_TOKEN=%%b ^&^&
+        set HF_TOKEN_VAL=%%b
         echo [OK] HF_TOKEN geladen uit .env.local
     )
 )
 
-:: Start GLiNER service in apart venster (zodat het blijft draaien)
+:: Start GLiNER service in achtergrond (onzichtbaar venster)
 echo [INFO] GLiNER service starten in achtergrond...
-echo [INFO] Eerste keer kan lang duren ^(model downloaden ~100MB^)
-start "GLiNER Service" cmd /k "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && %HF_TOKEN_CMD% python gliner_service.py || (echo. && echo [ERROR] GLiNER crashed - zie foutmelding hierboven && pause)"
+set GLINER_SCRIPT=%~dp0services\python\gliner_service.py
+set GLINER_VENV=%~dp0services\python\%VENV_DIR%\Scripts\python.exe
+
+:: Start als achtergrond proces met PowerShell (geen zichtbaar venster)
+if defined HF_TOKEN_VAL (
+    powershell -Command "Start-Process -FilePath '%GLINER_VENV%' -ArgumentList '%GLINER_SCRIPT%' -WindowStyle Hidden -WorkingDirectory '%~dp0services\python' -PassThru | Out-Null; $env:HF_TOKEN='%HF_TOKEN_VAL%'"
+) else (
+    powershell -Command "Start-Process -FilePath '%GLINER_VENV%' -ArgumentList '%GLINER_SCRIPT%' -WindowStyle Hidden -WorkingDirectory '%~dp0services\python' -PassThru | Out-Null"
+)
 
 :: Wacht op GLiNER service met retry loop (max 60 seconden)
 echo [INFO] Wachten op GLiNER service startup...
@@ -205,7 +219,7 @@ timeout /t 5 >nul
 set /a GLINER_RETRIES+=1
 powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo [OK] GLiNER service succesvol gestart op http://localhost:8001
+    echo [OK] GLiNER service draait op http://localhost:8001
     goto :gliner_done
 )
 echo [INFO] Wachten op GLiNER... ^(%GLINER_RETRIES%/%GLINER_MAX_RETRIES%^)
@@ -214,7 +228,7 @@ if %GLINER_RETRIES% lss %GLINER_MAX_RETRIES% goto :gliner_wait_loop
 :: Max retries bereikt
 echo [WARN] GLiNER service niet beschikbaar na 60 seconden
 echo [INFO] CV upload werkt niet zonder GLiNER
-echo [INFO] Start handmatig: cd services\python ^&^& venv311\Scripts\activate ^&^& python gliner_service.py
+echo [INFO] Start handmatig: cd services\python ^&^& %VENV_DIR%\Scripts\activate ^&^& python gliner_service.py
 
 :gliner_done
 
