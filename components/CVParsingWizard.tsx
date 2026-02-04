@@ -461,6 +461,36 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            /* BASE COLOR RESET - prevents inheritance from dark mode/parent themes */
+            color: #1f2937;
+          }
+
+          /* Ensure all text elements have explicit colors */
+          .wizard-modal * {
+            color: inherit;
+          }
+
+          .wizard-modal h1, .wizard-modal h2, .wizard-modal h3,
+          .wizard-modal h4, .wizard-modal h5, .wizard-modal h6 {
+            color: #1f2937;
+          }
+
+          .wizard-modal p, .wizard-modal span, .wizard-modal div,
+          .wizard-modal label, .wizard-modal li {
+            color: #374151;
+          }
+
+          .wizard-modal input, .wizard-modal textarea, .wizard-modal select {
+            color: #1f2937;
+            background-color: white;
+          }
+
+          .wizard-modal input::placeholder {
+            color: #9ca3af;
+          }
+
+          .wizard-modal a {
+            color: #2563eb;
           }
 
           .wizard-header {
