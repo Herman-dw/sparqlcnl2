@@ -1315,6 +1315,7 @@ const Step2View: React.FC<{
           white-space: pre-wrap;
           cursor: text;
           user-select: text;
+          color: #1f2937;
         }
 
         .raw-text::selection {
