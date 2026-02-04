@@ -15,6 +15,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import { GoogleGenAI } from '@google/genai';
 
 type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;
@@ -1241,207 +1242,212 @@ export class CVWizardService {
       .replace(/&lt;\/mark&gt;/g, '</mark>');
   }
 
+  /**
+   * Parse CV structure using Gemini LLM
+   * The text is already anonymized, so it's safe to send to the API
+   */
   private async parseStructure(anonymizedText: string): Promise<{
     experience: ParsedExperience[];
     education: ParsedEducation[];
     skills: ParsedSkill[];
   }> {
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      console.warn('⚠️ No Gemini API key found, falling back to regex parsing');
+      return this.parseStructureWithRegex(anonymizedText);
+    }
+
+    try {
+      const genAI = new GoogleGenAI({ apiKey });
+
+      const prompt = `Analyseer het volgende geanonimiseerde CV en extraheer de structuur.
+Let op: persoonlijke gegevens zijn al vervangen door placeholders zoals [Naam], [Werkgever], [Adres] etc.
+
+CV TEKST:
+${anonymizedText}
+
+Geef je antwoord ALLEEN als valid JSON in exact dit formaat (geen markdown, geen uitleg):
+{
+  "experience": [
+    {
+      "jobTitle": "functietitel",
+      "organization": "organisatie naam of [Werkgever] placeholder",
+      "startDate": "YYYY",
+      "endDate": "YYYY of null als huidig",
+      "description": "korte beschrijving van taken/verantwoordelijkheden",
+      "skills": ["skill1", "skill2"]
+    }
+  ],
+  "education": [
+    {
+      "degree": "diploma/opleiding naam",
+      "institution": "instelling naam of [Onderwijsinstelling] placeholder",
+      "year": "YYYY",
+      "fieldOfStudy": "studierichting indien bekend"
+    }
+  ],
+  "skills": [
+    {
+      "skillName": "vaardigheid naam",
+      "category": "technical|soft|language|other"
+    }
+  ]
+}
+
+Belangrijke instructies:
+- Behoud de [placeholder] teksten zoals ze zijn - vervang ze NIET
+- Geef alleen JSON terug, geen andere tekst
+- Als iets niet duidelijk is, laat het veld leeg of gebruik null
+- Sorteer ervaring van nieuwste naar oudste
+- Wees grondig: extraheer ALLE genoemde ervaringen, opleidingen en vaardigheden`;
+
+      const result = await genAI.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt
+      });
+      const response = result.text;
+
+      // Extract JSON from response (handle potential markdown code blocks)
+      let jsonStr = response;
+      const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1];
+      }
+
+      // Clean up the JSON string
+      jsonStr = jsonStr.trim();
+      if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
+        const parsed = JSON.parse(jsonStr);
+
+        // Transform to our format with IDs and confidence scores
+        const experience: ParsedExperience[] = (parsed.experience || []).map((exp: any, i: number) => ({
+          id: `exp-${i + 1}`,
+          jobTitle: exp.jobTitle || '',
+          organization: exp.organization,
+          startDate: exp.startDate,
+          endDate: exp.endDate,
+          duration: this.calculateDuration(exp.startDate, exp.endDate),
+          description: exp.description || '',
+          skills: exp.skills || [],
+          needsReview: false,
+          confidence: 0.9
+        }));
+
+        const education: ParsedEducation[] = (parsed.education || []).map((edu: any, i: number) => ({
+          id: `edu-${i + 1}`,
+          degree: edu.degree || '',
+          institution: edu.institution,
+          year: edu.year,
+          fieldOfStudy: edu.fieldOfStudy || '',
+          needsReview: false,
+          confidence: 0.9
+        }));
+
+        const skills: ParsedSkill[] = (parsed.skills || []).map((skill: any, i: number) => ({
+          id: `skill-${i + 1}`,
+          skillName: typeof skill === 'string' ? skill : skill.skillName,
+          category: typeof skill === 'string' ? 'other' : skill.category,
+          confidence: 0.85
+        }));
+
+        console.log(`✅ Gemini parsed CV: ${experience.length} experiences, ${education.length} education, ${skills.length} skills`);
+
+        return { experience, education, skills };
+      }
+
+      throw new Error('Invalid JSON response from Gemini');
+    } catch (error) {
+      console.error('❌ Gemini parsing failed, falling back to regex:', error);
+      return this.parseStructureWithRegex(anonymizedText);
+    }
+  }
+
+  private calculateDuration(startDate: string | null, endDate: string | null): number {
+    if (!startDate) return 0;
+    const start = parseInt(startDate);
+    const end = endDate ? parseInt(endDate) : new Date().getFullYear();
+    return isNaN(start) || isNaN(end) ? 0 : end - start;
+  }
+
+  /**
+   * Fallback regex-based parsing when Gemini is not available
+   */
+  private parseStructureWithRegex(anonymizedText: string): {
+    experience: ParsedExperience[];
+    education: ParsedEducation[];
+    skills: ParsedSkill[];
+  } {
     const result = {
       experience: [] as ParsedExperience[],
       education: [] as ParsedEducation[],
       skills: [] as ParsedSkill[]
     };
 
-    // Split into sections
-    const sections = this.identifySections(anonymizedText);
+    // Simple regex-based section detection
+    const lines = anonymizedText.split('\n');
+    let currentSection: 'experience' | 'education' | 'skills' | null = null;
+    let sectionLines: string[] = [];
 
-    // Parse experience
-    if (sections.experience) {
-      result.experience = this.parseExperienceSection(sections.experience);
-    }
-
-    // Parse education
-    if (sections.education) {
-      result.education = this.parseEducationSection(sections.education);
-    }
-
-    // Parse skills
-    result.skills = this.extractSkills(anonymizedText, sections.skills);
-
-    return result;
-  }
-
-  private identifySections(text: string): { experience?: string; education?: string; skills?: string } {
-    const sections: any = {};
     const experienceHeaders = /(werkervaring|work experience|ervaring|professional experience|employment)/i;
     const educationHeaders = /(opleiding|education|studie|studies|academic)/i;
     const skillHeaders = /(vaardigheden|skills|competenties|competencies)/i;
 
-    const lines = text.split('\n');
-    let currentSection: string | null = null;
-    let sectionContent: string[] = [];
-
     for (const line of lines) {
       if (experienceHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
         currentSection = 'experience';
-        sectionContent = [];
+        sectionLines = [];
       } else if (educationHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
         currentSection = 'education';
-        sectionContent = [];
+        sectionLines = [];
       } else if (skillHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
         currentSection = 'skills';
-        sectionContent = [];
-      } else if (currentSection) {
-        sectionContent.push(line);
+        sectionLines = [];
+      } else if (currentSection && line.trim()) {
+        sectionLines.push(line);
+
+        // Try to extract items as we go
+        if (currentSection === 'experience') {
+          const expMatch = line.match(/(.+?)\s+(\d{4})\s*[-–]\s*(\d{4}|heden|present)/i);
+          if (expMatch) {
+            result.experience.push({
+              id: `exp-${result.experience.length + 1}`,
+              jobTitle: expMatch[1].trim(),
+              startDate: expMatch[2],
+              endDate: expMatch[3].toLowerCase() === 'heden' ? null : expMatch[3],
+              duration: this.calculateDuration(expMatch[2], expMatch[3]),
+              description: '',
+              skills: [],
+              needsReview: true,
+              confidence: 0.5
+            });
+          }
+        } else if (currentSection === 'education') {
+          const eduMatch = line.match(/(.+?)\s*\((\d{4})\)/);
+          if (eduMatch) {
+            result.education.push({
+              id: `edu-${result.education.length + 1}`,
+              degree: eduMatch[1].trim(),
+              year: eduMatch[2],
+              fieldOfStudy: '',
+              needsReview: true,
+              confidence: 0.5
+            });
+          }
+        } else if (currentSection === 'skills') {
+          const skillItems = line.split(/[,;•]/).filter(s => s.trim().length > 1);
+          for (const skill of skillItems) {
+            result.skills.push({
+              id: `skill-${result.skills.length + 1}`,
+              skillName: skill.trim(),
+              confidence: 0.6
+            });
+          }
+        }
       }
     }
 
-    if (currentSection && sectionContent.length > 0) {
-      sections[currentSection] = sectionContent.join('\n');
-    }
-
-    return sections;
-  }
-
-  private parseExperienceSection(text: string): ParsedExperience[] {
-    const experiences: ParsedExperience[] = [];
-    let idCounter = 1;
-
-    // Pattern: Job title bij Organization (year-year)
-    const pattern = /([A-Z][^\n]+?)\s+(?:bij|at)\s+([^\n(]+?)\s*\((\d{4})\s*[-–]\s*(\d{4}|heden|present)\)/gi;
-
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const [_, jobTitle, organization, startYear, endYear] = match;
-      const duration = endYear.match(/\d{4}/)
-        ? parseInt(endYear) - parseInt(startYear)
-        : new Date().getFullYear() - parseInt(startYear);
-
-      experiences.push({
-        id: `exp-${idCounter++}`,
-        jobTitle: jobTitle.trim(),
-        organization: organization.trim(),
-        startDate: startYear,
-        endDate: endYear === 'heden' || endYear === 'present' ? null : endYear,
-        duration,
-        description: '',
-        skills: [],
-        needsReview: false,
-        confidence: 0.85
-      });
-    }
-
-    if (experiences.length > 0) return experiences;
-
-    // Fallback pattern
-    const fallbackPattern = /(.+?)\s+(\d{4})\s*[-–]\s*(\d{4}|heden|present)/gi;
-    let fallbackMatch;
-    while ((fallbackMatch = fallbackPattern.exec(text)) !== null) {
-      const [_, title, startYear, endYear] = fallbackMatch;
-      const duration = endYear.match(/\d{4}/)
-        ? parseInt(endYear) - parseInt(startYear)
-        : new Date().getFullYear() - parseInt(startYear);
-
-      experiences.push({
-        id: `exp-${idCounter++}`,
-        jobTitle: title.trim(),
-        startDate: startYear,
-        endDate: endYear === 'heden' || endYear === 'present' ? null : endYear,
-        duration,
-        description: '',
-        skills: [],
-        needsReview: true,
-        confidence: 0.5
-      });
-    }
-
-    return experiences;
-  }
-
-  private parseEducationSection(text: string): ParsedEducation[] {
-    const education: ParsedEducation[] = [];
-    let idCounter = 1;
-
-    // Pattern: Degree, Institution (year)
-    const pattern = /([^\n,]+?),\s*([^\n(]+?)\s*\((\d{4})\)/gi;
-
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const [_, degree, institution, year] = match;
-
-      education.push({
-        id: `edu-${idCounter++}`,
-        degree: degree.trim(),
-        institution: institution.trim(),
-        year,
-        fieldOfStudy: '',
-        needsReview: false,
-        confidence: 0.85
-      });
-    }
-
-    if (education.length > 0) return education;
-
-    // Fallback
-    const fallbackPattern = /(.+?)\s*\((\d{4})\)/gi;
-    let fallbackMatch;
-    while ((fallbackMatch = fallbackPattern.exec(text)) !== null) {
-      const [_, degree, year] = fallbackMatch;
-      education.push({
-        id: `edu-${idCounter++}`,
-        degree: degree.trim(),
-        year,
-        fieldOfStudy: '',
-        needsReview: true,
-        confidence: 0.5
-      });
-    }
-
-    return education;
-  }
-
-  private extractSkills(text: string, skillSection?: string): ParsedSkill[] {
-    const skillPatterns = [
-      /\b(Python|Java|JavaScript|TypeScript|C\#|C\+\+|Ruby|PHP|Go|Rust|Swift|Kotlin)\b/gi,
-      /\b(React|Vue|Angular|Node\.js|Express|Django|Flask|Spring|Laravel)\b/gi,
-      /\b(SQL|MySQL|PostgreSQL|MongoDB|Redis|Elasticsearch)\b/gi,
-      /\b(AWS|Azure|GCP|Docker|Kubernetes|Jenkins|GitLab|GitHub)\b/gi,
-      /\b(Agile|Scrum|Kanban|DevOps|CI\/CD|TDD|BDD)\b/gi
-    ];
-
-    const skills: Set<string> = new Set();
-
-    for (const pattern of skillPatterns) {
-      let match;
-      while ((match = pattern.exec(text)) !== null) {
-        skills.add(match[1]);
-      }
-    }
-
-    if (skillSection) {
-      const sectionSkills = skillSection
-        .split(/[,;\n•]+/)
-        .map(skill => skill.trim())
-        .filter(skill => skill.length > 1);
-      for (const skill of sectionSkills) {
-        skills.add(skill);
-      }
-    }
-
-    return Array.from(skills).map((skillName, i) => ({
-      id: `skill-${i + 1}`,
-      skillName,
-      confidence: 0.75
-    }));
+    return result;
   }
 
   private encrypt(text: string): Buffer {

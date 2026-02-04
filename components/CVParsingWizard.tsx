@@ -10,7 +10,7 @@
  * 5. Privacy & Werkgevers - Kies privacy niveau en finaliseer
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 
 import type {
@@ -68,7 +68,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
 
   // User modifications for Step 2: PII Detection
   const [additionalPII, setAdditionalPII] = useState<PIIDetection[]>([]);
-  const [deletedPIIIds, setDeletedPIIIds] = useState<Set<number>>(new Set());
+  const [deletedPIIIds, setDeletedPIIIds] = useState<number[]>([]);
   const [piiModifications, setPiiModifications] = useState<Record<number, Partial<PIIDetection>>>({});
   const [selectedPrivacyLevel, setSelectedPrivacyLevel] = useState<PrivacyLevel>('medium');
 
@@ -146,15 +146,15 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
       // Add step-specific data
       if (currentStep === 2 && step2Data) {
         // Combine original detections (with modifications) and additional PII
-        const modifiedDetections = step2Data.detections
-          .filter(d => d.id !== undefined && !deletedPIIIds.has(d.id))
+        const modifiedDetections = (step2Data.detections || [])
+          .filter(d => d.id !== undefined && !deletedPIIIds.includes(d.id))
           .map(d => ({
             ...d,
             ...(d.id !== undefined ? piiModifications[d.id] : {})
           }));
 
         body.detections = [...modifiedDetections, ...additionalPII];
-        body.deletedIds = Array.from(deletedPIIIds);
+        body.deletedIds = deletedPIIIds;
       }
       if (currentStep === 5) {
         body.privacyLevel = selectedPrivacyLevel;
@@ -251,7 +251,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
     setStep5Data(null);
     setStep6Data(null);
     setAdditionalPII([]);
-    setDeletedPIIIds(new Set());
+    setDeletedPIIIds([]);
     setPiiModifications({});
     setSelectedPrivacyLevel('medium');
   };
@@ -334,12 +334,8 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
               deletedPIIIds={deletedPIIIds}
               piiModifications={piiModifications}
               onAddPII={(pii) => setAdditionalPII([...additionalPII, pii])}
-              onDeletePII={(id) => setDeletedPIIIds(new Set([...deletedPIIIds, id]))}
-              onRestorePII={(id) => {
-                const newSet = new Set(deletedPIIIds);
-                newSet.delete(id);
-                setDeletedPIIIds(newSet);
-              }}
+              onDeletePII={(id) => setDeletedPIIIds([...deletedPIIIds, id])}
+              onRestorePII={(id) => setDeletedPIIIds(deletedPIIIds.filter(i => i !== id))}
               onModifyPII={(id, changes) => setPiiModifications({
                 ...piiModifications,
                 [id]: { ...piiModifications[id], ...changes }
@@ -844,7 +840,7 @@ const Step1View: React.FC<{ data: Step1ExtractResponse }> = ({ data }) => (
 const Step2View: React.FC<{
   data: Step2PIIResponse;
   additionalPII: PIIDetection[];
-  deletedPIIIds: Set<number>;
+  deletedPIIIds: number[];
   piiModifications: Record<number, Partial<PIIDetection>>;
   onAddPII: (pii: PIIDetection) => void;
   onDeletePII: (id: number) => void;
@@ -875,8 +871,8 @@ const Step2View: React.FC<{
   const detections = data.detections || [];
 
   // Calculate active detections (excluding deleted ones)
-  const activeDetections = detections.filter(d => d.id !== undefined && !deletedPIIIds.has(d.id));
-  const deletedDetections = detections.filter(d => d.id !== undefined && deletedPIIIds.has(d.id));
+  const activeDetections = detections.filter(d => d.id !== undefined && !deletedPIIIds.includes(d.id));
+  const deletedDetections = detections.filter(d => d.id !== undefined && deletedPIIIds.includes(d.id));
   const totalActive = activeDetections.length + additionalPII.length;
 
   // Recalculate summary by type
@@ -887,32 +883,43 @@ const Step2View: React.FC<{
 
   // Handle text selection in the raw text area
   const handleTextSelection = () => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !textRef.current) {
+    try {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !textRef.current) {
+        setSelectedText('');
+        setSelectionRange(null);
+        return;
+      }
+
+      const text = selection.toString().trim();
+      if (text.length < 2) {
+        setSelectedText('');
+        setSelectionRange(null);
+        return;
+      }
+
+      // Verify selection is within our text element
+      if (!textRef.current.contains(selection.anchorNode)) {
+        return;
+      }
+
+      // Get actual selection offsets from the DOM range
+      const range = selection.getRangeAt(0);
+      const preSelectionRange = document.createRange();
+      preSelectionRange.selectNodeContents(textRef.current);
+      preSelectionRange.setEnd(range.startContainer, range.startOffset);
+      const startOffset = preSelectionRange.toString().length;
+      const endOffset = startOffset + text.length;
+
+      setSelectedText(text);
+      setSelectionRange({ start: startOffset, end: endOffset });
+      setNewPIIReplacement(`[${text.charAt(0).toUpperCase() + text.slice(1)}]`);
+      setShowAddModal(true);
+    } catch (error) {
+      console.error('Text selection error:', error);
       setSelectedText('');
       setSelectionRange(null);
-      return;
     }
-
-    const text = selection.toString().trim();
-    if (text.length < 2) {
-      setSelectedText('');
-      setSelectionRange(null);
-      return;
-    }
-
-    // Get actual selection offsets from the DOM range
-    const range = selection.getRangeAt(0);
-    const preSelectionRange = document.createRange();
-    preSelectionRange.selectNodeContents(textRef.current);
-    preSelectionRange.setEnd(range.startContainer, range.startOffset);
-    const startOffset = preSelectionRange.toString().length;
-    const endOffset = startOffset + text.length;
-
-    setSelectedText(text);
-    setSelectionRange({ start: startOffset, end: endOffset });
-    setNewPIIReplacement(`[${text.charAt(0).toUpperCase() + text.slice(1)}]`);
-    setShowAddModal(true);
   };
 
   const handleAddPII = () => {
@@ -952,6 +959,58 @@ const Step2View: React.FC<{
     return defaults[type] || '[Verwijderd]';
   };
 
+  // Render text with highlighted PII items
+  const renderHighlightedText = () => {
+    const rawText = data.rawText || '';
+    if (!rawText) return null;
+
+    // Combine all active detections for highlighting
+    const allDetections = [...activeDetections, ...additionalPII]
+      .filter(d => d.startPosition !== undefined && d.endPosition !== undefined)
+      .sort((a, b) => a.startPosition - b.startPosition);
+
+    if (allDetections.length === 0) {
+      return rawText;
+    }
+
+    const elements: React.ReactNode[] = [];
+    let lastEnd = 0;
+
+    allDetections.forEach((detection, idx) => {
+      // Add text before this detection
+      if (detection.startPosition > lastEnd) {
+        elements.push(
+          <span key={`text-${idx}`}>
+            {rawText.substring(lastEnd, detection.startPosition)}
+          </span>
+        );
+      }
+
+      // Add highlighted detection (only if not overlapping with previous)
+      if (detection.startPosition >= lastEnd) {
+        elements.push(
+          <mark
+            key={`pii-${idx}`}
+            className={`pii-highlight pii-${detection.type}`}
+            title={`${detection.type}: ${detection.replacementText || getDefaultReplacement(detection.type)}`}
+          >
+            {rawText.substring(detection.startPosition, detection.endPosition)}
+          </mark>
+        );
+        lastEnd = detection.endPosition;
+      }
+    });
+
+    // Add remaining text after last detection
+    if (lastEnd < rawText.length) {
+      elements.push(
+        <span key="text-end">{rawText.substring(lastEnd)}</span>
+      );
+    }
+
+    return elements;
+  };
+
   return (
     <div className="step-view">
       <h3>Stap 2: PII Detectie</h3>
@@ -973,7 +1032,7 @@ const Step2View: React.FC<{
         </div>
       </div>
 
-      {/* Raw text with selection capability */}
+      {/* Raw text with selection capability and highlights */}
       {data.rawText && (
         <div className="text-selection-area">
           <h4>Selecteer tekst om toe te voegen als PII:</h4>
@@ -982,7 +1041,7 @@ const Step2View: React.FC<{
             className="raw-text"
             onMouseUp={handleTextSelection}
           >
-            {data.rawText}
+            {renderHighlightedText()}
           </div>
         </div>
       )}
@@ -1208,6 +1267,48 @@ const Step2View: React.FC<{
 
         .raw-text::selection {
           background: #bfdbfe;
+        }
+
+        /* PII Highlight styles */
+        .pii-highlight {
+          padding: 1px 3px;
+          border-radius: 3px;
+          cursor: help;
+        }
+
+        .pii-name {
+          background: #fce7f3;
+          border-bottom: 2px solid #ec4899;
+        }
+
+        .pii-email {
+          background: #dbeafe;
+          border-bottom: 2px solid #3b82f6;
+        }
+
+        .pii-phone {
+          background: #d1fae5;
+          border-bottom: 2px solid #10b981;
+        }
+
+        .pii-address {
+          background: #fef3c7;
+          border-bottom: 2px solid #f59e0b;
+        }
+
+        .pii-date {
+          background: #fef9c3;
+          border-bottom: 2px solid #eab308;
+        }
+
+        .pii-organization {
+          background: #e0e7ff;
+          border-bottom: 2px solid #6366f1;
+        }
+
+        .pii-other {
+          background: #f3f4f6;
+          border-bottom: 2px solid #9ca3af;
         }
 
         .add-pii-modal {
@@ -1491,7 +1592,31 @@ const Step2View: React.FC<{
   );
 };
 
-const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
+const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
+  const originalRef = useRef<HTMLDivElement>(null);
+  const anonymizedRef = useRef<HTMLDivElement>(null);
+  const isSyncingRef = useRef(false);
+
+  // Synchronized scrolling between the two panels
+  const handleScroll = useCallback((source: 'original' | 'anonymized') => {
+    if (isSyncingRef.current) return;
+
+    isSyncingRef.current = true;
+
+    const sourceEl = source === 'original' ? originalRef.current : anonymizedRef.current;
+    const targetEl = source === 'original' ? anonymizedRef.current : originalRef.current;
+
+    if (sourceEl && targetEl) {
+      targetEl.scrollTop = sourceEl.scrollTop;
+    }
+
+    // Reset syncing flag after a short delay
+    requestAnimationFrame(() => {
+      isSyncingRef.current = false;
+    });
+  }, []);
+
+  return (
   <div className="step-view">
     <h3>Stap 3: Anonimisering Preview</h3>
     <p className="step-description">
@@ -1501,7 +1626,11 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
     <div className="comparison-container">
       <div className="comparison-column original">
         <h4>Origineel</h4>
-        <div className="text-content">
+        <div
+          ref={originalRef}
+          className="text-content"
+          onScroll={() => handleScroll('original')}
+        >
           {data.comparisonView.original.map((line, idx) => (
             <div
               key={idx}
@@ -1515,7 +1644,11 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
 
       <div className="comparison-column anonymized">
         <h4>Geanonimiseerd</h4>
-        <div className="text-content">
+        <div
+          ref={anonymizedRef}
+          className="text-content"
+          onScroll={() => handleScroll('anonymized')}
+        >
           {data.comparisonView.anonymized.map((line, idx) => (
             <div
               key={idx}
@@ -1664,7 +1797,8 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
       }
     `}</style>
   </div>
-);
+  );
+};
 
 const Step4View: React.FC<{ data: Step4ParseResponse }> = ({ data }) => (
   <div className="step-view">
