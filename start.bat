@@ -127,8 +127,6 @@ if %errorlevel% equ 0 (
 
 :: GLiNER draait niet, probeer te starten
 echo [INFO] GLiNER service niet actief, proberen te starten...
-echo [TIP] Bij problemen, start handmatig in apart venster:
-echo       cd services\python ^&^& venv\Scripts\activate ^&^& python gliner_service.py
 
 :: Check of Python beschikbaar is
 where python >nul 2>&1
@@ -138,58 +136,78 @@ if %errorlevel% neq 0 (
     goto :gliner_done
 )
 
-:: Check of venv bestaat, zo niet maak aan
-if not exist "services\python\venv" (
-    echo [INFO] Python virtual environment aanmaken...
-    python -m venv services\python\venv
-    if %errorlevel% neq 0 (
-        echo [WARN] Kon venv niet aanmaken
-        goto :gliner_done
+:: Bepaal welke venv directory bestaat (venv311 heeft voorkeur - vereist Python 3.11)
+set VENV_DIR=
+if exist "services\python\venv311\Scripts\activate.bat" (
+    set VENV_DIR=venv311
+    echo [OK] Virtual environment gevonden: venv311
+    :: Check of dependencies al geinstalleerd zijn (kijk of gliner module bestaat)
+    if exist "services\python\venv311\Lib\site-packages\gliner" (
+        echo [OK] Dependencies al geinstalleerd, skip installatie
+        goto :start_gliner
     )
-    echo [OK] Virtual environment aangemaakt
+    goto :install_deps
 )
 
-:: Check of dependencies zijn geinstalleerd (gliner module check)
-services\python\venv\Scripts\python.exe -c "import gliner" >nul 2>&1
+:: Fallback naar oude venv alleen als venv311 niet bestaat
+if exist "services\python\venv\Scripts\activate.bat" (
+    echo [WARN] Oude venv gevonden - GLiNER vereist Python 3.11!
+    echo [INFO] Verwijder services\python\venv en herstart voor automatische venv311 setup
+    set VENV_DIR=venv
+    if exist "services\python\venv\Lib\site-packages\gliner" (
+        goto :start_gliner
+    )
+    goto :install_deps
+)
+
+:: Geen venv gevonden, maak venv311 aan met Python 3.11
+echo [INFO] Python 3.11 virtual environment aanmaken...
+
+:: Probeer eerst py -3.11, dan python
+py -3.11 -m venv services\python\venv311 2>nul
 if %errorlevel% neq 0 (
-    echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
-
-    :: Upgrade pip first using python -m pip to avoid permission issues
-    echo [INFO] Pip upgraden...
-    services\python\venv\Scripts\python.exe -m pip install --quiet --upgrade pip
+    echo [INFO] py -3.11 niet gevonden, probeer python...
+    python -m venv services\python\venv311
     if %errorlevel% neq 0 (
-        echo [WARN] Pip upgrade mislukt, doorgaan met huidige versie...
-    )
-
-    :: Install dependencies in separate steps for better error handling
-    echo [INFO] Basis dependencies installeren...
-    services\python\venv\Scripts\pip.exe install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson
-    if %errorlevel% neq 0 (
-        echo [WARN] Fout bij installeren basis dependencies
+        echo [WARN] Kon venv311 niet aanmaken
+        echo [INFO] Installeer Python 3.11+ van https://python.org
         goto :gliner_done
     )
+)
+set VENV_DIR=venv311
+echo [OK] Virtual environment venv311 aangemaakt
 
-    echo [INFO] PyTorch installeren ^(kan enkele minuten duren^)...
-    services\python\venv\Scripts\pip.exe install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-    if %errorlevel% neq 0 (
-        echo [WARN] Fout bij installeren PyTorch
-        goto :gliner_done
+:install_deps
+echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
+cmd /c "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && python -m pip install --quiet --upgrade pip && python -m pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && python -m pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && python -m pip install --quiet gliner onnxruntime huggingface_hub"
+if %errorlevel% neq 0 (
+    echo [WARN] Fout bij installeren dependencies
+    goto :gliner_done
+)
+echo [OK] Dependencies geinstalleerd
+
+:start_gliner
+
+:: Laad HF_TOKEN uit .env.local als die bestaat
+set HF_TOKEN_VAL=
+if exist ".env.local" (
+    for /f "tokens=1,2 delims==" %%a in ('findstr /R "^HF_TOKEN=" .env.local 2^>nul') do (
+        set HF_TOKEN_VAL=%%b
+        echo [OK] HF_TOKEN geladen uit .env.local
     )
-
-    echo [INFO] GLiNER installeren...
-    services\python\venv\Scripts\pip.exe install --quiet gliner onnxruntime huggingface_hub
-    if %errorlevel% neq 0 (
-        echo [WARN] Fout bij installeren GLiNER
-        goto :gliner_done
-    )
-
-    echo [OK] Dependencies geinstalleerd
 )
 
-:: Start GLiNER service in achtergrond (geen zichtbaar venster)
+:: Start GLiNER service in achtergrond (onzichtbaar venster)
 echo [INFO] GLiNER service starten in achtergrond...
-echo [INFO] Eerste keer kan lang duren ^(model downloaden ~100MB^)
-powershell -WindowStyle Hidden -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0services\python && call venv\Scripts\activate.bat && python gliner_service.py' -WindowStyle Hidden"
+set GLINER_SCRIPT=%~dp0services\python\gliner_service.py
+set GLINER_VENV=%~dp0services\python\%VENV_DIR%\Scripts\python.exe
+
+:: Start als achtergrond proces met PowerShell (geen zichtbaar venster)
+if defined HF_TOKEN_VAL (
+    powershell -Command "Start-Process -FilePath '%GLINER_VENV%' -ArgumentList '%GLINER_SCRIPT%' -WindowStyle Hidden -WorkingDirectory '%~dp0services\python' -PassThru | Out-Null; $env:HF_TOKEN='%HF_TOKEN_VAL%'"
+) else (
+    powershell -Command "Start-Process -FilePath '%GLINER_VENV%' -ArgumentList '%GLINER_SCRIPT%' -WindowStyle Hidden -WorkingDirectory '%~dp0services\python' -PassThru | Out-Null"
+)
 
 :: Wacht op GLiNER service met retry loop (max 60 seconden)
 echo [INFO] Wachten op GLiNER service startup...
@@ -199,9 +217,9 @@ set /a GLINER_MAX_RETRIES=12
 :gliner_wait_loop
 timeout /t 5 >nul
 set /a GLINER_RETRIES+=1
-powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -TimeoutSec 3 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo [OK] GLiNER service succesvol gestart op http://localhost:8001
+    echo [OK] GLiNER service draait op http://localhost:8001
     goto :gliner_done
 )
 echo [INFO] Wachten op GLiNER... ^(%GLINER_RETRIES%/%GLINER_MAX_RETRIES%^)
@@ -210,7 +228,7 @@ if %GLINER_RETRIES% lss %GLINER_MAX_RETRIES% goto :gliner_wait_loop
 :: Max retries bereikt
 echo [WARN] GLiNER service niet beschikbaar na 60 seconden
 echo [INFO] CV upload werkt niet zonder GLiNER
-echo [INFO] Start handmatig: cd services\python ^&^& venv\Scripts\activate ^&^& python gliner_service.py
+echo [INFO] Start handmatig: cd services\python ^&^& %VENV_DIR%\Scripts\activate ^&^& python gliner_service.py
 
 :gliner_done
 

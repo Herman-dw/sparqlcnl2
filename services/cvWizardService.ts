@@ -388,15 +388,34 @@ export class CVWizardService {
       }
 
       // Call GLiNER for detection
-      const response = await axios.post(
-        `${GLINER_SERVICE_URL}/detect`,
-        {
-          text: rawText,
-          threshold: 0.3,
-          max_length: 512
-        },
-        { timeout: 30000 }
-      );
+      let response;
+      try {
+        response = await axios.post(
+          `${GLINER_SERVICE_URL}/detect`,
+          {
+            text: rawText,
+            threshold: 0.3,
+            max_length: 512
+          },
+          { timeout: 30000 }
+        );
+      } catch (axiosError: any) {
+        const isConnectionError = axiosError.code === 'ECONNREFUSED' ||
+                                   axiosError.code === 'ENOTFOUND' ||
+                                   axiosError.message?.includes('connect');
+        if (isConnectionError) {
+          throw new CVProcessingError(
+            'De PII-detectie service (GLiNER) is niet bereikbaar. Start de service met: cd services/python && python gliner_service.py',
+            'GLINER_OFFLINE',
+            cvId
+          );
+        }
+        throw new CVProcessingError(
+          `PII-detectie mislukt: ${axiosError.message}`,
+          'GLINER_ERROR',
+          cvId
+        );
+      }
 
       const entities = response.data.entities || [];
 
@@ -809,7 +828,11 @@ export class CVWizardService {
       // Initialize classification service
       const classificationService = new CNLClassificationService(this.db);
 
-      // Run classification with semantic matching and LLM fallback enabled
+      // Run classification with full cascade:
+      // 1. Exact match (100% confidence)
+      // 2. Fuzzy match (≥80% confidence)
+      // 3. Semantic match with embeddings (≥75% confidence)
+      // 4. LLM fallback for complex cases
       const result = await classificationService.classifyCV(cvId, {
         useSemanticMatching: true,
         useLLMFallback: true
