@@ -14,7 +14,8 @@ export interface LogPrivacyEventParams {
   cvId: number;
   eventType: 'pii_detected' | 'pii_anonymized' | 'employer_generalized' |
              'user_consent_given' | 'user_consent_declined' |
-             'llm_call_made' | 'exact_data_shared';
+             'llm_call_made' | 'exact_data_shared' |
+             'cv_deleted' | 'gdpr_data_exported' | 'security_incident';
 
   // PII details (optional)
   piiTypes?: string[];
@@ -108,7 +109,7 @@ export class PrivacyLogger {
     );
 
     const insertResult = result as any;
-    console.log(`✓ Privacy event logged: ${eventType} for CV ${cvId}`);
+    console.log(`[OK] Privacy event logged: ${eventType} for CV ${cvId}`);
 
     return insertResult.insertId;
   }
@@ -196,13 +197,15 @@ export class PrivacyLogger {
   ): Promise<void> {
     // WAARSCHUWING als PII werd verzonden (zou NOOIT moeten gebeuren!)
     if (containedPII) {
-      console.error(`⚠️⚠️⚠️ WARNING: PII was sent to LLM for CV ${cvId}! This is a security incident!`);
+      console.error(`[!][!][!] WARNING: PII was sent to LLM for CV ${cvId}! This is a security incident!`);
 
-      // Ook loggen in separate error log
-      await this.logSecurityIncident(cvId, 'pii_sent_to_llm', {
-        llmProvider,
-        dataSent
-      });
+      // Log security incident to database
+      await this.logSecurityIncident(
+        cvId,
+        'pii_sent_to_llm',
+        { llmProvider, dataSent },
+        'critical' // PII leak is always critical
+      );
     }
 
     await this.logEvent({
@@ -226,6 +229,41 @@ export class PrivacyLogger {
       eventType: 'exact_data_shared',
       employersOriginal,
       exactDataShared: true
+    });
+  }
+
+  /**
+   * Log CV deletion (GDPR Right to Erasure)
+   */
+  async logCVDeleted(
+    cvId: number,
+    reason: string = 'User requested deletion',
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<void> {
+    await this.logEvent({
+      cvId,
+      eventType: 'cv_deleted',
+      consentText: reason,
+      ipAddress,
+      userAgent
+    });
+  }
+
+  /**
+   * Log GDPR data export request
+   */
+  async logGDPRExportRequested(
+    cvId: number,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<void> {
+    await this.logEvent({
+      cvId,
+      eventType: 'gdpr_data_exported',
+      consentText: 'User requested GDPR data export',
+      ipAddress,
+      userAgent
     });
   }
 
@@ -362,38 +400,84 @@ export class PrivacyLogger {
 
   /**
    * Log security incident (PII leak, unauthorized access, etc.)
+   * Writes to both console and security_incidents table
    */
-  private async logSecurityIncident(
-    cvId: number,
+  async logSecurityIncident(
+    cvId: number | null,
     incidentType: string,
-    details: any
-  ): Promise<void> {
-    // Log naar apart security incident table (indien gewenst)
-    // Of naar error logging systeem
-
+    details: any,
+    severity: 'low' | 'medium' | 'high' | 'critical' = 'medium',
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<number> {
+    // Log to console for immediate visibility
     console.error(`
-╔═══════════════════════════════════════════════════════════╗
-║  🚨 SECURITY INCIDENT                                      ║
-╠═══════════════════════════════════════════════════════════╣
-║  Type: ${incidentType}
-║  CV ID: ${cvId}
-║  Details: ${JSON.stringify(details, null, 2)}
-║  Timestamp: ${new Date().toISOString()}
-╚═══════════════════════════════════════════════════════════╝
++-----------------------------------------------------------+
+|  [!] SECURITY INCIDENT (${severity.toUpperCase()})
++-----------------------------------------------------------+
+|  Type: ${incidentType}
+|  CV ID: ${cvId || 'N/A'}
+|  Details: ${JSON.stringify(details, null, 2)}
+|  Timestamp: ${new Date().toISOString()}
++-----------------------------------------------------------+
     `);
 
-    // TODO: Send alert email/Slack notification
-    // TODO: Write to security.log file
+    // Write to security_incidents table
+    try {
+      const [result] = await this.db.execute(
+        `INSERT INTO security_incidents (
+          cv_id, incident_type, severity, description, details,
+          ip_address, user_agent, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          cvId,
+          incidentType,
+          severity,
+          `Security incident: ${incidentType}`,
+          JSON.stringify(details),
+          ipAddress || null,
+          userAgent || null
+        ]
+      );
+
+      const insertResult = result as any;
+      console.log(`[Security] Incident logged to database with ID: ${insertResult.insertId}`);
+
+      // Also log as privacy event for audit trail
+      if (cvId) {
+        await this.logEvent({
+          cvId,
+          eventType: 'security_incident',
+          consentText: `Security incident: ${incidentType}`,
+          ipAddress,
+          userAgent
+        });
+      }
+
+      return insertResult.insertId;
+    } catch (dbError) {
+      // If DB write fails, ensure we at least have console log
+      console.error('[Security] Failed to write incident to database:', dbError);
+      return -1;
+    }
   }
 
   /**
    * Generate GDPR data export voor gebruiker
+   * Logs the export request for audit compliance
    */
-  async generateGDPRExport(cvId: number): Promise<{
+  async generateGDPRExport(
+    cvId: number,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<{
     cv: any;
     auditTrail: PrivacyConsentLog[];
     summary: string;
   }> {
+    // Log the export request for GDPR compliance
+    await this.logGDPRExportRequested(cvId, ipAddress, userAgent);
+
     // Get CV info
     const [cvRows] = await this.db.execute<RowDataPacket[]>(
       `SELECT * FROM user_cvs WHERE id = ?`,

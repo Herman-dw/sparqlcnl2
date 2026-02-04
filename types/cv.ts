@@ -81,7 +81,8 @@ export interface PrivacyConsentLog {
   cv_id: number;
   event_type: 'pii_detected' | 'pii_anonymized' | 'employer_generalized' |
                'user_consent_given' | 'user_consent_declined' |
-               'llm_call_made' | 'exact_data_shared';
+               'llm_call_made' | 'exact_data_shared' |
+               'cv_deleted' | 'gdpr_data_exported' | 'security_incident';
 
   // PII details
   pii_types?: string[];
