@@ -139,6 +139,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
     if (!cvId) return;
 
     setIsProcessing(true);
+    setError(null); // Clear any previous error
 
     try {
       const body: any = { confirmed: true };
@@ -399,31 +400,40 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
         {/* Footer with navigation */}
         {status === 'step' && (
           <div className="wizard-footer">
-            <button
-              className="btn btn-secondary"
-              onClick={goBack}
-              disabled={currentStep <= 1 || isProcessing}
-            >
-              ← Terug
-            </button>
+            {error && (
+              <div className="footer-error">
+                <span className="error-icon">⚠️</span>
+                <span className="error-message">{error}</span>
+                <button className="error-dismiss" onClick={() => setError(null)}>×</button>
+              </div>
+            )}
+            <div className="footer-nav">
+              <button
+                className="btn btn-secondary"
+                onClick={goBack}
+                disabled={currentStep <= 1 || isProcessing}
+              >
+                ← Terug
+              </button>
 
-            <span className="step-info">
-              Stap {currentStep} van {STEP_INFO.length}: {STEP_INFO[currentStep - 1]?.name}
-            </span>
+              <span className="step-info">
+                Stap {currentStep} van {STEP_INFO.length}: {STEP_INFO[currentStep - 1]?.name}
+              </span>
 
-            <button
-              className="btn btn-primary"
-              onClick={confirmStep}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <span className="btn-loading">Verwerken...</span>
-              ) : currentStep === 6 ? (
-                'Voltooien ✓'
-              ) : (
-                'Bevestig & Volgende →'
-              )}
-            </button>
+              <button
+                className="btn btn-primary"
+                onClick={confirmStep}
+                disabled={isProcessing}
+              >
+                {isProcessing ? (
+                  <span className="btn-loading">Verwerken...</span>
+                ) : currentStep === 6 ? (
+                  'Voltooien ✓'
+                ) : (
+                  'Bevestig & Volgende →'
+                )}
+              </button>
+            </div>
           </div>
         )}
 
@@ -451,6 +461,36 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            /* BASE COLOR RESET - prevents inheritance from dark mode/parent themes */
+            color: #1f2937;
+          }
+
+          /* Ensure all text elements have explicit colors */
+          .wizard-modal * {
+            color: inherit;
+          }
+
+          .wizard-modal h1, .wizard-modal h2, .wizard-modal h3,
+          .wizard-modal h4, .wizard-modal h5, .wizard-modal h6 {
+            color: #1f2937;
+          }
+
+          .wizard-modal p, .wizard-modal span, .wizard-modal div,
+          .wizard-modal label, .wizard-modal li {
+            color: #374151;
+          }
+
+          .wizard-modal input, .wizard-modal textarea, .wizard-modal select {
+            color: #1f2937;
+            background-color: white;
+          }
+
+          .wizard-modal input::placeholder {
+            color: #9ca3af;
+          }
+
+          .wizard-modal a {
+            color: #2563eb;
           }
 
           .wizard-header {
@@ -706,11 +746,53 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
 
           .wizard-footer {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            gap: 12px;
             padding: 16px 24px;
             border-top: 1px solid #e5e7eb;
             background: #f9fafb;
+          }
+
+          .footer-error {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            color: #dc2626;
+            font-size: 14px;
+            width: 100%;
+          }
+
+          .footer-error .error-icon {
+            flex-shrink: 0;
+          }
+
+          .footer-error .error-message {
+            flex: 1;
+          }
+
+          .footer-error .error-dismiss {
+            background: none;
+            border: none;
+            color: #dc2626;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+          }
+
+          .footer-error .error-dismiss:hover {
+            color: #991b1b;
+          }
+
+          .footer-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
           }
 
           .step-info {
@@ -1263,6 +1345,7 @@ const Step2View: React.FC<{
           white-space: pre-wrap;
           cursor: text;
           user-select: text;
+          color: #1f2937;
         }
 
         .raw-text::selection {
@@ -1339,11 +1422,16 @@ const Step2View: React.FC<{
         }
 
         .selected-preview {
-          background: #f3f4f6;
+          background: #fef3c7;
           padding: 8px 12px;
           border-radius: 6px;
           margin-bottom: 16px;
           font-size: 14px;
+          color: #92400e;
+        }
+
+        .selected-preview strong {
+          color: #78350f;
         }
 
         .form-group {
@@ -1728,6 +1816,18 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
         font-family: ui-monospace, monospace;
         font-size: 12px;
         line-height: 1.5;
+        background: #ffffff;
+        color: #1f2937;
+      }
+
+      .comparison-column.original .text-content {
+        background: #fef2f2;
+        color: #7f1d1d;
+      }
+
+      .comparison-column.anonymized .text-content {
+        background: #f0fdf4;
+        color: #14532d;
       }
 
       .line {
@@ -1736,6 +1836,7 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
 
       .line.diff {
         background: #fef9c3;
+        color: #713f12;
       }
 
       .replacements-summary {
@@ -2644,6 +2745,10 @@ const Step6View: React.FC<{
           border-top: 1px solid #e5e7eb;
         }
 
+        .alternatives {
+          color: #1f2937;
+        }
+
         .alternatives h5 {
           margin: 0 0 8px 0;
           font-size: 13px;
@@ -2656,11 +2761,18 @@ const Step6View: React.FC<{
           gap: 8px;
           padding: 6px 0;
           cursor: pointer;
+          color: #1f2937;
+        }
+
+        .alternative-option label {
+          color: #1f2937;
+          cursor: pointer;
         }
 
         .alt-label {
           flex: 1;
           font-size: 14px;
+          color: #1f2937;
         }
 
         .alt-confidence {

@@ -77,12 +77,23 @@ const buildSourceMap = (profile?: SessionProfile, fallbackSkills: string[] = [])
 // PROPS
 // ============================================================
 
+interface CVMatchData {
+  matches: MatchResult[];
+  profile: {
+    occupationHistory?: { occupationLabel: string }[];
+    capabilities?: number;
+    knowledge?: number;
+    tasks?: number;
+  };
+}
+
 interface MatchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMatchComplete?: (results: MatchResult[]) => void;
   initialSkills?: string[];  // Pre-selected skills (e.g., from RIASEC flow)
   presetProfile?: SessionProfile;
+  cvMatchData?: CVMatchData;  // Pre-computed match results from CV
 }
 
 // ============================================================
@@ -327,7 +338,7 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
 // MAIN MODAL COMPONENT
 // ============================================================
 
-const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplete, initialSkills, presetProfile }) => {
+const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplete, initialSkills, presetProfile, cvMatchData }) => {
   // State
   const [view, setView] = useState<MatchModalView>('builder');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
@@ -370,11 +381,26 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   // Reset state when modal opens, and load initial skills if provided
   useEffect(() => {
     if (isOpen) {
-      setView('builder');
       setError(null);
+
+      // If CV match data is provided, show results directly
+      if (cvMatchData && cvMatchData.matches && cvMatchData.matches.length > 0) {
+        console.log('[MatchModal] Using pre-computed CV match results:', cvMatchData.matches.length, 'matches');
+        setResults(cvMatchData.matches);
+        setView('results');
+        // Clear selections since we're showing pre-computed results
+        setSelectedSkills([]);
+        setSelectedKnowledge([]);
+        setSelectedTasks([]);
+        setSelectedWorkConditions([]);
+        return;
+      }
+
+      // Otherwise, start in builder view
+      setView('builder');
       const initialSourceMap = buildSourceMap(presetProfile, initialSkills || []);
       setProfileSourceMap(initialSourceMap);
-      
+
       // Load initial skills if provided (e.g., from RIASEC flow)
       const baseSkills = presetProfile?.skills?.map((item) => item.label) || [];
       const mergedSkills = uniqueStrings([...(initialSkills || []), ...baseSkills]);
@@ -393,7 +419,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
       const baseWorkConditions = presetProfile?.workConditions?.map((item) => item.label) || [];
       setSelectedWorkConditions(uniqueStrings(baseWorkConditions));
     }
-  }, [initialSkills, isOpen, presetProfile, uniqueStrings]);
+  }, [initialSkills, isOpen, presetProfile, uniqueStrings, cvMatchData]);
 
   // Handle skill selection
   const handleSelectSkill = useCallback((item: SkillSearchResult) => {

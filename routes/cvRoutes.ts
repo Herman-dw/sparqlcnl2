@@ -15,6 +15,7 @@ import CVProcessingService from '../services/cvProcessingService.ts';
 import CVWizardService from '../services/cvWizardService.ts';
 import PrivacyLogger from '../services/privacyLogger.ts';
 import { CNLClassificationService } from '../services/cnlClassificationService.ts';
+import { CVToProfileConverter } from '../services/cvToProfileConverter.ts';
 import type {
   CVUploadResponse,
   CVStatusResponse,
@@ -990,6 +991,68 @@ export function createCVRoutes(db: Pool): Router {
       res.status(500).json({
         error: 'Search failed',
         code: 'SEARCH_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // POST /api/cv/:cvId/match
+  // Convert CV to profile and run occupation matching
+  // ========================================================================
+  router.post('/:cvId/match', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_CV_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      // Options from request body
+      const { limit = 20, minScore = 0.1, includeGaps = false } = req.body;
+
+      console.log(`[CV Match] Starting profile matching for CV ${cvId}`);
+
+      // Initialize converter with backend URL for internal API calls
+      const backendUrl = `http://localhost:${process.env.PORT || 3001}`;
+      const converter = new CVToProfileConverter(db, backendUrl);
+
+      // Convert CV to profile and match against occupations
+      const result = await converter.matchProfileToOccupations(cvId, {
+        limit,
+        minScore,
+        includeGaps
+      });
+
+      console.log(`[CV Match] Found ${result.matchResults?.matches?.length || 0} occupation matches`);
+
+      res.json({
+        success: true,
+        cvId,
+        profile: {
+          occupationHistory: result.profile.occupationHistory,
+          education: result.profile.education,
+          capabilities: result.profile.capabilities.length,
+          knowledge: result.profile.knowledge.length,
+          tasks: result.profile.tasks.length,
+          meta: result.profile.meta
+        },
+        matches: result.matchResults?.matches || [],
+        matchCount: result.matchResults?.matches?.length || 0,
+        timestamp: result.timestamp
+      });
+
+    } catch (error) {
+      console.error('CV matching error:', error);
+      res.status(500).json({
+        error: 'Matching failed',
+        code: 'MATCHING_FAILED',
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date()
       } as ErrorResponse);
