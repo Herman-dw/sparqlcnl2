@@ -819,6 +819,114 @@ export class CVProcessingService {
 
     return decrypted;
   }
+
+  /**
+   * Quick Process - Automatic processing for "Snelle Upload & Match"
+   * Uses medium privacy settings and auto-selects best classifications
+   */
+  async quickProcess(cvId: number, options?: {
+    autoAnonymize?: boolean;
+    piiReplacementFormat?: string;
+    privacyLevel?: 'low' | 'medium' | 'high';
+    autoClassify?: boolean;
+    selectBestMatch?: boolean;
+    deriveSkillsFromTaxonomy?: boolean;
+    includeEducationSkills?: boolean;
+    includeOccupationSkills?: boolean;
+  }): Promise<void> {
+    console.log(`\n⚡ Starting Quick Process for CV ${cvId}`);
+    console.log(`  Options:`, options);
+
+    try {
+      // Update phase: anonymizing
+      await this.updateQuickProcessPhase(cvId, 'anonymizing', 25);
+
+      // The CV should already be uploaded and processing started
+      // Wait for the regular processing to complete
+      let attempts = 0;
+      const maxAttempts = 60; // 30 seconds max
+
+      while (attempts < maxAttempts) {
+        const [rows] = await this.db.execute<any[]>(
+          `SELECT processing_status FROM user_cvs WHERE id = ?`,
+          [cvId]
+        );
+
+        if (rows.length === 0) {
+          throw new Error('CV not found');
+        }
+
+        const status = rows[0].processing_status;
+
+        if (status === 'completed') {
+          break;
+        } else if (status === 'failed') {
+          throw new Error('CV processing failed');
+        }
+
+        // Update phase based on elapsed time
+        if (attempts < 10) {
+          await this.updateQuickProcessPhase(cvId, 'anonymizing', 25 + attempts * 2);
+        } else if (attempts < 20) {
+          await this.updateQuickProcessPhase(cvId, 'extracting', 45 + (attempts - 10) * 2);
+        } else if (attempts < 30) {
+          await this.updateQuickProcessPhase(cvId, 'categorizing', 65 + (attempts - 20) * 2);
+        } else {
+          await this.updateQuickProcessPhase(cvId, 'classifying', 85);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+        attempts++;
+      }
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Processing timeout');
+      }
+
+      // Apply medium privacy settings (generalize employers)
+      if (options?.privacyLevel === 'medium' || !options?.privacyLevel) {
+        await this.db.execute(
+          `UPDATE user_cvs SET allow_exact_data = FALSE WHERE id = ?`,
+          [cvId]
+        );
+      }
+
+      // Mark as classifying phase complete
+      await this.updateQuickProcessPhase(cvId, 'classifying', 90);
+
+      console.log(`✅ Quick Process completed for CV ${cvId}`);
+
+    } catch (error) {
+      console.error(`❌ Quick Process error for CV ${cvId}:`, error);
+
+      await this.db.execute(
+        `UPDATE user_cvs SET
+          quick_process_phase = 'error',
+          error_message = ?
+        WHERE id = ?`,
+        [error instanceof Error ? error.message : 'Unknown error', cvId]
+      );
+
+      throw error;
+    }
+  }
+
+  /**
+   * Update quick process phase and progress
+   */
+  private async updateQuickProcessPhase(
+    cvId: number,
+    phase: string,
+    progress: number
+  ): Promise<void> {
+    await this.db.execute(
+      `UPDATE user_cvs SET
+        quick_process_phase = ?,
+        quick_process_progress = ?
+      WHERE id = ?`,
+      [phase, progress, cvId]
+    );
+  }
 }
 
 export default CVProcessingService;

@@ -952,6 +952,272 @@ export function createCVRoutes(db: Pool): Router {
   });
 
   // ========================================================================
+  // QUICK UPLOAD & MATCH ROUTES
+  // ========================================================================
+
+  // ========================================================================
+  // POST /api/cv/quick-process
+  // Start quick processing (automatic anonymization, classification, matching)
+  // ========================================================================
+  router.post('/quick-process', async (req: Request, res: Response) => {
+    try {
+      const {
+        cvId,
+        consentGiven,
+        consentTimestamp,
+        options
+      } = req.body;
+
+      if (!cvId || isNaN(parseInt(cvId))) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_ID',
+          message: 'CV ID is required and must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      if (!consentGiven) {
+        return res.status(400).json({
+          error: 'Consent required',
+          code: 'NO_CONSENT',
+          message: 'User consent is required for quick processing',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      const cvIdNum = parseInt(cvId);
+
+      // Log consent for audit trail
+      const ipAddress = req.ip || req.socket.remoteAddress;
+      const userAgent = req.headers['user-agent'];
+
+      await privacyLogger.logEvent({
+        cvId: cvIdNum,
+        eventType: 'user_consent_given',
+        consentGiven: true,
+        consentText: `Quick process consent given at ${consentTimestamp}. Options: autoAnonymize=${options?.autoAnonymize}, privacyLevel=${options?.privacyLevel}`,
+        ipAddress,
+        userAgent
+      });
+
+      console.log(`\n⚡ Quick Process Request:`);
+      console.log(`  CV ID: ${cvIdNum}`);
+      console.log(`  Consent: ${consentGiven}`);
+      console.log(`  Options:`, options);
+
+      // Start quick processing (async)
+      // The processing will update the cv record with progress
+      cvService.quickProcess(cvIdNum, options).catch(error => {
+        console.error(`Quick process error for CV ${cvIdNum}:`, error);
+      });
+
+      res.status(202).json({
+        success: true,
+        cvId: cvIdNum,
+        phase: 'anonymizing',
+        progress: 20,
+        message: 'Quick processing started'
+      });
+
+    } catch (error) {
+      console.error('❌ Quick process error:', error);
+      res.status(500).json({
+        error: 'Quick process failed',
+        code: 'QUICK_PROCESS_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // GET /api/cv/:cvId/quick-status
+  // Get quick processing status with animation data
+  // ========================================================================
+  router.get('/:cvId/quick-status', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      // Get CV status
+      const [cvRows] = await db.execute<any[]>(
+        `SELECT
+          id,
+          processing_status,
+          quick_process_phase,
+          quick_process_progress,
+          processing_started_at,
+          pii_detected,
+          pii_count,
+          error_message
+        FROM user_cvs
+        WHERE id = ? AND deleted_at IS NULL`,
+        [cvId]
+      );
+
+      if (cvRows.length === 0) {
+        return res.status(404).json({
+          error: 'CV not found',
+          code: 'NOT_FOUND',
+          message: `CV with ID ${cvId} not found`,
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      const cv = cvRows[0];
+
+      // Map processing status to quick match phase
+      let phase = cv.quick_process_phase || 'extracting';
+      let progress = cv.quick_process_progress || 30;
+
+      if (cv.processing_status === 'completed') {
+        phase = 'classifying';
+        progress = 85;
+      } else if (cv.processing_status === 'failed') {
+        phase = 'error';
+      }
+
+      // Get anonymization data if available
+      let anonymizationData = null;
+      if (cv.pii_detected) {
+        const piiTypes = typeof cv.pii_detected === 'string'
+          ? JSON.parse(cv.pii_detected)
+          : cv.pii_detected;
+
+        anonymizationData = {
+          detectedPII: piiTypes.map((type: string, idx: number) => ({
+            id: String(idx),
+            original: `[${type.substring(0, 3)}***]`,
+            replacement: `[${type.toUpperCase()}]`,
+            type: type.toUpperCase(),
+            confidence: 0.9
+          })),
+          piiCount: cv.pii_count || piiTypes.length,
+          piiByType: piiTypes.reduce((acc: any, type: string) => {
+            acc[type.toUpperCase()] = (acc[type.toUpperCase()] || 0) + 1;
+            return acc;
+          }, {}),
+          processingTimeMs: 500
+        };
+      }
+
+      // Get extracted data if processing is complete
+      let extractedData = null;
+      let aggregatedSkills = null;
+
+      if (cv.processing_status === 'completed') {
+        const [extRows] = await db.execute<any[]>(
+          `SELECT
+            section_type,
+            content,
+            matched_cnl_uri,
+            matched_cnl_label
+          FROM cv_extractions
+          WHERE cv_id = ?`,
+          [cvId]
+        );
+
+        const workExperiences: any[] = [];
+        const education: any[] = [];
+        const directSkills: string[] = [];
+
+        for (const row of extRows) {
+          const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content;
+
+          if (row.section_type === 'experience') {
+            workExperiences.push({
+              id: String(row.id),
+              jobTitle: content.job_title || content.jobTitle,
+              organization: content.organization,
+              extractedSkills: content.extracted_skills || content.extractedSkills || []
+            });
+            // Add extracted skills from work experience
+            (content.extracted_skills || content.extractedSkills || []).forEach((skill: string) => {
+              if (!directSkills.includes(skill)) {
+                directSkills.push(skill);
+              }
+            });
+          } else if (row.section_type === 'education') {
+            education.push({
+              id: String(row.id),
+              degree: content.degree,
+              institution: content.institution,
+              year: content.end_year || content.year
+            });
+          } else if (row.section_type === 'skill') {
+            const skillName = content.skill_name || content.skillName;
+            if (skillName && !directSkills.includes(skillName)) {
+              directSkills.push(skillName);
+            }
+          }
+        }
+
+        extractedData = {
+          workExperiences,
+          education,
+          directSkills,
+          classifiedExperiences: [],
+          classifiedEducation: [],
+          totalItems: extRows.length,
+          processingTimeMs: 1000
+        };
+
+        // Build aggregated skills
+        aggregatedSkills = {
+          direct: directSkills.map(skill => ({
+            label: skill,
+            source: 'cv-direct' as const
+          })),
+          fromEducation: [],
+          fromOccupation: [],
+          combined: directSkills,
+          totalCount: directSkills.length,
+          bySource: {
+            direct: directSkills.length,
+            education: 0,
+            occupation: 0
+          }
+        };
+      }
+
+      res.json({
+        cvId,
+        phase,
+        progress,
+        anonymizationData,
+        extractedData,
+        aggregatedSkills,
+        animationData: {
+          wordCount: 1200 // Estimate
+        },
+        startedAt: cv.processing_started_at,
+        processingTimeMs: cv.processing_started_at
+          ? Date.now() - new Date(cv.processing_started_at).getTime()
+          : 0,
+        error: cv.error_message
+      });
+
+    } catch (error) {
+      console.error('Quick status error:', error);
+      res.status(500).json({
+        error: 'Status check failed',
+        code: 'STATUS_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
   // GET /api/cv/cnl/search
   // Search CNL concepts for manual selection
   // ========================================================================

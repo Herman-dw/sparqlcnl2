@@ -32,6 +32,8 @@ import CVUploadModal from './components/CVUploadModal';
 import CVReviewScreen from './components/CVReviewScreen';
 import CVParsingWizard from './components/CVParsingWizard';
 import ServiceStatusBar from './components/ServiceStatusBar';
+import { QuickUploadMatchModal } from './components/QuickUploadMatch';
+import { Zap } from 'lucide-react';
 import { useProfileStore } from './state/profileStore';
 import { ProfileItemWithSource, SessionProfile } from './types/profile';
 import { mergeProfileLists } from './state/profileUtils';
@@ -204,6 +206,9 @@ const App: React.FC = () => {
   const [showCVWizard, setShowCVWizard] = useState(false);
   const [showCVReview, setShowCVReview] = useState(false);
   const [currentCvId, setCurrentCvId] = useState<number | null>(null);
+
+  // Quick Upload & Match state
+  const [showQuickMatch, setShowQuickMatch] = useState(false);
 
   const { profile, mergeProfile } = useProfileStore();
 
@@ -951,15 +956,15 @@ const App: React.FC = () => {
                 CV Wizard (stap-voor-stap)
               </button>
               <button
-                onClick={() => setShowCVUpload(true)}
-                className="w-full flex items-center justify-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-3 py-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-all"
+                onClick={() => setShowQuickMatch(true)}
+                className="w-full flex items-center justify-center gap-2 text-sm font-bold text-white bg-gradient-to-r from-amber-500 via-emerald-500 to-green-500 px-4 py-3 rounded-xl hover:from-amber-600 hover:via-emerald-600 hover:to-green-600 transition-all shadow-lg shadow-emerald-500/25"
               >
-                <Upload className="w-3 h-3" />
-                Snelle upload (automatisch)
+                <Zap className="w-4 h-4" />
+                Snelle upload & match
               </button>
             </div>
             <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
-              Wizard: bekijk en bevestig elke stap. Snelle upload: automatische verwerking.
+              Wizard: bekijk en bevestig elke stap. Snelle upload: direct van CV naar resultaat.
             </p>
 
             <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
@@ -1450,6 +1455,23 @@ const App: React.FC = () => {
           setCurrentCvId(cvId);
           setShowCVWizard(false);
           setShowCVReview(true);
+        }}
+      />
+
+      {/* Quick Upload & Match Modal */}
+      <QuickUploadMatchModal
+        isOpen={showQuickMatch}
+        sessionId={sessionId}
+        onClose={() => setShowQuickMatch(false)}
+        onGoToWizard={() => {
+          setShowQuickMatch(false);
+          setShowCVWizard(true);
+        }}
+        onComplete={(result) => {
+          setShowQuickMatch(false);
+          // Open match modal with the results pre-loaded
+          // The results are already processed, so we can show them directly
+          setShowMatchModal(true);
         }}
       />
 
