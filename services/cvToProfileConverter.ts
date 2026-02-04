@@ -199,7 +199,27 @@ export class CVToProfileConverter {
     // 2. Create match request
     const matchRequest = this.profileToMatchRequest(profile);
 
-    // 3. Call matching API
+    // 3. Check if we have anything to match
+    const hasMatchableItems =
+      matchRequest.skills.length > 0 ||
+      matchRequest.knowledge.length > 0 ||
+      matchRequest.tasks.length > 0;
+
+    if (!hasMatchableItems) {
+      console.log(`[CV Match] No classified items found for CV ${cvId} - returning empty results`);
+      return {
+        cvId,
+        profile,
+        matchResults: {
+          success: true,
+          matches: [],
+          message: 'Geen geclassificeerde items gevonden om te matchen'
+        },
+        timestamp: new Date()
+      };
+    }
+
+    // 4. Call matching API
     const queryParams = new URLSearchParams();
     if (options?.limit) queryParams.set('limit', options.limit.toString());
     if (options?.minScore) queryParams.set('minScore', options.minScore.toString());
