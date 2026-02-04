@@ -139,6 +139,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
     if (!cvId) return;
 
     setIsProcessing(true);
+    setError(null); // Clear any previous error
 
     try {
       const body: any = { confirmed: true };
@@ -399,31 +400,40 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
         {/* Footer with navigation */}
         {status === 'step' && (
           <div className="wizard-footer">
-            <button
-              className="btn btn-secondary"
-              onClick={goBack}
-              disabled={currentStep <= 1 || isProcessing}
-            >
-              ← Terug
-            </button>
+            {error && (
+              <div className="footer-error">
+                <span className="error-icon">⚠️</span>
+                <span className="error-message">{error}</span>
+                <button className="error-dismiss" onClick={() => setError(null)}>×</button>
+              </div>
+            )}
+            <div className="footer-nav">
+              <button
+                className="btn btn-secondary"
+                onClick={goBack}
+                disabled={currentStep <= 1 || isProcessing}
+              >
+                ← Terug
+              </button>
 
-            <span className="step-info">
-              Stap {currentStep} van {STEP_INFO.length}: {STEP_INFO[currentStep - 1]?.name}
-            </span>
+              <span className="step-info">
+                Stap {currentStep} van {STEP_INFO.length}: {STEP_INFO[currentStep - 1]?.name}
+              </span>
 
-            <button
-              className="btn btn-primary"
-              onClick={confirmStep}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <span className="btn-loading">Verwerken...</span>
-              ) : currentStep === 6 ? (
-                'Voltooien ✓'
-              ) : (
-                'Bevestig & Volgende →'
-              )}
-            </button>
+              <button
+                className="btn btn-primary"
+                onClick={confirmStep}
+                disabled={isProcessing}
+              >
+                {isProcessing ? (
+                  <span className="btn-loading">Verwerken...</span>
+                ) : currentStep === 6 ? (
+                  'Voltooien ✓'
+                ) : (
+                  'Bevestig & Volgende →'
+                )}
+              </button>
+            </div>
           </div>
         )}
 
@@ -706,11 +716,53 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
 
           .wizard-footer {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            gap: 12px;
             padding: 16px 24px;
             border-top: 1px solid #e5e7eb;
             background: #f9fafb;
+          }
+
+          .footer-error {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            color: #dc2626;
+            font-size: 14px;
+            width: 100%;
+          }
+
+          .footer-error .error-icon {
+            flex-shrink: 0;
+          }
+
+          .footer-error .error-message {
+            flex: 1;
+          }
+
+          .footer-error .error-dismiss {
+            background: none;
+            border: none;
+            color: #dc2626;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+          }
+
+          .footer-error .error-dismiss:hover {
+            color: #991b1b;
+          }
+
+          .footer-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
           }
 
           .step-info {
