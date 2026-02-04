@@ -333,11 +333,12 @@ async function generateCNLEmbeddings(): Promise<void> {
     // Haal CNL concepten op via SPARQL
     console.log('📡 Ophalen CNL concepten via SPARQL...\n');
 
-    // Occupation gebruikt SKOS-XL, Education en Capability gebruiken standaard SKOS
+    // Occupation gebruikt SKOS-XL, Education/Capability/Knowledge gebruiken standaard SKOS
     const conceptTypes = [
       { type: 'occupation', query: 'cnlo:Occupation', limit: 35000, useSkosXL: true },  // ~3500 pref + ~25000 alt/spec
       { type: 'education', query: 'cnlo:EducationalNorm', limit: 10000, useSkosXL: false },
-      { type: 'capability', query: 'cnlo:HumanCapability', limit: 5000, useSkosXL: false }
+      { type: 'capability', query: 'cnlo:HumanCapability', limit: 5000, useSkosXL: false },
+      { type: 'knowledge', query: 'cnlo:KnowledgeArea', limit: 2000, useSkosXL: false }  // ~361 kennisgebieden
     ];
 
     let totalProcessed = 0;
