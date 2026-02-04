@@ -712,7 +712,12 @@ const App: React.FC = () => {
 
     const msg = messages.find(m => m.id === messageId);
     if (msg) {
-      await saveFeedback(messageId, feedback, msg.sparql || '', msg.results?.length || 0);
+      await saveFeedback({
+        question: msg.text,
+        sparqlQuery: msg.sparql || '',
+        resultCount: msg.results?.length || 0,
+        feedback
+      });
       try {
         await fetch(`${localBackendUrl}/conversation/feedback`, {
           method: 'POST',
@@ -746,18 +751,7 @@ const App: React.FC = () => {
     setSpeechStatus('Initialiseren...');
 
     if (!speechServiceRef.current) {
-      speechServiceRef.current = createSpeechService({
-        lang: speechLang,
-        continuous: true,
-        interimResults: true,
-        onResult: (transcript, isFinal) => {
-          if (isFinal) {
-            setCapturedTranscript(prev => (prev ? prev + ' ' : '') + transcript);
-            setInterimTranscript('');
-          } else {
-            setInterimTranscript(transcript);
-          }
-        },
+      speechServiceRef.current = createSpeechService(speechLang, {
         onStart: () => {
           setIsListening(true);
           setSpeechStatus('Luistert...');
@@ -769,8 +763,15 @@ const App: React.FC = () => {
             speechServiceRef.current?.start();
           }
         },
+        onInterim: (text) => {
+          setInterimTranscript(text);
+        },
+        onFinal: (text) => {
+          setCapturedTranscript(prev => (prev ? prev + ' ' : '') + text);
+          setInterimTranscript('');
+        },
         onError: (error) => {
-          setSpeechError(error);
+          setSpeechError(error.message || 'Speech error');
           setSpeechStatus('');
           setIsListening(false);
         },
@@ -778,11 +779,12 @@ const App: React.FC = () => {
           silenceStopRef.current = true;
           speechServiceRef.current?.stop();
           setSpeechStatus('Gestopt door stilte');
-        }
+        },
+        shouldRestart: () => !userStoppedRef.current && shouldContinueListening && !silenceStopRef.current
       });
     }
 
-    speechServiceRef.current.setLang(speechLang);
+    speechServiceRef.current.updateLang(speechLang);
     setShouldContinueListening(true);
     speechServiceRef.current.start();
   }, [speechLang, shouldContinueListening]);

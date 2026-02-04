@@ -164,7 +164,7 @@ export const PrivacyConsentModal: React.FC<PrivacyConsentModalProps> = ({
           )}
         </div>
 
-        <style jsx>{`
+        <style>{`
           .consent-modal-overlay {
             position: fixed;
             top: 0;

@@ -427,7 +427,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
           </div>
         )}
 
-        <style jsx>{`
+        <style>{`
           .wizard-overlay {
             position: fixed;
             top: 0;
@@ -768,7 +768,7 @@ const Step1View: React.FC<{ data: Step1ExtractResponse }> = ({ data }) => (
       ✅ {data.characterCount.toLocaleString()} tekens succesvol geëxtraheerd
     </div>
 
-    <style jsx>{`
+    <style>{`
       .step-view { padding: 0; }
       .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
       .step-description { color: #6b7280; margin: 0 0 20px 0; }
@@ -1678,7 +1678,7 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
       </div>
     </div>
 
-    <style jsx>{`
+    <style>{`
       .step-view { padding: 0; }
       .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
       .step-description { color: #6b7280; margin: 0 0 20px 0; }
@@ -1885,7 +1885,7 @@ const Step4View: React.FC<{ data: Step4ParseResponse }> = ({ data }) => (
       )}
     </div>
 
-    <style jsx>{`
+    <style>{`
       .step-view { padding: 0; }
       .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
       .step-description { color: #6b7280; margin: 0 0 20px 0; }
@@ -2081,7 +2081,7 @@ const Step5View: React.FC<{
       </div>
     </div>
 
-    <style jsx>{`
+    <style>{`
       .step-view { padding: 0; }
       .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
       .step-description { color: #6b7280; margin: 0 0 20px 0; }
