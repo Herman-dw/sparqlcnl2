@@ -1121,13 +1121,11 @@ export function createCVRoutes(db: Pool): Router {
         } as ErrorResponse);
       }
 
-      // Get CV status
+      // Get CV status - use only existing columns
       const [cvRows] = await db.execute<any[]>(
         `SELECT
           id,
           processing_status,
-          quick_process_phase,
-          quick_process_progress,
           processing_started_at,
           pii_detected,
           pii_count,
@@ -1148,15 +1146,32 @@ export function createCVRoutes(db: Pool): Router {
 
       const cv = cvRows[0];
 
-      // Map processing status to quick match phase
-      let phase = cv.quick_process_phase || 'extracting';
-      let progress = cv.quick_process_progress || 30;
+      // Derive phase from processing status and elapsed time
+      let phase = 'extracting';
+      let progress = 30;
 
       if (cv.processing_status === 'completed') {
         phase = 'classifying';
         progress = 85;
       } else if (cv.processing_status === 'failed') {
         phase = 'error';
+        progress = 0;
+      } else if (cv.processing_status === 'processing' && cv.processing_started_at) {
+        // Estimate phase based on elapsed time
+        const elapsed = Date.now() - new Date(cv.processing_started_at).getTime();
+        if (elapsed < 2000) {
+          phase = 'anonymizing';
+          progress = 25;
+        } else if (elapsed < 5000) {
+          phase = 'extracting';
+          progress = 40;
+        } else if (elapsed < 10000) {
+          phase = 'categorizing';
+          progress = 60;
+        } else {
+          phase = 'classifying';
+          progress = 75;
+        }
       }
 
       // Get anonymization data if available
