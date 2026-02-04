@@ -1785,6 +1785,18 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
         font-family: ui-monospace, monospace;
         font-size: 12px;
         line-height: 1.5;
+        background: #ffffff;
+        color: #1f2937;
+      }
+
+      .comparison-column.original .text-content {
+        background: #fef2f2;
+        color: #7f1d1d;
+      }
+
+      .comparison-column.anonymized .text-content {
+        background: #f0fdf4;
+        color: #14532d;
       }
 
       .line {
@@ -1793,6 +1805,7 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
 
       .line.diff {
         background: #fef9c3;
+        color: #713f12;
       }
 
       .replacements-summary {
