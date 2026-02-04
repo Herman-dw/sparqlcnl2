@@ -828,10 +828,14 @@ export class CVWizardService {
       // Initialize classification service
       const classificationService = new CNLClassificationService(this.db);
 
-      // Run classification
+      // Run classification with full cascade:
+      // 1. Exact match (100% confidence)
+      // 2. Fuzzy match (≥80% confidence)
+      // 3. Semantic match with embeddings (≥75% confidence)
+      // 4. LLM fallback for complex cases
       const result = await classificationService.classifyCV(cvId, {
-        useSemanticMatching: false, // Disable semantic for now, can be enabled later
-        useLLMFallback: false
+        useSemanticMatching: true,
+        useLLMFallback: true
       });
 
       const processingTimeMs = Date.now() - startTime;
