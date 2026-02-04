@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS cnl_concept_embeddings (
     -- Concept identification
     concept_uri VARCHAR(500) NOT NULL,
     concept_type ENUM('occupation', 'education', 'capability', 'knowledge', 'task', 'workingCondition') NOT NULL,
-    pref_label VARCHAR(255) NOT NULL COMMENT 'Label tekst (kan prefLabel of altLabel zijn)',
+    pref_label VARCHAR(500) NOT NULL COMMENT 'Label tekst (kan prefLabel of altLabel zijn)',
     label_type ENUM('pref', 'alt') DEFAULT 'pref' COMMENT 'Type label: pref=officieel, alt=synoniem/alternatieve naam',
 
     -- Embedding data
@@ -80,6 +80,16 @@ CREATE TABLE IF NOT EXISTS cnl_concept_embeddings (
     INDEX idx_label_type (label_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='Cached embeddings voor CNL concepten inclusief synoniemen (semantic matching)';
+
+-- Fix voor bestaande tabellen: verwijder oude unique key en voeg correcte toe
+-- (Deze statements zijn veilig als de constraints al correct zijn)
+ALTER TABLE cnl_concept_embeddings
+MODIFY COLUMN pref_label VARCHAR(500) NOT NULL
+COMMENT 'Label tekst (kan prefLabel of altLabel zijn)';
+
+-- Verwijder foute unique key indien aanwezig (alleen op concept_uri)
+-- en voeg correcte composite key toe (op concept_uri + pref_label)
+-- Dit wordt afgehandeld door het setup script
 
 -- ============================================================================
 -- 4. Classification feedback/correction tracking

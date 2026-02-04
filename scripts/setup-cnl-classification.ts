@@ -61,7 +61,7 @@ async function createTablesManually(connection: mysql.Connection): Promise<void>
         id INT AUTO_INCREMENT PRIMARY KEY,
         concept_uri VARCHAR(500) NOT NULL,
         concept_type ENUM('occupation', 'education', 'capability', 'knowledge', 'task', 'workingCondition') NOT NULL,
-        pref_label VARCHAR(255) NOT NULL COMMENT 'Label tekst (kan prefLabel of altLabel zijn)',
+        pref_label VARCHAR(500) NOT NULL COMMENT 'Label tekst (kan prefLabel of altLabel zijn)',
         label_type ENUM('pref', 'alt') DEFAULT 'pref' COMMENT 'Type label: pref=officieel, alt=synoniem',
         embedding BLOB NOT NULL,
         embedding_model VARCHAR(100) DEFAULT 'all-MiniLM-L6-v2',
