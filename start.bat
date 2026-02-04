@@ -138,24 +138,32 @@ if %errorlevel% neq 0 (
     goto :gliner_done
 )
 
-:: Bepaal welke venv directory bestaat (venv of venv311)
+:: Bepaal welke venv directory bestaat (venv311 heeft voorkeur - vereist Python 3.11)
 set VENV_DIR=
-if exist "services\python\venv\Scripts\activate.bat" (
-    set VENV_DIR=venv
-) else if exist "services\python\venv311\Scripts\activate.bat" (
+if exist "services\python\venv311\Scripts\activate.bat" (
     set VENV_DIR=venv311
+) else if exist "services\python\venv\Scripts\activate.bat" (
+    echo [WARN] Oude venv gevonden - overweeg te verwijderen en venv311 te gebruiken
+    set VENV_DIR=venv
 )
 
-:: Als geen venv bestaat, maak er een aan
+:: Als geen venv bestaat, maak venv311 aan met Python 3.11
 if "%VENV_DIR%"=="" (
-    echo [INFO] Python virtual environment aanmaken...
-    python -m venv services\python\venv
+    echo [INFO] Python 3.11 virtual environment aanmaken...
+
+    :: Probeer eerst py -3.11, dan python
+    py -3.11 -m venv services\python\venv311 2>nul
     if %errorlevel% neq 0 (
-        echo [WARN] Kon venv niet aanmaken
-        goto :gliner_done
+        echo [INFO] py -3.11 niet gevonden, probeer python...
+        python -m venv services\python\venv311
+        if %errorlevel% neq 0 (
+            echo [WARN] Kon venv311 niet aanmaken
+            echo [INFO] Installeer Python 3.11+ van https://python.org
+            goto :gliner_done
+        )
     )
-    set VENV_DIR=venv
-    echo [OK] Virtual environment aangemaakt
+    set VENV_DIR=venv311
+    echo [OK] Virtual environment venv311 aangemaakt
 
     echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
     cmd /c "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && pip install --quiet --upgrade pip && pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && pip install --quiet gliner onnxruntime huggingface_hub"
