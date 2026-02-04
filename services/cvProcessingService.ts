@@ -32,12 +32,24 @@ import { PrivacyLogger } from './privacyLogger.ts';
 import {
   generalizeEmployer,
   generalizeEmployerSequence,
-  inferSectorFromJobTitle
+  inferSectorFromJobTitle,
+  assessReIdentificationRisk
 } from './employerGeneralizer.ts';
 import { assessCVRisk, generatePrivacySummary } from './riskAssessment.ts';
 
 const GLINER_SERVICE_URL = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
+
+// Error codes for status endpoint
+export const CV_ERROR_CODES = {
+  GLINER_SERVICE_UNAVAILABLE: 'GLINER_SERVICE_UNAVAILABLE',
+  PII_DETECTION_FAILED: 'PII_DETECTION_FAILED',
+  TEXT_EXTRACTION_FAILED: 'TEXT_EXTRACTION_FAILED',
+  EMPTY_DOCUMENT: 'EMPTY_DOCUMENT',
+  UPLOAD_FAILED: 'UPLOAD_FAILED',
+  PROCESSING_TIMEOUT: 'PROCESSING_TIMEOUT',
+  MAX_RETRIES_EXCEEDED: 'MAX_RETRIES_EXCEEDED'
+} as const;
 
 export class CVProcessingService {
   private db: Pool;
@@ -46,6 +58,36 @@ export class CVProcessingService {
   constructor(database: Pool) {
     this.db = database;
     this.privacyLogger = new PrivacyLogger(database);
+  }
+
+  /**
+   * Check if GLiNER service is available
+   * Useful for pre-check before upload or for health monitoring
+   */
+  async checkGLiNERHealth(): Promise<{
+    available: boolean;
+    responseTimeMs?: number;
+    error?: string;
+  }> {
+    const startTime = Date.now();
+    try {
+      const response = await axios.get(`${GLINER_SERVICE_URL}/health`, {
+        timeout: 5000
+      });
+      const responseTimeMs = Date.now() - startTime;
+
+      return {
+        available: response.data?.status === 'healthy',
+        responseTimeMs
+      };
+    } catch (error) {
+      return {
+        available: false,
+        error: axios.isAxiosError(error) && error.code === 'ECONNREFUSED'
+          ? 'GLiNER service is not running'
+          : error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
   }
 
   /**
@@ -67,6 +109,8 @@ export class CVProcessingService {
 
   /**
    * Start processing asynchronously and return the CV id immediately.
+   * Processing runs in background; status can be polled via /status endpoint.
+   * If processing fails, job worker will retry with exponential backoff.
    */
   async enqueueProcessCV(
     fileBuffer: Buffer,
@@ -76,10 +120,20 @@ export class CVProcessingService {
   ): Promise<number> {
     const cvId = await this.createCVRecord(fileName, fileBuffer.length, mimeType, sessionId);
 
-    await this.updateCVStatus(cvId, 'processing');
+    // Zet processing_started_at meteen bij enqueue (niet pas bij daadwerkelijke verwerking)
+    await this.db.execute(
+      `UPDATE user_cvs SET
+        processing_status = 'processing',
+        processing_started_at = NOW()
+      WHERE id = ?`,
+      [cvId]
+    );
 
-    void this.processCVRecord(cvId, fileBuffer, fileName, mimeType, sessionId).catch(() => {
-      // Errors are handled and status updated in processCVRecord.
+    // Start background processing
+    void this.processCVRecord(cvId, fileBuffer, fileName, mimeType, sessionId).catch((error) => {
+      // Log error - status wordt al geupdate in processCVRecord
+      console.error(`[CVProcessingService] Background processing failed for CV ${cvId}:`, error);
+      // Job worker zal failed jobs oppikken voor retry
     });
 
     return cvId;
@@ -100,14 +154,14 @@ export class CVProcessingService {
       console.log(`Session: ${sessionId}`);
       console.log(`${'='.repeat(60)}\n`);
 
-      console.log(`✓ STAP 1: CV record created (ID: ${cvId})`);
+      console.log(`[OK] STAP 1: CV record created (ID: ${cvId})`);
 
       // STAP 2: Extract text from PDF/Word
       const startExtract = Date.now();
       const rawText = await this.extractText(fileBuffer, mimeType);
       const extractDuration = Date.now() - startExtract;
 
-      console.log(`✓ STAP 2: Text extracted (${rawText.length} chars, ${extractDuration}ms)`);
+      console.log(`[OK] STAP 2: Text extracted (${rawText.length} chars, ${extractDuration}ms)`);
 
       if (!rawText || rawText.trim().length === 0) {
         throw new CVProcessingError(
@@ -123,7 +177,7 @@ export class CVProcessingService {
       const piiResult = await this.detectAndAnonymizePII(rawText);
       const piiDuration = Date.now() - startPII;
 
-      console.log(`✓ STAP 3: PII detected (${piiResult.entity_count} items, ${piiDuration}ms)`);
+      console.log(`[OK] STAP 3: PII detected (${piiResult.entity_count} items, ${piiDuration}ms)`);
       console.log(`  Types: ${Object.keys(piiResult.pii_detected).filter(k => piiResult.pii_detected[k].length > 0).join(', ')}`);
 
       // Log PII detectie
@@ -141,7 +195,7 @@ export class CVProcessingService {
         piiResult.pii_detected
       );
 
-      console.log(`✓ STAP 4: Text stored (original encrypted, anonymized plain)`);
+      console.log(`[OK] STAP 4: Text stored (original encrypted, anonymized plain)`);
 
       // Log anonimisering
       await this.privacyLogger.logPIIAnonymized(
@@ -155,7 +209,7 @@ export class CVProcessingService {
       const parsed = await this.parseStructure(piiResult.anonymized_text);
       const parseDuration = Date.now() - startParse;
 
-      console.log(`✓ STAP 5: Structure parsed (${parseDuration}ms)`);
+      console.log(`[OK] STAP 5: Structure parsed (${parseDuration}ms)`);
       console.log(`  Experience: ${parsed.experience.length}, Education: ${parsed.education.length}, Skills: ${parsed.skills.length}`);
 
       // STAP 6: Generalize employers
@@ -168,7 +222,7 @@ export class CVProcessingService {
         'medium' // Default privacy level
       );
 
-      console.log(`✓ STAP 6: Employers generalized`);
+      console.log(`[OK] STAP 6: Employers generalized`);
       generalizedEmployers.forEach((ge, i) => {
         if (ge.original !== ge.generalized) {
           console.log(`  "${ge.original}" → "${ge.generalized}"`);
@@ -177,19 +231,19 @@ export class CVProcessingService {
 
       // Log employer generalisatie
       if (employers.length > 0) {
-        const riskAssessment = require('./employerGeneralizer').assessReIdentificationRisk(employers);
+        const employerRiskAssessment = assessReIdentificationRisk(employers);
         await this.privacyLogger.logEmployerGeneralized(
           cvId,
           employers,
           generalizedEmployers.map(ge => ge.generalized),
-          riskAssessment.riskScore
+          employerRiskAssessment.riskScore
         );
       }
 
       // STAP 7: Assess privacy risk
       const riskAssessment = assessCVRisk(piiResult.pii_detected, employers);
 
-      console.log(`✓ STAP 7: Privacy risk assessed`);
+      console.log(`[OK] STAP 7: Privacy risk assessed`);
       console.log(`  Overall Risk: ${riskAssessment.overallRisk} (score: ${riskAssessment.riskScore}/100)`);
       console.log(`  Recommendation: ${riskAssessment.recommendation}`);
 
@@ -199,19 +253,19 @@ export class CVProcessingService {
       // STAP 8: Store extractions
       await this.storeExtractions(cvId, parsed, generalizedEmployers);
 
-      console.log(`✓ STAP 8: Extractions stored in database`);
+      console.log(`[OK] STAP 8: Extractions stored in database`);
 
       // STAP 9: Complete
       const totalDuration = Date.now() - startExtract;
       await this.updateCVStatus(cvId, 'completed', totalDuration);
 
       console.log(`\n${'='.repeat(60)}`);
-      console.log(`✅ CV Processing Complete`);
+      console.log(`[SUCCESS] CV Processing Complete`);
       console.log(`Total duration: ${totalDuration}ms`);
       console.log(`${'='.repeat(60)}\n`);
 
     } catch (error) {
-      console.error(`❌ CV Processing Failed:`, error);
+      console.error(`[ERROR] CV Processing Failed:`, error);
 
       await this.updateCVStatus(
         cvId,

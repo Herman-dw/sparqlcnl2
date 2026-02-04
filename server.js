@@ -8,7 +8,7 @@
  * 2. Domein-detectie: "Toon alle MBO kwalificaties" Ã¢â€ â€™ Console: [Orchestrator] Domein: education
  * 2a. Aantallen: Bij 50+ resultaten Ã¢â€ â€™ COUNT query + mogelijkheid alle op te halen
  * 3. Vervolgvraag: "Hoeveel zijn er?" Ã¢â€ â€™ Moet context gebruiken
- * 4. Concept resolver: "Vaardigheden van loodgieter" Ã¢â€ â€™ Resolven naar officiÃƒÂ«le naam
+ * 4. Concept resolver: "Vaardigheden van loodgieter" Ã¢â€ â€™ Resolven naar officiele naam
  * 5. Opleiding: "Wat leer jij bij de opleiding werkvoorbereider installaties?" Ã¢â€ â€™ vaardigheden + kennisgebieden
  * 6. RIASEC: "geef alle vaardigheden die een relatie hebben met R" Ã¢â€ â€™ hasRIASEC predicaat
  */
@@ -506,7 +506,7 @@ app.post('/proxy/sparql', async (req, res) => {
  * Resolveert een zoekterm naar concept(en) in de knowledge graph
  * 
  * SCENARIO 1: "architect" Ã¢â€ â€™ meerdere matches Ã¢â€ â€™ disambiguatie
- * SCENARIO 4: "loodgieter" Ã¢â€ â€™ match naar officiÃƒÂ«le naam
+ * SCENARIO 4: "loodgieter" Ã¢â€ â€™ match naar officiele naam
  */
 app.post('/concept/resolve', async (req, res) => {
   const { searchTerm, conceptType = 'occupation', riasecBypass = false, questionContext, question } = req.body;
@@ -734,7 +734,7 @@ app.post('/concept/resolve', async (req, res) => {
     });
 
     console.log(`[Concept] Disambiguatie matches:`, matches.slice(0,3).map(m => ({ label: m.prefLabel, uri: m.uri })));
-    console.log(`[Concept] Ã¢Å¡Â  Disambiguatie nodig: ${disambiguationCandidates.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
+    console.log(`[Concept] [!] Disambiguatie nodig: ${disambiguationCandidates.length} ${config.dutchNamePlural} gevonden voor "${searchTerm}"`);
 
     // Genereer disambiguatie vraag
     const disambiguationQuestion = generateDisambiguationQuestion(
@@ -1243,13 +1243,13 @@ app.post('/orchestrator/classify', async (req, res) => {
  */
 app.get('/orchestrator/domains', async (req, res) => {
   res.json([
-    { domain_key: 'occupation', domain_name: 'Beroepen', description: 'Vragen over beroepen en functies', icon: 'Ã°Å¸â€˜â€', priority: 1 },
+    { domain_key: 'occupation', domain_name: 'Beroepen', description: 'Vragen over beroepen en functies', icon: '', priority: 1 },
     { domain_key: 'skill', domain_name: 'Vaardigheden', description: 'Vragen over vaardigheden en competenties', icon: 'Ã°Å¸Å½Â¯', priority: 2 },
-    { domain_key: 'education', domain_name: 'Opleidingen', description: 'Vragen over opleidingen en kwalificaties', icon: 'Ã°Å¸Å½â€œ', priority: 3 },
-    { domain_key: 'knowledge', domain_name: 'Kennisgebieden', description: 'Vragen over kennisgebieden', icon: 'Ã°Å¸â€œÅ¡', priority: 4 },
-    { domain_key: 'taxonomy', domain_name: 'Taxonomie', description: 'Vragen over RIASEC, hiÃƒÂ«rarchieÃƒÂ«n, etc.', icon: 'Ã°Å¸ÂÂ·Ã¯Â¸Â', priority: 5 },
+    { domain_key: 'education', domain_name: 'Opleidingen', description: 'Vragen over opleidingen en kwalificaties', icon: '', priority: 3 },
+    { domain_key: 'knowledge', domain_name: 'Kennisgebieden', description: 'Vragen over kennisgebieden', icon: '', priority: 4 },
+    { domain_key: 'taxonomy', domain_name: 'Taxonomie', description: 'Vragen over RIASEC, hierarchieen, etc.', icon: 'Ã°Å¸ÂÂ·Ã¯Â¸Â', priority: 5 },
     { domain_key: 'comparison', domain_name: 'Vergelijkingen', description: 'Vergelijkingen tussen concepten', icon: 'Ã¢Å¡â€“Ã¯Â¸Â', priority: 6 },
-    { domain_key: 'task', domain_name: 'Taken', description: 'Vragen over taken en werkzaamheden', icon: 'Ã°Å¸â€œâ€¹', priority: 7 }
+    { domain_key: 'task', domain_name: 'Taken', description: 'Vragen over taken en werkzaamheden', icon: '', priority: 7 }
   ]);
 });
 
@@ -1722,7 +1722,7 @@ ORDER BY ?relatietype`;
       occupationFilter = `VALUES ?occupation { <${resolvedUri}> }`;
     } else {
       // Probeer beroep uit vraag te halen
-      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zÃƒÂ©ÃƒÂ«ÃƒÂ¯ÃƒÂ¶ÃƒÂ¼ÃƒÂ¡ÃƒÂ ÃƒÂ¢ÃƒÂ¤ÃƒÂ¨ÃƒÂªÃƒÂ®ÃƒÂ´ÃƒÂ»ÃƒÂ§\-]+)/i);
+      const occupationMatch = q.match(/van\s+(?:een\s+)?([a-zeeiouaÃƒÂ aaeeiouc\-]+)/i);
       if (occupationMatch) {
         const occName = occupationMatch[1];
         // Try to resolve to URI first
@@ -2741,7 +2741,7 @@ app.post('/test/scenario', async (req, res) => {
   results.steps.push({ step: 'classify', result: classification });
 
   // Step 2: Extract occupation term if present
-  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zÃƒÂ©ÃƒÂ«ÃƒÂ¯ÃƒÂ¶ÃƒÂ¼ÃƒÂ¡ÃƒÂ ÃƒÂ¢ÃƒÂ¤ÃƒÂ¨ÃƒÂªÃƒÂ®ÃƒÂ´ÃƒÂ»ÃƒÂ§\-]+)/i);
+  const occMatch = question.match(/(?:van|heeft|voor|bij)\s+(?:een\s+)?([a-zeeiouaÃƒÂ aaeeiouc\-]+)/i);
   if (occMatch) {
     const resolveRes = await fetch(`http://${HOST}:${PORT}/concept/resolve`, {
       method: 'POST',
@@ -2785,7 +2785,7 @@ testDatabaseConnections().then(async () => {
     const cacheDuration = ((Date.now() - cacheStart) / 1000).toFixed(1);
     console.log(`Ã¢Å“â€¦ Matching cache ready (${cacheDuration}s)`);
   } catch (err) {
-    console.warn('Ã¢Å¡Â Ã¯Â¸Â Matching cache preload failed:', err.message);
+    console.warn('[!] Ã¯Â¸Â Matching cache preload failed:', err.message);
     console.warn('   Cache wordt opgebouwd bij eerste request');
   }
 
@@ -2793,41 +2793,41 @@ testDatabaseConnections().then(async () => {
   app.use('/api/cv', createCVRoutes(ragPool));
   console.log('📄 CV Processing routes mounted at /api/cv');
 
+
   app.listen(PORT, HOST, () => {
     console.log(`
-  Ã¢â€¢â€Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢â€”
-  Ã¢â€¢â€˜  CompetentNL Server v4.1.0 - All Scenarios + Matching     Ã¢â€¢â€˜
-  Ã¢â€¢Â Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â£
-  Ã¢â€¢â€˜  Host:     ${HOST}                                        Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Port:     ${PORT}                                        Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  URL:      http://${HOST}:${PORT}                         Ã¢â€¢â€˜
-  Ã¢â€¢Â Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â£
-  Ã¢â€¢â€˜  Test Scenarios:                                          Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  1.  Disambiguatie:    architect Ã¢â€ â€™ meerdere opties        Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  1a. Feedback:         na disambiguatie                   Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  2.  Domein-detectie:  MBO kwalificaties Ã¢â€ â€™ education      Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  2a. Aantallen:        50+ resultaten Ã¢â€ â€™ COUNT query       Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  3.  Vervolgvraag:     "Hoeveel zijn er?" met context     Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  4.  Concept resolver: loodgieter Ã¢â€ â€™ officiÃƒÂ«le naam        Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  5.  Opleiding:        vaardigheden + kennisgebieden      Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  6.  RIASEC:           Hollandcode R Ã¢â€ â€™ hasRIASEC          Ã¢â€¢â€˜
-  Ã¢â€¢Â Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â£
-  Ã¢â€¢â€˜  Bestaande Endpoints:                                     Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /concept/resolve      - Concept disambiguatie     Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /concept/confirm      - Bevestig keuze            Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /feedback             - Algemene feedback         Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /orchestrator/classify - Domein-detectie          Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /generate             - SPARQL generatie          Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ GET  /test/health          - Test status               Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /test/scenario        - Run test scenario         Ã¢â€¢â€˜
-  Ã¢â€¢Â Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â£
-  Ã¢â€¢â€˜  Nieuwe Matching Endpoints:                               Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /api/match-profile         - Match profiel        Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ POST /api/match-profile/preload - Herlaad cache        Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ DELETE /api/match-profile/cache - Wis cache            Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ GET  /api/match-profile/health  - Health check         Ã¢â€¢â€˜
-  Ã¢â€¢â€˜  Ã¢â‚¬Â¢ GET  /api/idf-weights           - Bekijk IDF weights   Ã¢â€¢â€˜
-  Ã¢â€¢Å¡Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+  +----------------------------------------------------------+
+  |  CompetentNL Server v4.1.0 - All Scenarios + Matching    |
+  +----------------------------------------------------------+
+  |  Host:     ${HOST}                                        |
+  |  Port:     ${PORT}                                        |
+  |  URL:      http://${HOST}:${PORT}                         |
+  +----------------------------------------------------------+
+  |  Test Scenarios:                                         |
+  |  1.  Disambiguatie:    architect -> meerdere opties      |
+  |  1a. Feedback:         na disambiguatie                  |
+  |  2.  Domein-detectie:  MBO kwalificaties -> education    |
+  |  2a. Aantallen:        50+ resultaten -> COUNT query     |
+  |  3.  Vervolgvraag:     "Hoeveel zijn er?" met context    |
+  |  4.  Concept resolver: loodgieter -> officiele naam      |
+  |  5.  Opleiding:        vaardigheden + kennisgebieden     |
+  |  6.  RIASEC:           Hollandcode R -> hasRIASEC        |
+  +----------------------------------------------------------+
+  |  Bestaande Endpoints:                                    |
+  |  * POST /concept/resolve      - Concept disambiguatie    |
+  |  * POST /concept/confirm      - Bevestig keuze           |
+  |  * POST /feedback             - Algemene feedback        |
+  |  * POST /orchestrator/classify - Domein-detectie         |
+  |  * POST /generate             - SPARQL generatie         |
+  |  * GET  /test/health          - Test status              |
+  |  * POST /test/scenario        - Run test scenario        |
+  +----------------------------------------------------------+
+  |  Nieuwe Matching Endpoints:                              |
+  |  * POST /api/match-profile         - Match profiel       |
+  |  * POST /api/match-profile/preload - Herlaad cache       |
+  |  * DELETE /api/match-profile/cache - Wis cache           |
+  |  * GET  /api/match-profile/health  - Health check        |
+  |  * GET  /api/idf-weights           - Bekijk IDF weights  |
+  +----------------------------------------------------------+
     `);
   });
-});
