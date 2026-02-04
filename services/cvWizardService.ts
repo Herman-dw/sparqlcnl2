@@ -15,6 +15,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import { GoogleGenAI } from '@google/genai';
 
 type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;
@@ -26,6 +27,7 @@ import type {
   Step3AnonymizeResponse,
   Step4ParseResponse,
   Step5FinalizeResponse,
+  Step6ClassifyResponse,
   PIIDetection,
   ParsedExperience,
   ParsedEducation,
@@ -45,12 +47,13 @@ import {
   assessReIdentificationRisk
 } from './employerGeneralizer.ts';
 import { assessCVRisk } from './riskAssessment.ts';
+import { CNLClassificationService } from './cnlClassificationService.ts';
 
 const GLINER_SERVICE_URL = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
 
 interface StepInfo {
-  stepNumber: 1 | 2 | 3 | 4 | 5;
+  stepNumber: 1 | 2 | 3 | 4 | 5 | 6;
   stepName: WizardStepName;
   label: string;
   labelNL: string;
@@ -61,7 +64,8 @@ const WIZARD_STEPS: StepInfo[] = [
   { stepNumber: 2, stepName: 'detect_pii', label: 'PII Detection', labelNL: 'PII Detectie' },
   { stepNumber: 3, stepName: 'anonymize', label: 'Anonymization Preview', labelNL: 'Anonimisering Preview' },
   { stepNumber: 4, stepName: 'parse', label: 'Structure Parsing', labelNL: 'Structuur Parsing' },
-  { stepNumber: 5, stepName: 'finalize', label: 'Privacy & Employers', labelNL: 'Privacy & Werkgevers' }
+  { stepNumber: 5, stepName: 'finalize', label: 'Privacy & Employers', labelNL: 'Privacy & Werkgevers' },
+  { stepNumber: 6, stepName: 'classify', label: 'CNL Classification', labelNL: 'CNL Classificatie' }
 ];
 
 export class CVWizardService {
@@ -117,10 +121,10 @@ export class CVWizardService {
   async confirmStepAndProceed(
     cvId: number,
     modifications?: any,
-    additionalPII?: PIIDetection[],
+    modifiedDetections?: PIIDetection[],
     privacyLevel?: PrivacyLevel
   ): Promise<{
-    nextStep?: Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse;
+    nextStep?: Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse | Step6ClassifyResponse;
     isComplete: boolean;
   }> {
     // Get current step
@@ -133,15 +137,28 @@ export class CVWizardService {
     // Mark current step as confirmed
     await this.confirmStep(cvId, currentStep.stepNumber, modifications);
 
-    // If this was the last step, complete the wizard
+    // If confirming Step 2 with modified detections, store them in cache for Step 3
+    if (currentStep.stepNumber === 2 && modifiedDetections && modifiedDetections.length > 0) {
+      const cache = this.stepDataCache.get(cvId) || {};
+      cache.piiDetections = modifiedDetections;
+      this.stepDataCache.set(cvId, cache);
+      console.log(`📝 Stored ${modifiedDetections.length} modified PII detections for CV ${cvId}`);
+    }
+
+    // If confirming Step 5, store extractions before proceeding to Step 6
     if (currentStep.stepNumber === 5) {
+      await this.storeExtractionsBeforeClassification(cvId, privacyLevel || 'medium');
+    }
+
+    // If this was the last step (Step 6), complete the wizard
+    if (currentStep.stepNumber === 6) {
       await this.completeWizard(cvId, privacyLevel || 'medium');
       return { isComplete: true };
     }
 
     // Execute next step
-    const nextStepNumber = (currentStep.stepNumber + 1) as 1 | 2 | 3 | 4 | 5;
-    const nextStep = await this.executeStep(cvId, nextStepNumber, additionalPII);
+    const nextStepNumber = (currentStep.stepNumber + 1) as 1 | 2 | 3 | 4 | 5 | 6;
+    const nextStep = await this.executeStep(cvId, nextStepNumber, modifiedDetections);
 
     return { nextStep, isComplete: false };
   }
@@ -243,9 +260,9 @@ export class CVWizardService {
 
   private async executeStep(
     cvId: number,
-    stepNumber: 1 | 2 | 3 | 4 | 5,
-    additionalPII?: PIIDetection[]
-  ): Promise<Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse> {
+    stepNumber: 1 | 2 | 3 | 4 | 5 | 6,
+    modifiedDetections?: PIIDetection[]
+  ): Promise<Step1ExtractResponse | Step2PIIResponse | Step3AnonymizeResponse | Step4ParseResponse | Step5FinalizeResponse | Step6ClassifyResponse> {
     switch (stepNumber) {
       case 1:
         const cache = this.stepDataCache.get(cvId);
@@ -256,11 +273,13 @@ export class CVWizardService {
       case 2:
         return this.executeStep2(cvId);
       case 3:
-        return this.executeStep3(cvId, additionalPII);
+        return this.executeStep3(cvId, modifiedDetections);
       case 4:
         return this.executeStep4(cvId);
       case 5:
         return this.executeStep5(cvId);
+      case 6:
+        return this.executeStep6(cvId);
       default:
         throw new CVProcessingError(`Invalid step number: ${stepNumber}`, 'INVALID_STEP', cvId);
     }
@@ -381,18 +400,24 @@ export class CVWizardService {
 
       const entities = response.data.entities || [];
 
-      // Convert to PIIDetection format
-      const detections: PIIDetection[] = entities.map((entity: any, index: number) => ({
-        id: index + 1,
-        type: this.mapEntityType(entity.label),
-        text: entity.text,
-        startPosition: entity.start,
-        endPosition: entity.end,
-        confidence: entity.score,
-        replacementText: this.getReplacementText(entity.label),
-        userApproved: true,
-        userAdded: false
-      }));
+      // Convert to PIIDetection format with semantic replacements
+      const detections: PIIDetection[] = [];
+      for (let index = 0; index < entities.length; index++) {
+        const entity = entities[index];
+        const type = this.mapEntityType(entity.label);
+        const detection: PIIDetection = {
+          id: index + 1,
+          type,
+          text: entity.text,
+          startPosition: entity.start,
+          endPosition: entity.end,
+          confidence: entity.score,
+          replacementText: this.getSemanticReplacementText(type, entity.text, detections),
+          userApproved: true,
+          userAdded: false
+        };
+        detections.push(detection);
+      }
 
       // Create text with highlights (HTML-safe)
       const textWithHighlights = this.createHighlightedText(rawText, detections);
@@ -415,6 +440,7 @@ export class CVWizardService {
         stepNumber: 2,
         stepName: 'detect_pii',
         detections,
+        rawText,
         textWithHighlights,
         summary: {
           totalDetections: detections.length,
@@ -448,7 +474,7 @@ export class CVWizardService {
    */
   private async executeStep3(
     cvId: number,
-    additionalPII?: PIIDetection[]
+    modifiedDetections?: PIIDetection[]
   ): Promise<Step3AnonymizeResponse> {
     const startTime = Date.now();
     await this.updateStepStatus(cvId, 3, 'processing');
@@ -456,6 +482,9 @@ export class CVWizardService {
     try {
       let cache = this.stepDataCache.get(cvId);
       let rawText = cache?.rawText;
+
+      // Use modified detections from cache (set by confirmStepAndProceed when Step 2 is confirmed)
+      // This includes user edits to replacement text, deletions, and additions
       let detections = cache?.piiDetections || [];
 
       if (!rawText) {
@@ -469,7 +498,7 @@ export class CVWizardService {
         }
       }
 
-      // Try to get PII detections from DB if not in cache
+      // Try to get PII detections from DB if not in cache (fallback for backwards compatibility)
       if (detections.length === 0) {
         const step2Data = await this.getStepOutputFromDB(cvId, 2);
         detections = step2Data?.detections || [];
@@ -482,9 +511,9 @@ export class CVWizardService {
         throw new CVProcessingError('No text available for anonymization', 'NO_TEXT', cvId);
       }
 
-      // Add any additional PII marked by user
-      if (additionalPII && additionalPII.length > 0) {
-        detections = [...detections, ...additionalPII.map(p => ({ ...p, userAdded: true }))];
+      // If modifiedDetections are explicitly passed (legacy support), use those instead
+      if (modifiedDetections && modifiedDetections.length > 0) {
+        detections = modifiedDetections;
       }
 
       // Sort detections by position (descending for replacement)
@@ -765,6 +794,75 @@ export class CVWizardService {
     }
   }
 
+  /**
+   * Step 6: CNL Taxonomie Classificatie
+   */
+  private async executeStep6(cvId: number): Promise<Step6ClassifyResponse> {
+    const startTime = Date.now();
+    await this.updateStepStatus(cvId, 6, 'processing');
+
+    try {
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`Step 6: CNL Classification for CV ${cvId}`);
+      console.log(`${'='.repeat(60)}\n`);
+
+      // Initialize classification service
+      const classificationService = new CNLClassificationService(this.db);
+
+      // Run classification
+      const result = await classificationService.classifyCV(cvId, {
+        useSemanticMatching: false, // Disable semantic for now, can be enabled later
+        useLLMFallback: false
+      });
+
+      const processingTimeMs = Date.now() - startTime;
+
+      // Update result with processing time
+      const finalResult: Step6ClassifyResponse = {
+        ...result,
+        processingTimeMs
+      };
+
+      await this.updateStepOutput(cvId, 6, finalResult);
+      await this.updateStepStatus(cvId, 6, 'completed', processingTimeMs);
+      await this.db.execute(`UPDATE user_cvs SET current_wizard_step = 6 WHERE id = ?`, [cvId]);
+
+      console.log(`✅ Step 6 completed: ${result.summary.classified}/${result.summary.total} classified`);
+
+      return finalResult;
+
+    } catch (error) {
+      await this.updateStepStatus(cvId, 6, 'failed', Date.now() - startTime,
+        error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
+
+  /**
+   * Store extractions before classification (called after Step 5 confirmation)
+   */
+  private async storeExtractionsBeforeClassification(cvId: number, privacyLevel: PrivacyLevel): Promise<void> {
+    const cache = this.stepDataCache.get(cvId);
+    if (!cache?.parsedData) {
+      console.warn(`No parsed data in cache for CV ${cvId}`);
+      return;
+    }
+
+    // Check if extractions already exist
+    const [existing] = await this.db.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) as count FROM cv_extractions WHERE cv_id = ?`,
+      [cvId]
+    );
+
+    if (existing[0].count > 0) {
+      console.log(`Extractions already exist for CV ${cvId}, skipping`);
+      return;
+    }
+
+    await this.storeExtractions(cvId, cache.parsedData, privacyLevel);
+    console.log(`✅ Stored extractions for CV ${cvId} before classification`);
+  }
+
   // ========================================================================
   // HELPER METHODS
   // ========================================================================
@@ -1036,18 +1134,91 @@ export class CVWizardService {
     return mapping[label.toLowerCase()] || 'other';
   }
 
+  private getSemanticReplacementText(type: string, text: string, existingDetections: PIIDetection[]): string {
+    // Count existing items of same type to create unique labels
+    const sameTypeCount = existingDetections.filter(d => d.type === type).length;
+    const suffix = sameTypeCount > 0 ? ` ${sameTypeCount + 1}` : '';
+
+    // Generate semantic replacement suggestions based on type and text content
+    switch (type) {
+      case 'name':
+        // Try to detect if it's a first name, last name, or full name
+        const nameParts = text.trim().split(/\s+/);
+        if (nameParts.length === 1) {
+          // Single word - could be first or last name
+          const isLikelyLastName = /^[A-Z][a-z]+$/.test(text) && text.length > 6;
+          return isLikelyLastName ? `[Achternaam${suffix}]` : `[Voornaam${suffix}]`;
+        } else if (nameParts.length === 2) {
+          return `[Volledige Naam${suffix}]`;
+        }
+        return `[Naam${suffix}]`;
+
+      case 'email':
+        return `[E-mailadres${suffix}]`;
+
+      case 'phone':
+        return `[Telefoonnummer${suffix}]`;
+
+      case 'address':
+        // Try to detect address components
+        if (/\d{4}\s*[A-Z]{2}/.test(text)) {
+          return `[Postcode${suffix}]`;
+        } else if (/^\d+/.test(text) || /straat|weg|laan|plein/i.test(text)) {
+          return `[Straatnaam${suffix}]`;
+        } else if (/^[A-Z][a-z]+$/.test(text) && text.length < 15) {
+          return `[Plaatsnaam${suffix}]`;
+        }
+        return `[Adres${suffix}]`;
+
+      case 'date':
+        // Keep dates somewhat meaningful
+        if (/^\d{4}$/.test(text)) {
+          return `[Jaar${suffix}]`;
+        } else if (/\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(text)) {
+          return `[Datum${suffix}]`;
+        } else if (/\d{4}\s*[-–]\s*\d{4}/.test(text) || /\d{4}\s*[-–]\s*(heden|nu|present)/i.test(text)) {
+          return `[Periode${suffix}]`;
+        }
+        return `[Datum${suffix}]`;
+
+      case 'organization':
+        // Try to categorize organization type
+        const lowerText = text.toLowerCase();
+        if (/universiteit|hogeschool|school|college|academy|academie|opleiding/i.test(lowerText)) {
+          return `[Onderwijsinstelling${suffix}]`;
+        } else if (/gemeente|provincie|rijk|overheid|ministerie/i.test(lowerText)) {
+          return `[Overheidsinstantie${suffix}]`;
+        } else if (/ziekenhuis|kliniek|huisarts|apotheek|zorg/i.test(lowerText)) {
+          return `[Zorginstelling${suffix}]`;
+        } else if (/bank|verzeker|financ/i.test(lowerText)) {
+          return `[Financiële Instelling${suffix}]`;
+        } else if (/transport|vervoer|logistiek|bus|trein|vlieg/i.test(lowerText)) {
+          return `[Vervoersbedrijf${suffix}]`;
+        } else if (/tech|software|it |ict|digital/i.test(lowerText)) {
+          return `[Techbedrijf${suffix}]`;
+        } else if (/winkel|retail|supermarkt|horeca|restaurant|café/i.test(lowerText)) {
+          return `[Retailbedrijf${suffix}]`;
+        }
+        return `[Werkgever${suffix}]`;
+
+      default:
+        return `[Verwijderd${suffix}]`;
+    }
+  }
+
+  // Legacy method for backwards compatibility
   private getReplacementText(type: string): string {
     const replacements: Record<string, string> = {
-      'name': '[NAAM]',
-      'email': '[EMAIL]',
-      'phone': '[TELEFOON]',
-      'address': '[ADRES]',
-      'date': '[DATUM]',
-      'organization': '[ORGANISATIE]',
-      'other': '[VERWIJDERD]'
+      'name': '[Naam]',
+      'email': '[E-mailadres]',
+      'phone': '[Telefoonnummer]',
+      'address': '[Adres]',
+      'date': '[Datum]',
+      'organization': '[Werkgever]',
+      'other': '[Verwijderd]'
     };
 
-    return replacements[type] || '[VERWIJDERD]';
+    return replacements[type] || '[Verwijderd]';
   }
 
   private createHighlightedText(text: string, detections: PIIDetection[]): string {
@@ -1071,207 +1242,212 @@ export class CVWizardService {
       .replace(/&lt;\/mark&gt;/g, '</mark>');
   }
 
+  /**
+   * Parse CV structure using Gemini LLM
+   * The text is already anonymized, so it's safe to send to the API
+   */
   private async parseStructure(anonymizedText: string): Promise<{
     experience: ParsedExperience[];
     education: ParsedEducation[];
     skills: ParsedSkill[];
   }> {
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      console.warn('⚠️ No Gemini API key found, falling back to regex parsing');
+      return this.parseStructureWithRegex(anonymizedText);
+    }
+
+    try {
+      const genAI = new GoogleGenAI({ apiKey });
+
+      const prompt = `Analyseer het volgende geanonimiseerde CV en extraheer de structuur.
+Let op: persoonlijke gegevens zijn al vervangen door placeholders zoals [Naam], [Werkgever], [Adres] etc.
+
+CV TEKST:
+${anonymizedText}
+
+Geef je antwoord ALLEEN als valid JSON in exact dit formaat (geen markdown, geen uitleg):
+{
+  "experience": [
+    {
+      "jobTitle": "functietitel",
+      "organization": "organisatie naam of [Werkgever] placeholder",
+      "startDate": "YYYY",
+      "endDate": "YYYY of null als huidig",
+      "description": "korte beschrijving van taken/verantwoordelijkheden",
+      "skills": ["skill1", "skill2"]
+    }
+  ],
+  "education": [
+    {
+      "degree": "diploma/opleiding naam",
+      "institution": "instelling naam of [Onderwijsinstelling] placeholder",
+      "year": "YYYY",
+      "fieldOfStudy": "studierichting indien bekend"
+    }
+  ],
+  "skills": [
+    {
+      "skillName": "vaardigheid naam",
+      "category": "technical|soft|language|other"
+    }
+  ]
+}
+
+Belangrijke instructies:
+- Behoud de [placeholder] teksten zoals ze zijn - vervang ze NIET
+- Geef alleen JSON terug, geen andere tekst
+- Als iets niet duidelijk is, laat het veld leeg of gebruik null
+- Sorteer ervaring van nieuwste naar oudste
+- Wees grondig: extraheer ALLE genoemde ervaringen, opleidingen en vaardigheden`;
+
+      const result = await genAI.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt
+      });
+      const response = result.text;
+
+      // Extract JSON from response (handle potential markdown code blocks)
+      let jsonStr = response;
+      const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1];
+      }
+
+      // Clean up the JSON string
+      jsonStr = jsonStr.trim();
+      if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
+        const parsed = JSON.parse(jsonStr);
+
+        // Transform to our format with IDs and confidence scores
+        const experience: ParsedExperience[] = (parsed.experience || []).map((exp: any, i: number) => ({
+          id: `exp-${i + 1}`,
+          jobTitle: exp.jobTitle || '',
+          organization: exp.organization,
+          startDate: exp.startDate,
+          endDate: exp.endDate,
+          duration: this.calculateDuration(exp.startDate, exp.endDate),
+          description: exp.description || '',
+          skills: exp.skills || [],
+          needsReview: false,
+          confidence: 0.9
+        }));
+
+        const education: ParsedEducation[] = (parsed.education || []).map((edu: any, i: number) => ({
+          id: `edu-${i + 1}`,
+          degree: edu.degree || '',
+          institution: edu.institution,
+          year: edu.year,
+          fieldOfStudy: edu.fieldOfStudy || '',
+          needsReview: false,
+          confidence: 0.9
+        }));
+
+        const skills: ParsedSkill[] = (parsed.skills || []).map((skill: any, i: number) => ({
+          id: `skill-${i + 1}`,
+          skillName: typeof skill === 'string' ? skill : skill.skillName,
+          category: typeof skill === 'string' ? 'other' : skill.category,
+          confidence: 0.85
+        }));
+
+        console.log(`✅ Gemini parsed CV: ${experience.length} experiences, ${education.length} education, ${skills.length} skills`);
+
+        return { experience, education, skills };
+      }
+
+      throw new Error('Invalid JSON response from Gemini');
+    } catch (error) {
+      console.error('❌ Gemini parsing failed, falling back to regex:', error);
+      return this.parseStructureWithRegex(anonymizedText);
+    }
+  }
+
+  private calculateDuration(startDate: string | null, endDate: string | null): number {
+    if (!startDate) return 0;
+    const start = parseInt(startDate);
+    const end = endDate ? parseInt(endDate) : new Date().getFullYear();
+    return isNaN(start) || isNaN(end) ? 0 : end - start;
+  }
+
+  /**
+   * Fallback regex-based parsing when Gemini is not available
+   */
+  private parseStructureWithRegex(anonymizedText: string): {
+    experience: ParsedExperience[];
+    education: ParsedEducation[];
+    skills: ParsedSkill[];
+  } {
     const result = {
       experience: [] as ParsedExperience[],
       education: [] as ParsedEducation[],
       skills: [] as ParsedSkill[]
     };
 
-    // Split into sections
-    const sections = this.identifySections(anonymizedText);
+    // Simple regex-based section detection
+    const lines = anonymizedText.split('\n');
+    let currentSection: 'experience' | 'education' | 'skills' | null = null;
+    let sectionLines: string[] = [];
 
-    // Parse experience
-    if (sections.experience) {
-      result.experience = this.parseExperienceSection(sections.experience);
-    }
-
-    // Parse education
-    if (sections.education) {
-      result.education = this.parseEducationSection(sections.education);
-    }
-
-    // Parse skills
-    result.skills = this.extractSkills(anonymizedText, sections.skills);
-
-    return result;
-  }
-
-  private identifySections(text: string): { experience?: string; education?: string; skills?: string } {
-    const sections: any = {};
     const experienceHeaders = /(werkervaring|work experience|ervaring|professional experience|employment)/i;
     const educationHeaders = /(opleiding|education|studie|studies|academic)/i;
     const skillHeaders = /(vaardigheden|skills|competenties|competencies)/i;
 
-    const lines = text.split('\n');
-    let currentSection: string | null = null;
-    let sectionContent: string[] = [];
-
     for (const line of lines) {
       if (experienceHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
         currentSection = 'experience';
-        sectionContent = [];
+        sectionLines = [];
       } else if (educationHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
         currentSection = 'education';
-        sectionContent = [];
+        sectionLines = [];
       } else if (skillHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
         currentSection = 'skills';
-        sectionContent = [];
-      } else if (currentSection) {
-        sectionContent.push(line);
+        sectionLines = [];
+      } else if (currentSection && line.trim()) {
+        sectionLines.push(line);
+
+        // Try to extract items as we go
+        if (currentSection === 'experience') {
+          const expMatch = line.match(/(.+?)\s+(\d{4})\s*[-–]\s*(\d{4}|heden|present)/i);
+          if (expMatch) {
+            result.experience.push({
+              id: `exp-${result.experience.length + 1}`,
+              jobTitle: expMatch[1].trim(),
+              startDate: expMatch[2],
+              endDate: expMatch[3].toLowerCase() === 'heden' ? null : expMatch[3],
+              duration: this.calculateDuration(expMatch[2], expMatch[3]),
+              description: '',
+              skills: [],
+              needsReview: true,
+              confidence: 0.5
+            });
+          }
+        } else if (currentSection === 'education') {
+          const eduMatch = line.match(/(.+?)\s*\((\d{4})\)/);
+          if (eduMatch) {
+            result.education.push({
+              id: `edu-${result.education.length + 1}`,
+              degree: eduMatch[1].trim(),
+              year: eduMatch[2],
+              fieldOfStudy: '',
+              needsReview: true,
+              confidence: 0.5
+            });
+          }
+        } else if (currentSection === 'skills') {
+          const skillItems = line.split(/[,;•]/).filter(s => s.trim().length > 1);
+          for (const skill of skillItems) {
+            result.skills.push({
+              id: `skill-${result.skills.length + 1}`,
+              skillName: skill.trim(),
+              confidence: 0.6
+            });
+          }
+        }
       }
     }
 
-    if (currentSection && sectionContent.length > 0) {
-      sections[currentSection] = sectionContent.join('\n');
-    }
-
-    return sections;
-  }
-
-  private parseExperienceSection(text: string): ParsedExperience[] {
-    const experiences: ParsedExperience[] = [];
-    let idCounter = 1;
-
-    // Pattern: Job title bij Organization (year-year)
-    const pattern = /([A-Z][^\n]+?)\s+(?:bij|at)\s+([^\n(]+?)\s*\((\d{4})\s*[-–]\s*(\d{4}|heden|present)\)/gi;
-
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const [_, jobTitle, organization, startYear, endYear] = match;
-      const duration = endYear.match(/\d{4}/)
-        ? parseInt(endYear) - parseInt(startYear)
-        : new Date().getFullYear() - parseInt(startYear);
-
-      experiences.push({
-        id: `exp-${idCounter++}`,
-        jobTitle: jobTitle.trim(),
-        organization: organization.trim(),
-        startDate: startYear,
-        endDate: endYear === 'heden' || endYear === 'present' ? null : endYear,
-        duration,
-        description: '',
-        skills: [],
-        needsReview: false,
-        confidence: 0.85
-      });
-    }
-
-    if (experiences.length > 0) return experiences;
-
-    // Fallback pattern
-    const fallbackPattern = /(.+?)\s+(\d{4})\s*[-–]\s*(\d{4}|heden|present)/gi;
-    let fallbackMatch;
-    while ((fallbackMatch = fallbackPattern.exec(text)) !== null) {
-      const [_, title, startYear, endYear] = fallbackMatch;
-      const duration = endYear.match(/\d{4}/)
-        ? parseInt(endYear) - parseInt(startYear)
-        : new Date().getFullYear() - parseInt(startYear);
-
-      experiences.push({
-        id: `exp-${idCounter++}`,
-        jobTitle: title.trim(),
-        startDate: startYear,
-        endDate: endYear === 'heden' || endYear === 'present' ? null : endYear,
-        duration,
-        description: '',
-        skills: [],
-        needsReview: true,
-        confidence: 0.5
-      });
-    }
-
-    return experiences;
-  }
-
-  private parseEducationSection(text: string): ParsedEducation[] {
-    const education: ParsedEducation[] = [];
-    let idCounter = 1;
-
-    // Pattern: Degree, Institution (year)
-    const pattern = /([^\n,]+?),\s*([^\n(]+?)\s*\((\d{4})\)/gi;
-
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const [_, degree, institution, year] = match;
-
-      education.push({
-        id: `edu-${idCounter++}`,
-        degree: degree.trim(),
-        institution: institution.trim(),
-        year,
-        fieldOfStudy: '',
-        needsReview: false,
-        confidence: 0.85
-      });
-    }
-
-    if (education.length > 0) return education;
-
-    // Fallback
-    const fallbackPattern = /(.+?)\s*\((\d{4})\)/gi;
-    let fallbackMatch;
-    while ((fallbackMatch = fallbackPattern.exec(text)) !== null) {
-      const [_, degree, year] = fallbackMatch;
-      education.push({
-        id: `edu-${idCounter++}`,
-        degree: degree.trim(),
-        year,
-        fieldOfStudy: '',
-        needsReview: true,
-        confidence: 0.5
-      });
-    }
-
-    return education;
-  }
-
-  private extractSkills(text: string, skillSection?: string): ParsedSkill[] {
-    const skillPatterns = [
-      /\b(Python|Java|JavaScript|TypeScript|C\#|C\+\+|Ruby|PHP|Go|Rust|Swift|Kotlin)\b/gi,
-      /\b(React|Vue|Angular|Node\.js|Express|Django|Flask|Spring|Laravel)\b/gi,
-      /\b(SQL|MySQL|PostgreSQL|MongoDB|Redis|Elasticsearch)\b/gi,
-      /\b(AWS|Azure|GCP|Docker|Kubernetes|Jenkins|GitLab|GitHub)\b/gi,
-      /\b(Agile|Scrum|Kanban|DevOps|CI\/CD|TDD|BDD)\b/gi
-    ];
-
-    const skills: Set<string> = new Set();
-
-    for (const pattern of skillPatterns) {
-      let match;
-      while ((match = pattern.exec(text)) !== null) {
-        skills.add(match[1]);
-      }
-    }
-
-    if (skillSection) {
-      const sectionSkills = skillSection
-        .split(/[,;\n•]+/)
-        .map(skill => skill.trim())
-        .filter(skill => skill.length > 1);
-      for (const skill of sectionSkills) {
-        skills.add(skill);
-      }
-    }
-
-    return Array.from(skills).map((skillName, i) => ({
-      id: `skill-${i + 1}`,
-      skillName,
-      confidence: 0.75
-    }));
+    return result;
   }
 
   private encrypt(text: string): Buffer {

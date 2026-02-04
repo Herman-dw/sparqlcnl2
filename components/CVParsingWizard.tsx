@@ -10,7 +10,7 @@
  * 5. Privacy & Werkgevers - Kies privacy niveau en finaliseer
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 
 import type {
@@ -19,9 +19,11 @@ import type {
   Step3AnonymizeResponse,
   Step4ParseResponse,
   Step5FinalizeResponse,
+  Step6ClassifyResponse,
   PIIDetection,
   PrivacyLevel,
-  WizardStepResponse
+  WizardStepResponse,
+  ClassificationResult
 } from '../types/cv';
 
 interface CVParsingWizardProps {
@@ -39,7 +41,8 @@ const STEP_INFO = [
   { number: 2, name: 'PII Detectie', description: 'Persoonsgegevens worden gedetecteerd' },
   { number: 3, name: 'Anonimisering', description: 'Preview van de anonimisering' },
   { number: 4, name: 'Structuur', description: 'Werkervaring en opleiding worden geparseerd' },
-  { number: 5, name: 'Privacy', description: 'Kies je privacy niveau' }
+  { number: 5, name: 'Privacy', description: 'Kies je privacy niveau' },
+  { number: 6, name: 'Classificatie', description: 'Koppelen aan CompetentNL taxonomie' }
 ];
 
 export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
@@ -61,9 +64,12 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
   const [step3Data, setStep3Data] = useState<Step3AnonymizeResponse | null>(null);
   const [step4Data, setStep4Data] = useState<Step4ParseResponse | null>(null);
   const [step5Data, setStep5Data] = useState<Step5FinalizeResponse | null>(null);
+  const [step6Data, setStep6Data] = useState<Step6ClassifyResponse | null>(null);
 
-  // User modifications
+  // User modifications for Step 2: PII Detection
   const [additionalPII, setAdditionalPII] = useState<PIIDetection[]>([]);
+  const [deletedPIIIds, setDeletedPIIIds] = useState<number[]>([]);
+  const [piiModifications, setPiiModifications] = useState<Record<number, Partial<PIIDetection>>>({});
   const [selectedPrivacyLevel, setSelectedPrivacyLevel] = useState<PrivacyLevel>('medium');
 
   // File upload
@@ -138,8 +144,17 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
       const body: any = { confirmed: true };
 
       // Add step-specific data
-      if (currentStep === 2 && additionalPII.length > 0) {
-        body.additionalPII = additionalPII;
+      if (currentStep === 2 && step2Data) {
+        // Combine original detections (with modifications) and additional PII
+        const modifiedDetections = (step2Data.detections || [])
+          .filter(d => d.id !== undefined && !deletedPIIIds.includes(d.id))
+          .map(d => ({
+            ...d,
+            ...(d.id !== undefined ? piiModifications[d.id] : {})
+          }));
+
+        body.detections = [...modifiedDetections, ...additionalPII];
+        body.deletedIds = deletedPIIIds;
       }
       if (currentStep === 5) {
         body.privacyLevel = selectedPrivacyLevel;
@@ -178,6 +193,9 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
             break;
           case 5:
             setStep5Data(data.nextStep as Step5FinalizeResponse);
+            break;
+          case 6:
+            setStep6Data(data.nextStep as Step6ClassifyResponse);
             break;
         }
         setCurrentStep(data.nextStep.stepNumber);
@@ -231,7 +249,10 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
     setStep3Data(null);
     setStep4Data(null);
     setStep5Data(null);
+    setStep6Data(null);
     setAdditionalPII([]);
+    setDeletedPIIIds([]);
+    setPiiModifications({});
     setSelectedPrivacyLevel('medium');
   };
 
@@ -310,7 +331,21 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
             <Step2View
               data={step2Data}
               additionalPII={additionalPII}
+              deletedPIIIds={deletedPIIIds}
+              piiModifications={piiModifications}
               onAddPII={(pii) => setAdditionalPII([...additionalPII, pii])}
+              onDeletePII={(id) => setDeletedPIIIds([...deletedPIIIds, id])}
+              onRestorePII={(id) => setDeletedPIIIds(deletedPIIIds.filter(i => i !== id))}
+              onModifyPII={(id, changes) => setPiiModifications({
+                ...piiModifications,
+                [id]: { ...piiModifications[id], ...changes }
+              })}
+              onRemoveAdditionalPII={(index) => setAdditionalPII(additionalPII.filter((_, i) => i !== index))}
+              onModifyAdditionalPII={(index, changes) => {
+                const updated = [...additionalPII];
+                updated[index] = { ...updated[index], ...changes };
+                setAdditionalPII(updated);
+              }}
             />
           )}
 
@@ -330,6 +365,15 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
               data={step5Data}
               selectedLevel={selectedPrivacyLevel}
               onSelectLevel={setSelectedPrivacyLevel}
+            />
+          )}
+
+          {/* Step 6: CNL Classification */}
+          {status === 'step' && currentStep === 6 && step6Data && (
+            <Step6View
+              data={step6Data}
+              cvId={cvId!}
+              backendUrl={backendUrl}
             />
           )}
 
@@ -374,7 +418,7 @@ export const CVParsingWizard: React.FC<CVParsingWizardProps> = ({
             >
               {isProcessing ? (
                 <span className="btn-loading">Verwerken...</span>
-              ) : currentStep === 5 ? (
+              ) : currentStep === 6 ? (
                 'Voltooien ✓'
               ) : (
                 'Bevestig & Volgende →'
@@ -796,166 +840,783 @@ const Step1View: React.FC<{ data: Step1ExtractResponse }> = ({ data }) => (
 const Step2View: React.FC<{
   data: Step2PIIResponse;
   additionalPII: PIIDetection[];
+  deletedPIIIds: number[];
+  piiModifications: Record<number, Partial<PIIDetection>>;
   onAddPII: (pii: PIIDetection) => void;
-}> = ({ data, additionalPII, onAddPII }) => (
-  <div className="step-view">
-    <h3>Stap 2: PII Detectie</h3>
-    <p className="step-description">
-      De volgende persoonsgegevens zijn gedetecteerd. Je kunt extra items toevoegen als iets gemist is.
-    </p>
+  onDeletePII: (id: number) => void;
+  onRestorePII: (id: number) => void;
+  onModifyPII: (id: number, changes: Partial<PIIDetection>) => void;
+  onRemoveAdditionalPII: (index: number) => void;
+  onModifyAdditionalPII: (index: number, changes: Partial<PIIDetection>) => void;
+}> = ({
+  data,
+  additionalPII,
+  deletedPIIIds,
+  piiModifications,
+  onAddPII,
+  onDeletePII,
+  onRestorePII,
+  onModifyPII,
+  onRemoveAdditionalPII,
+  onModifyAdditionalPII
+}) => {
+  const [selectedText, setSelectedText] = useState('');
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newPIIType, setNewPIIType] = useState<PIIDetection['type']>('other');
+  const [newPIIReplacement, setNewPIIReplacement] = useState('');
+  const textRef = React.useRef<HTMLDivElement>(null);
 
-    <div className="pii-summary">
-      <div className="total">
-        <span className="count">{data.summary.totalDetections}</span>
-        <span className="label">PII items gedetecteerd</span>
-      </div>
-      <div className="by-type">
-        {Object.entries(data.summary.byType).map(([type, count]) => (
-          <span key={type} className={`badge badge-${type}`}>
-            {type}: {count}
+  // Defensive: ensure detections is always an array
+  const detections = data.detections || [];
+
+  // Calculate active detections (excluding deleted ones)
+  const activeDetections = detections.filter(d => d.id !== undefined && !deletedPIIIds.includes(d.id));
+  const deletedDetections = detections.filter(d => d.id !== undefined && deletedPIIIds.includes(d.id));
+  const totalActive = activeDetections.length + additionalPII.length;
+
+  // Recalculate summary by type
+  const byType: Record<string, number> = {};
+  [...activeDetections, ...additionalPII].forEach(d => {
+    byType[d.type] = (byType[d.type] || 0) + 1;
+  });
+
+  // Handle text selection in the raw text area
+  const handleTextSelection = () => {
+    try {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !textRef.current) {
+        setSelectedText('');
+        setSelectionRange(null);
+        return;
+      }
+
+      const text = selection.toString().trim();
+      if (text.length < 2) {
+        setSelectedText('');
+        setSelectionRange(null);
+        return;
+      }
+
+      // Verify selection is within our text element
+      if (!textRef.current.contains(selection.anchorNode)) {
+        return;
+      }
+
+      // Get actual selection offsets from the DOM range
+      const range = selection.getRangeAt(0);
+      const preSelectionRange = document.createRange();
+      preSelectionRange.selectNodeContents(textRef.current);
+      preSelectionRange.setEnd(range.startContainer, range.startOffset);
+      const startOffset = preSelectionRange.toString().length;
+      const endOffset = startOffset + text.length;
+
+      setSelectedText(text);
+      setSelectionRange({ start: startOffset, end: endOffset });
+      setNewPIIReplacement(`[${text.charAt(0).toUpperCase() + text.slice(1)}]`);
+      setShowAddModal(true);
+    } catch (error) {
+      console.error('Text selection error:', error);
+      setSelectedText('');
+      setSelectionRange(null);
+    }
+  };
+
+  const handleAddPII = () => {
+    if (!selectedText || !selectionRange) return;
+
+    const newPII: PIIDetection = {
+      id: Date.now(), // Temporary ID for user-added items
+      type: newPIIType,
+      text: selectedText,
+      startPosition: selectionRange.start,
+      endPosition: selectionRange.end,
+      confidence: 1.0,
+      replacementText: newPIIReplacement || `[${selectedText}]`,
+      userApproved: true,
+      userAdded: true
+    };
+
+    onAddPII(newPII);
+    setShowAddModal(false);
+    setSelectedText('');
+    setSelectionRange(null);
+    setNewPIIType('other');
+    setNewPIIReplacement('');
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const getDefaultReplacement = (type: PIIDetection['type']): string => {
+    const defaults: Record<string, string> = {
+      name: '[Naam]',
+      email: '[E-mailadres]',
+      phone: '[Telefoonnummer]',
+      address: '[Adres]',
+      date: '[Datum]',
+      organization: '[Werkgever]',
+      other: '[Verwijderd]'
+    };
+    return defaults[type] || '[Verwijderd]';
+  };
+
+  // Render text with highlighted PII items
+  const renderHighlightedText = () => {
+    const rawText = data.rawText || '';
+    if (!rawText) return null;
+
+    // Combine all active detections for highlighting
+    const allDetections = [...activeDetections, ...additionalPII]
+      .filter(d => d.startPosition !== undefined && d.endPosition !== undefined)
+      .sort((a, b) => a.startPosition - b.startPosition);
+
+    if (allDetections.length === 0) {
+      return rawText;
+    }
+
+    const elements: React.ReactNode[] = [];
+    let lastEnd = 0;
+
+    allDetections.forEach((detection, idx) => {
+      // Add text before this detection
+      if (detection.startPosition > lastEnd) {
+        elements.push(
+          <span key={`text-${idx}`}>
+            {rawText.substring(lastEnd, detection.startPosition)}
           </span>
-        ))}
-      </div>
-    </div>
+        );
+      }
 
-    <div className="detections-list">
-      <h4>Gedetecteerde items:</h4>
-      {data.detections.map((detection, idx) => (
-        <div key={idx} className={`detection-item type-${detection.type}`}>
-          <span className="type-badge">{detection.type}</span>
-          <span className="text">"{detection.text}"</span>
-          <span className="confidence">{(detection.confidence * 100).toFixed(0)}% zeker</span>
+      // Add highlighted detection (only if not overlapping with previous)
+      if (detection.startPosition >= lastEnd) {
+        elements.push(
+          <mark
+            key={`pii-${idx}`}
+            className={`pii-highlight pii-${detection.type}`}
+            title={`${detection.type}: ${detection.replacementText || getDefaultReplacement(detection.type)}`}
+          >
+            {rawText.substring(detection.startPosition, detection.endPosition)}
+          </mark>
+        );
+        lastEnd = detection.endPosition;
+      }
+    });
+
+    // Add remaining text after last detection
+    if (lastEnd < rawText.length) {
+      elements.push(
+        <span key="text-end">{rawText.substring(lastEnd)}</span>
+      );
+    }
+
+    return elements;
+  };
+
+  return (
+    <div className="step-view">
+      <h3>Stap 2: PII Detectie</h3>
+      <p className="step-description">
+        De volgende persoonsgegevens zijn gedetecteerd. Je kunt items verwijderen, vervangingstekst aanpassen, of extra items toevoegen door tekst te selecteren.
+      </p>
+
+      <div className="pii-summary">
+        <div className="total">
+          <span className="count">{totalActive}</span>
+          <span className="label">PII items gedetecteerd</span>
         </div>
-      ))}
+        <div className="by-type">
+          {Object.entries(byType).map(([type, count]) => (
+            <span key={type} className={`badge badge-${type}`}>
+              {type}: {count}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Raw text with selection capability and highlights */}
+      {data.rawText && (
+        <div className="text-selection-area">
+          <h4>Selecteer tekst om toe te voegen als PII:</h4>
+          <div
+            ref={textRef}
+            className="raw-text"
+            onMouseUp={handleTextSelection}
+          >
+            {renderHighlightedText()}
+          </div>
+        </div>
+      )}
+
+      {/* Add PII Modal */}
+      {showAddModal && (
+        <div className="add-pii-modal">
+          <div className="modal-content">
+            <h4>Voeg PII item toe</h4>
+            <p className="selected-preview">Geselecteerde tekst: <strong>"{selectedText}"</strong></p>
+
+            <div className="form-group">
+              <label>Type:</label>
+              <select
+                value={newPIIType}
+                onChange={(e) => {
+                  setNewPIIType(e.target.value as PIIDetection['type']);
+                  setNewPIIReplacement(getDefaultReplacement(e.target.value as PIIDetection['type']));
+                }}
+              >
+                <option value="name">Naam</option>
+                <option value="email">E-mail</option>
+                <option value="phone">Telefoon</option>
+                <option value="address">Adres</option>
+                <option value="date">Datum</option>
+                <option value="organization">Organisatie</option>
+                <option value="other">Anders</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Vervangen door:</label>
+              <input
+                type="text"
+                value={newPIIReplacement}
+                onChange={(e) => setNewPIIReplacement(e.target.value)}
+                placeholder="bijv. [Voornaam] of [Werkgever]"
+              />
+            </div>
+
+            <div className="modal-buttons">
+              <button className="btn-cancel" onClick={() => {
+                setShowAddModal(false);
+                setSelectedText('');
+                setSelectionRange(null);
+                window.getSelection()?.removeAllRanges();
+              }}>
+                Annuleren
+              </button>
+              <button className="btn-add" onClick={handleAddPII}>
+                Toevoegen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="detections-list">
+        <h4>Gedetecteerde items ({totalActive}):</h4>
+
+        {/* Active detections from automatic detection */}
+        {activeDetections.map((detection) => {
+          const modifications = detection.id !== undefined ? piiModifications[detection.id] : {};
+          const currentReplacement = modifications?.replacementText ?? detection.replacementText ?? getDefaultReplacement(detection.type);
+
+          return (
+            <div key={detection.id} className={`detection-item type-${detection.type}`}>
+              <span className="type-badge">{detection.type.toUpperCase()}</span>
+              <span className="text">"{detection.text}"</span>
+              <div className="replacement-edit">
+                <span className="arrow">→</span>
+                <input
+                  type="text"
+                  value={currentReplacement}
+                  onChange={(e) => detection.id !== undefined && onModifyPII(detection.id, { replacementText: e.target.value })}
+                  className="replacement-input"
+                  placeholder="Vervangingstekst"
+                />
+              </div>
+              <span className="confidence">{(detection.confidence * 100).toFixed(0)}%</span>
+              <button
+                className="btn-delete"
+                onClick={() => detection.id !== undefined && onDeletePII(detection.id)}
+                title="Verwijderen"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+
+        {/* User-added PII items */}
+        {additionalPII.map((pii, idx) => (
+          <div key={`additional-${idx}`} className={`detection-item type-${pii.type} user-added`}>
+            <span className="type-badge">{pii.type.toUpperCase()}</span>
+            <span className="text">"{pii.text}"</span>
+            <div className="replacement-edit">
+              <span className="arrow">→</span>
+              <input
+                type="text"
+                value={pii.replacementText || ''}
+                onChange={(e) => onModifyAdditionalPII(idx, { replacementText: e.target.value })}
+                className="replacement-input"
+                placeholder="Vervangingstekst"
+              />
+            </div>
+            <span className="user-badge">Handmatig</span>
+            <button
+              className="btn-delete"
+              onClick={() => onRemoveAdditionalPII(idx)}
+              title="Verwijderen"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+
+        {totalActive === 0 && (
+          <p className="no-items">Geen PII items. Selecteer tekst hierboven om toe te voegen.</p>
+        )}
+      </div>
+
+      {/* Deleted items (can be restored) */}
+      {deletedDetections.length > 0 && (
+        <div className="deleted-items">
+          <h4>Verwijderde items ({deletedDetections.length}):</h4>
+          {deletedDetections.map((detection) => (
+            <div key={detection.id} className="deleted-item">
+              <span className="type-badge">{detection.type.toUpperCase()}</span>
+              <span className="text">"{detection.text}"</span>
+              <button
+                className="btn-restore"
+                onClick={() => detection.id !== undefined && onRestorePII(detection.id)}
+              >
+                Herstellen
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="info-box">
+        <span className="icon">ℹ️</span>
+        <p>Zijn dit alle gevoelige gegevens? Je kunt extra items markeren in de tekst hierboven.</p>
+      </div>
+
+      <style jsx>{`
+        .step-view { padding: 0; }
+        .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
+        .step-description { color: #6b7280; margin: 0 0 20px 0; }
+
+        .pii-summary {
+          display: flex;
+          align-items: center;
+          gap: 24px;
+          padding: 16px;
+          background: #fef3c7;
+          border: 1px solid #fcd34d;
+          border-radius: 8px;
+          margin-bottom: 20px;
+        }
+
+        .pii-summary .total {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+
+        .pii-summary .count {
+          font-size: 32px;
+          font-weight: 700;
+          color: #92400e;
+        }
+
+        .pii-summary .label {
+          color: #92400e;
+        }
+
+        .by-type {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .badge {
+          padding: 4px 10px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+
+        .badge-name { background: #fce7f3; color: #be185d; }
+        .badge-email { background: #dbeafe; color: #1e40af; }
+        .badge-phone { background: #d1fae5; color: #065f46; }
+        .badge-address { background: #fef3c7; color: #92400e; }
+        .badge-date { background: #fef9c3; color: #854d0e; }
+        .badge-organization { background: #e0e7ff; color: #3730a3; }
+        .badge-other { background: #f3f4f6; color: #4b5563; }
+
+        .text-selection-area {
+          margin-bottom: 20px;
+        }
+
+        .text-selection-area h4 {
+          margin: 0 0 8px 0;
+          font-size: 14px;
+          color: #374151;
+        }
+
+        .raw-text {
+          background: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          padding: 12px;
+          max-height: 150px;
+          overflow-y: auto;
+          font-size: 13px;
+          line-height: 1.6;
+          white-space: pre-wrap;
+          cursor: text;
+          user-select: text;
+        }
+
+        .raw-text::selection {
+          background: #bfdbfe;
+        }
+
+        /* PII Highlight styles */
+        .pii-highlight {
+          padding: 1px 3px;
+          border-radius: 3px;
+          cursor: help;
+        }
+
+        .pii-name {
+          background: #fce7f3;
+          border-bottom: 2px solid #ec4899;
+        }
+
+        .pii-email {
+          background: #dbeafe;
+          border-bottom: 2px solid #3b82f6;
+        }
+
+        .pii-phone {
+          background: #d1fae5;
+          border-bottom: 2px solid #10b981;
+        }
+
+        .pii-address {
+          background: #fef3c7;
+          border-bottom: 2px solid #f59e0b;
+        }
+
+        .pii-date {
+          background: #fef9c3;
+          border-bottom: 2px solid #eab308;
+        }
+
+        .pii-organization {
+          background: #e0e7ff;
+          border-bottom: 2px solid #6366f1;
+        }
+
+        .pii-other {
+          background: #f3f4f6;
+          border-bottom: 2px solid #9ca3af;
+        }
+
+        .add-pii-modal {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1100;
+        }
+
+        .modal-content {
+          background: white;
+          border-radius: 12px;
+          padding: 24px;
+          max-width: 400px;
+          width: 90%;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-content h4 {
+          margin: 0 0 16px 0;
+          color: #1f2937;
+        }
+
+        .selected-preview {
+          background: #f3f4f6;
+          padding: 8px 12px;
+          border-radius: 6px;
+          margin-bottom: 16px;
+          font-size: 14px;
+        }
+
+        .form-group {
+          margin-bottom: 16px;
+        }
+
+        .form-group label {
+          display: block;
+          font-size: 14px;
+          font-weight: 500;
+          color: #374151;
+          margin-bottom: 6px;
+        }
+
+        .form-group select,
+        .form-group input {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          font-size: 14px;
+        }
+
+        .modal-buttons {
+          display: flex;
+          gap: 12px;
+          justify-content: flex-end;
+          margin-top: 20px;
+        }
+
+        .btn-cancel {
+          padding: 8px 16px;
+          background: #f3f4f6;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+
+        .btn-add {
+          padding: 8px 16px;
+          background: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+
+        .btn-add:hover {
+          background: #2563eb;
+        }
+
+        .detections-list {
+          background: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          padding: 16px;
+          max-height: 250px;
+          overflow-y: auto;
+        }
+
+        .detections-list h4 {
+          margin: 0 0 12px 0;
+          font-size: 14px;
+          color: #374151;
+        }
+
+        .detection-item {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: white;
+          border-radius: 6px;
+          margin-bottom: 8px;
+          border-left: 3px solid #d1d5db;
+        }
+
+        .detection-item.user-added {
+          border-left-style: dashed;
+        }
+
+        .detection-item.type-name { border-left-color: #ec4899; }
+        .detection-item.type-email { border-left-color: #3b82f6; }
+        .detection-item.type-phone { border-left-color: #10b981; }
+        .detection-item.type-address { border-left-color: #f59e0b; }
+        .detection-item.type-date { border-left-color: #eab308; }
+        .detection-item.type-organization { border-left-color: #6366f1; }
+        .detection-item.type-other { border-left-color: #9ca3af; }
+
+        .type-badge {
+          padding: 2px 8px;
+          background: #f3f4f6;
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          color: #6b7280;
+          flex-shrink: 0;
+        }
+
+        .detection-item .text {
+          font-family: ui-monospace, monospace;
+          font-size: 12px;
+          color: #1f2937;
+          flex-shrink: 0;
+          max-width: 150px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .replacement-edit {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .arrow {
+          color: #9ca3af;
+          font-size: 14px;
+          flex-shrink: 0;
+        }
+
+        .replacement-input {
+          flex: 1;
+          min-width: 0;
+          padding: 4px 8px;
+          border: 1px solid #d1d5db;
+          border-radius: 4px;
+          font-size: 12px;
+          background: #fefce8;
+        }
+
+        .replacement-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+          background: white;
+        }
+
+        .confidence {
+          font-size: 11px;
+          color: #9ca3af;
+          flex-shrink: 0;
+        }
+
+        .user-badge {
+          font-size: 10px;
+          color: #059669;
+          background: #d1fae5;
+          padding: 2px 6px;
+          border-radius: 4px;
+          flex-shrink: 0;
+        }
+
+        .btn-delete {
+          width: 24px;
+          height: 24px;
+          border: none;
+          background: #fee2e2;
+          color: #dc2626;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .btn-delete:hover {
+          background: #fecaca;
+        }
+
+        .no-items {
+          color: #6b7280;
+          font-style: italic;
+          text-align: center;
+          padding: 20px;
+        }
+
+        .deleted-items {
+          margin-top: 16px;
+          padding: 12px;
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+          border-radius: 8px;
+        }
+
+        .deleted-items h4 {
+          margin: 0 0 12px 0;
+          font-size: 14px;
+          color: #991b1b;
+        }
+
+        .deleted-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 6px 10px;
+          background: white;
+          border-radius: 4px;
+          margin-bottom: 6px;
+          opacity: 0.7;
+        }
+
+        .deleted-item .text {
+          flex: 1;
+          font-family: ui-monospace, monospace;
+          font-size: 12px;
+          color: #6b7280;
+          text-decoration: line-through;
+        }
+
+        .btn-restore {
+          padding: 4px 10px;
+          background: #dbeafe;
+          color: #1e40af;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+        }
+
+        .btn-restore:hover {
+          background: #bfdbfe;
+        }
+
+        .info-box {
+          display: flex;
+          gap: 12px;
+          margin-top: 16px;
+          padding: 12px 16px;
+          background: #eff6ff;
+          border: 1px solid #bfdbfe;
+          border-radius: 8px;
+        }
+
+        .info-box .icon { font-size: 18px; }
+        .info-box p { margin: 0; color: #1e40af; font-size: 14px; }
+      `}</style>
     </div>
+  );
+};
 
-    <div className="info-box">
-      <span className="icon">ℹ️</span>
-      <p>Zijn dit alle gevoelige gegevens? Je kunt extra items markeren in de tekst hierboven.</p>
-    </div>
+const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
+  const originalRef = useRef<HTMLDivElement>(null);
+  const anonymizedRef = useRef<HTMLDivElement>(null);
+  const isSyncingRef = useRef(false);
 
-    <style>{`
-      .step-view { padding: 0; }
-      .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
-      .step-description { color: #6b7280; margin: 0 0 20px 0; }
+  // Synchronized scrolling between the two panels
+  const handleScroll = useCallback((source: 'original' | 'anonymized') => {
+    if (isSyncingRef.current) return;
 
-      .pii-summary {
-        display: flex;
-        align-items: center;
-        gap: 24px;
-        padding: 16px;
-        background: #fef3c7;
-        border: 1px solid #fcd34d;
-        border-radius: 8px;
-        margin-bottom: 20px;
-      }
+    isSyncingRef.current = true;
 
-      .pii-summary .total {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-      }
+    const sourceEl = source === 'original' ? originalRef.current : anonymizedRef.current;
+    const targetEl = source === 'original' ? anonymizedRef.current : originalRef.current;
 
-      .pii-summary .count {
-        font-size: 32px;
-        font-weight: 700;
-        color: #92400e;
-      }
+    if (sourceEl && targetEl) {
+      targetEl.scrollTop = sourceEl.scrollTop;
+    }
 
-      .pii-summary .label {
-        color: #92400e;
-      }
+    // Reset syncing flag after a short delay
+    requestAnimationFrame(() => {
+      isSyncingRef.current = false;
+    });
+  }, []);
 
-      .by-type {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-
-      .badge {
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 500;
-      }
-
-      .badge-name { background: #fce7f3; color: #be185d; }
-      .badge-email { background: #dbeafe; color: #1e40af; }
-      .badge-phone { background: #d1fae5; color: #065f46; }
-      .badge-address { background: #fef3c7; color: #92400e; }
-      .badge-organization { background: #e0e7ff; color: #3730a3; }
-
-      .detections-list {
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        padding: 16px;
-        max-height: 250px;
-        overflow-y: auto;
-      }
-
-      .detections-list h4 {
-        margin: 0 0 12px 0;
-        font-size: 14px;
-        color: #374151;
-      }
-
-      .detection-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 8px 12px;
-        background: white;
-        border-radius: 6px;
-        margin-bottom: 8px;
-        border-left: 3px solid #d1d5db;
-      }
-
-      .detection-item.type-name { border-left-color: #ec4899; }
-      .detection-item.type-email { border-left-color: #3b82f6; }
-      .detection-item.type-phone { border-left-color: #10b981; }
-      .detection-item.type-address { border-left-color: #f59e0b; }
-      .detection-item.type-organization { border-left-color: #6366f1; }
-
-      .type-badge {
-        padding: 2px 8px;
-        background: #f3f4f6;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        color: #6b7280;
-      }
-
-      .detection-item .text {
-        flex: 1;
-        font-family: ui-monospace, monospace;
-        font-size: 13px;
-        color: #1f2937;
-      }
-
-      .confidence {
-        font-size: 12px;
-        color: #9ca3af;
-      }
-
-      .info-box {
-        display: flex;
-        gap: 12px;
-        margin-top: 16px;
-        padding: 12px 16px;
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        border-radius: 8px;
-      }
-
-      .info-box .icon { font-size: 18px; }
-      .info-box p { margin: 0; color: #1e40af; font-size: 14px; }
-    `}</style>
-  </div>
-);
-
-const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
+  return (
   <div className="step-view">
     <h3>Stap 3: Anonimisering Preview</h3>
     <p className="step-description">
@@ -965,7 +1626,11 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
     <div className="comparison-container">
       <div className="comparison-column original">
         <h4>Origineel</h4>
-        <div className="text-content">
+        <div
+          ref={originalRef}
+          className="text-content"
+          onScroll={() => handleScroll('original')}
+        >
           {data.comparisonView.original.map((line, idx) => (
             <div
               key={idx}
@@ -979,7 +1644,11 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
 
       <div className="comparison-column anonymized">
         <h4>Geanonimiseerd</h4>
-        <div className="text-content">
+        <div
+          ref={anonymizedRef}
+          className="text-content"
+          onScroll={() => handleScroll('anonymized')}
+        >
           {data.comparisonView.anonymized.map((line, idx) => (
             <div
               key={idx}
@@ -1128,7 +1797,8 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => (
       }
     `}</style>
   </div>
-);
+  );
+};
 
 const Step4View: React.FC<{ data: Step4ParseResponse }> = ({ data }) => (
   <div className="step-view">
@@ -1614,5 +2284,460 @@ const Step5View: React.FC<{
     `}</style>
   </div>
 );
+
+// Step 6: CNL Classification View
+const Step6View: React.FC<{
+  data: Step6ClassifyResponse;
+  cvId: number;
+  backendUrl: string;
+}> = ({ data, cvId, backendUrl }) => {
+  const [selectedAlternatives, setSelectedAlternatives] = useState<Record<number, { uri: string; label: string } | null>>({});
+  const [expandedItem, setExpandedItem] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchingFor, setSearchingFor] = useState<{ extractionId: number; type: string } | null>(null);
+
+  const handleSelectAlternative = async (extractionId: number, uri: string, label: string) => {
+    try {
+      await fetch(`${backendUrl}/api/cv/extraction/${extractionId}/classification`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uri, label, confirmed: true })
+      });
+
+      setSelectedAlternatives(prev => ({
+        ...prev,
+        [extractionId]: { uri, label }
+      }));
+    } catch (error) {
+      console.error('Failed to update classification:', error);
+    }
+  };
+
+  const handleSearch = async (query: string, conceptType: string) => {
+    if (query.length < 2) return;
+
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/cv/cnl/search?q=${encodeURIComponent(query)}&type=${conceptType}&limit=10`
+      );
+      const data = await response.json();
+      setSearchResults(data.results || []);
+    } catch (error) {
+      console.error('Search failed:', error);
+      setSearchResults([]);
+    }
+  };
+
+  const handleConfirmClassification = async (extractionId: number) => {
+    try {
+      await fetch(`${backendUrl}/api/cv/extraction/${extractionId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error('Failed to confirm classification:', error);
+    }
+  };
+
+  const renderClassificationItem = (
+    item: any,
+    type: 'experience' | 'education' | 'skill',
+    conceptType: string
+  ) => {
+    const classification = item.classification;
+    const selected = selectedAlternatives[item.extractionId];
+    const displayMatch = selected || classification.match;
+    const isExpanded = expandedItem === item.extractionId;
+
+    const getStatusIcon = () => {
+      if (selected) return '🔧';
+      if (classification.found && classification.confidence >= 0.85) return '✅';
+      if (classification.found && classification.confidence >= 0.70) return '⚠️';
+      return '❓';
+    };
+
+    const getStatusClass = () => {
+      if (selected) return 'manual';
+      if (classification.found && classification.confidence >= 0.85) return 'high';
+      if (classification.found && classification.confidence >= 0.70) return 'medium';
+      return 'low';
+    };
+
+    const label = type === 'experience' ? item.jobTitle :
+                  type === 'education' ? item.degree :
+                  item.skillName;
+
+    return (
+      <div key={item.extractionId} className={`classification-item status-${getStatusClass()}`}>
+        <div className="item-header" onClick={() => setExpandedItem(isExpanded ? null : item.extractionId)}>
+          <span className="status-icon">{getStatusIcon()}</span>
+          <div className="item-info">
+            <span className="original-value">{label}</span>
+            {displayMatch && (
+              <>
+                <span className="arrow">→</span>
+                <span className="matched-value">{displayMatch.prefLabel || displayMatch.label}</span>
+                <span className="confidence">({Math.round(classification.confidence * 100)}%)</span>
+              </>
+            )}
+            {!displayMatch && !classification.found && (
+              <span className="no-match">Geen match gevonden</span>
+            )}
+          </div>
+          <span className="expand-icon">{isExpanded ? '▼' : '▶'}</span>
+        </div>
+
+        {isExpanded && (
+          <div className="item-details">
+            {classification.alternatives && classification.alternatives.length > 0 && (
+              <div className="alternatives">
+                <h5>Alternatieven:</h5>
+                {classification.alternatives.map((alt: any, idx: number) => (
+                  <label key={idx} className="alternative-option">
+                    <input
+                      type="radio"
+                      name={`alt-${item.extractionId}`}
+                      checked={selected?.uri === alt.uri}
+                      onChange={() => handleSelectAlternative(item.extractionId, alt.uri, alt.prefLabel)}
+                    />
+                    <span className="alt-label">{alt.prefLabel}</span>
+                    <span className="alt-confidence">({Math.round(alt.confidence * 100)}%)</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="manual-search">
+              <button
+                className="search-btn"
+                onClick={() => {
+                  setSearchingFor({ extractionId: item.extractionId, type: conceptType });
+                  setSearchQuery(label);
+                  handleSearch(label, conceptType);
+                }}
+              >
+                🔍 Handmatig zoeken
+              </button>
+            </div>
+
+            {searchingFor?.extractionId === item.extractionId && (
+              <div className="search-panel">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    handleSearch(e.target.value, conceptType);
+                  }}
+                  placeholder={`Zoek in ${conceptType === 'occupation' ? 'beroepen' : conceptType === 'education' ? 'opleidingen' : 'vaardigheden'}...`}
+                />
+                {searchResults.length > 0 && (
+                  <div className="search-results">
+                    {searchResults.map((result, idx) => (
+                      <button
+                        key={idx}
+                        className="search-result"
+                        onClick={() => {
+                          handleSelectAlternative(item.extractionId, result.uri, result.prefLabel);
+                          setSearchingFor(null);
+                          setSearchResults([]);
+                        }}
+                      >
+                        <span className="result-label">{result.prefLabel}</span>
+                        <span className="result-confidence">({Math.round(result.confidence * 100)}%)</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="step-view step-6-view">
+      <h3>Stap 6: CNL Taxonomie Classificatie</h3>
+      <p className="step-description">
+        Je functies, opleidingen en vaardigheden worden gekoppeld aan de CompetentNL standaard.
+        Controleer de matches en pas aan waar nodig.
+      </p>
+
+      {/* Summary */}
+      <div className="classification-summary">
+        <div className="summary-stat">
+          <span className="stat-value">{data.summary.classified}</span>
+          <span className="stat-label">van {data.summary.total} geclassificeerd</span>
+        </div>
+        <div className="summary-stat needs-review">
+          <span className="stat-value">{data.summary.needsReview}</span>
+          <span className="stat-label">vereisen review</span>
+        </div>
+        <div className="summary-stat">
+          <span className="stat-value">{Math.round(data.summary.averageConfidence * 100)}%</span>
+          <span className="stat-label">gem. confidence</span>
+        </div>
+      </div>
+
+      {/* Experience Classifications */}
+      {data.classifications.experience.length > 0 && (
+        <div className="classification-section">
+          <h4>Functies → Beroepen</h4>
+          {data.classifications.experience.map(item =>
+            renderClassificationItem(item, 'experience', 'occupation')
+          )}
+        </div>
+      )}
+
+      {/* Education Classifications */}
+      {data.classifications.education.length > 0 && (
+        <div className="classification-section">
+          <h4>Opleidingen → Kwalificaties</h4>
+          {data.classifications.education.map(item =>
+            renderClassificationItem(item, 'education', 'education')
+          )}
+        </div>
+      )}
+
+      {/* Skills Classifications */}
+      {data.classifications.skills.length > 0 && (
+        <div className="classification-section">
+          <h4>Vaardigheden → Competenties</h4>
+          {data.classifications.skills.map(item =>
+            renderClassificationItem(item, 'skill', 'capability')
+          )}
+        </div>
+      )}
+
+      <style jsx>{`
+        .step-view { padding: 0; }
+        .step-view h3 { margin: 0 0 8px 0; color: #1f2937; }
+        .step-description { color: #6b7280; margin: 0 0 20px 0; }
+
+        .classification-summary {
+          display: flex;
+          gap: 20px;
+          padding: 16px;
+          background: #f9fafb;
+          border-radius: 8px;
+          margin-bottom: 20px;
+        }
+
+        .summary-stat {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .stat-value {
+          font-size: 24px;
+          font-weight: 700;
+          color: #1f2937;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        .summary-stat.needs-review .stat-value {
+          color: #d97706;
+        }
+
+        .classification-section {
+          margin-bottom: 24px;
+        }
+
+        .classification-section h4 {
+          font-size: 14px;
+          font-weight: 600;
+          color: #374151;
+          margin: 0 0 12px 0;
+          padding-bottom: 8px;
+          border-bottom: 1px solid #e5e7eb;
+        }
+
+        .classification-item {
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          margin-bottom: 8px;
+          overflow: hidden;
+        }
+
+        .classification-item.status-high {
+          border-left: 3px solid #22c55e;
+        }
+
+        .classification-item.status-medium {
+          border-left: 3px solid #f59e0b;
+        }
+
+        .classification-item.status-low {
+          border-left: 3px solid #ef4444;
+        }
+
+        .classification-item.status-manual {
+          border-left: 3px solid #3b82f6;
+        }
+
+        .item-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+
+        .item-header:hover {
+          background: #f9fafb;
+        }
+
+        .status-icon {
+          font-size: 18px;
+        }
+
+        .item-info {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .original-value {
+          font-weight: 500;
+          color: #1f2937;
+        }
+
+        .arrow {
+          color: #9ca3af;
+        }
+
+        .matched-value {
+          color: #16a34a;
+          font-weight: 500;
+        }
+
+        .confidence {
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        .no-match {
+          color: #ef4444;
+          font-style: italic;
+        }
+
+        .expand-icon {
+          color: #9ca3af;
+          font-size: 12px;
+        }
+
+        .item-details {
+          padding: 12px 16px;
+          background: #f9fafb;
+          border-top: 1px solid #e5e7eb;
+        }
+
+        .alternatives h5 {
+          margin: 0 0 8px 0;
+          font-size: 13px;
+          color: #374151;
+        }
+
+        .alternative-option {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 0;
+          cursor: pointer;
+        }
+
+        .alt-label {
+          flex: 1;
+          font-size: 14px;
+        }
+
+        .alt-confidence {
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        .manual-search {
+          margin-top: 12px;
+        }
+
+        .search-btn {
+          padding: 8px 12px;
+          background: white;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+        }
+
+        .search-btn:hover {
+          border-color: #3b82f6;
+        }
+
+        .search-panel {
+          margin-top: 12px;
+        }
+
+        .search-panel input {
+          width: 100%;
+          padding: 8px 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          font-size: 14px;
+        }
+
+        .search-results {
+          margin-top: 8px;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          max-height: 200px;
+          overflow-y: auto;
+        }
+
+        .search-result {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+          padding: 8px 12px;
+          background: white;
+          border: none;
+          border-bottom: 1px solid #e5e7eb;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .search-result:last-child {
+          border-bottom: none;
+        }
+
+        .search-result:hover {
+          background: #f3f4f6;
+        }
+
+        .result-label {
+          flex: 1;
+          font-size: 14px;
+        }
+
+        .result-confidence {
+          font-size: 12px;
+          color: #6b7280;
+        }
+      `}</style>
+    </div>
+  );
+};
 
 export default CVParsingWizard;
