@@ -1146,13 +1146,29 @@ export function createCVRoutes(db: Pool): Router {
 
       const cv = cvRows[0];
 
-      // Derive phase from processing status and elapsed time
+      // Check if any extractions have been classified (matched_cnl_uri set)
+      const [classifiedRows] = await db.execute<any[]>(
+        `SELECT COUNT(*) as classified_count
+         FROM cv_extractions
+         WHERE cv_id = ? AND matched_cnl_uri IS NOT NULL`,
+        [cvId]
+      );
+      const classifiedCount = classifiedRows[0]?.classified_count || 0;
+
+      // Derive phase from processing status and classification progress
       let phase = 'extracting';
       let progress = 30;
 
       if (cv.processing_status === 'completed') {
-        phase = 'classifying';
-        progress = 85;
+        // Check if classification has completed (at least one item classified)
+        if (classifiedCount > 0) {
+          phase = 'complete';
+          progress = 100;
+        } else {
+          // Still classifying
+          phase = 'classifying';
+          progress = 85;
+        }
       } else if (cv.processing_status === 'failed') {
         phase = 'error';
         progress = 0;

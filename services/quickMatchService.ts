@@ -173,28 +173,34 @@ export async function executeQuickMatch(
 
     } while (
       status.phase !== 'complete' &&
-      status.phase !== 'classifying' && // Stop polling when classification is done
       pollCount < maxPolls
     );
 
-    // If we stopped at classifying, wait for it to complete
-    if (status.phase === 'classifying') {
-      // Wait a bit more for classification to complete
+    // If classification is still in progress, keep polling until complete
+    while (status.phase === 'classifying' && pollCount < maxPolls) {
       await delay(1000);
+      pollCount++;
 
-      const finalStatusResponse = await fetch(`${backendUrl}/api/cv/${cvId}/quick-status`, {
+      onProgress('classifying', 85 + Math.min(pollCount, 10));
+
+      const classifyStatusResponse = await fetch(`${backendUrl}/api/cv/${cvId}/quick-status`, {
         signal
       });
 
-      if (finalStatusResponse.ok) {
-        const finalStatus = await finalStatusResponse.json();
-        if (finalStatus.aggregatedSkills) {
-          aggregatedSkills = finalStatus.aggregatedSkills;
+      if (classifyStatusResponse.ok) {
+        status = await classifyStatusResponse.json();
+
+        if (status.aggregatedSkills) {
+          aggregatedSkills = status.aggregatedSkills;
         }
-        if (finalStatus.extractedData) {
-          extractedData = finalStatus.extractedData;
+        if (status.extractedData) {
+          extractedData = status.extractedData;
         }
       }
+    }
+
+    if (status.phase !== 'complete' && pollCount >= maxPolls) {
+      throw new Error('Classificatie timeout - probeer opnieuw');
     }
 
     phaseTimings.extracting = Date.now() - processStart - (phaseTimings.anonymizing || 0);
