@@ -127,6 +127,8 @@ if %errorlevel% equ 0 (
 
 :: GLiNER draait niet, probeer te starten
 echo [INFO] GLiNER service niet actief, proberen te starten...
+echo [TIP] Bij problemen, start handmatig in apart venster:
+echo       cd services\python ^&^& venv\Scripts\activate ^&^& python gliner_service.py
 
 :: Check of Python beschikbaar is
 where python >nul 2>&1
@@ -157,23 +159,29 @@ if not exist "services\python\venv" (
 
 :: Start GLiNER service in achtergrond (geen zichtbaar venster)
 echo [INFO] GLiNER service starten in achtergrond...
+echo [INFO] Eerste keer kan lang duren ^(model downloaden ~100MB^)
 powershell -WindowStyle Hidden -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0services\python && call venv\Scripts\activate.bat && python gliner_service.py' -WindowStyle Hidden"
 
-:: Wacht even tot service opstart
+:: Wacht op GLiNER service met retry loop (max 60 seconden)
 echo [INFO] Wachten op GLiNER service startup...
-timeout /t 5 >nul
+set /a GLINER_RETRIES=0
+set /a GLINER_MAX_RETRIES=12
 
-:: Verificatie dat service draait
-powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -TimeoutSec 5 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+:gliner_wait_loop
+timeout /t 5 >nul
+set /a GLINER_RETRIES+=1
+powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -TimeoutSec 3 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
 if %errorlevel% equ 0 (
     echo [OK] GLiNER service succesvol gestart op http://localhost:8001
-) else (
-    echo [INFO] GLiNER service niet actief, starten in achtergrond...
-    :: Start GLiNER in hidden window (no visible Python console)
-    powershell -WindowStyle Hidden -Command "Start-Process -FilePath 'python' -ArgumentList 'services/python/gliner_service.py' -WindowStyle Hidden -WorkingDirectory '%~dp0'" >nul 2>&1
-    timeout /t 2 >nul
-    echo [OK] GLiNER service gestart ^(http://localhost:8001^)
+    goto :gliner_done
 )
+echo [INFO] Wachten op GLiNER... ^(%GLINER_RETRIES%/%GLINER_MAX_RETRIES%^)
+if %GLINER_RETRIES% lss %GLINER_MAX_RETRIES% goto :gliner_wait_loop
+
+:: Max retries bereikt
+echo [WARN] GLiNER service niet beschikbaar na 60 seconden
+echo [INFO] CV upload werkt niet zonder GLiNER
+echo [INFO] Start handmatig: cd services\python ^&^& venv\Scripts\activate ^&^& python gliner_service.py
 
 :gliner_done
 
