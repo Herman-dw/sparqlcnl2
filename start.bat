@@ -142,39 +142,44 @@ if %errorlevel% neq 0 (
 set VENV_DIR=
 if exist "services\python\venv311\Scripts\activate.bat" (
     set VENV_DIR=venv311
-) else if exist "services\python\venv\Scripts\activate.bat" (
-    echo [WARN] Oude venv gevonden - overweeg te verwijderen en venv311 te gebruiken
-    set VENV_DIR=venv
+    echo [OK] Virtual environment gevonden: venv311
+    goto :venv_ready
 )
 
-:: Als geen venv bestaat, maak venv311 aan met Python 3.11
-if "%VENV_DIR%"=="" (
-    echo [INFO] Python 3.11 virtual environment aanmaken...
+:: Fallback naar oude venv alleen als venv311 niet bestaat
+if exist "services\python\venv\Scripts\activate.bat" (
+    echo [WARN] Oude venv gevonden - GLiNER vereist Python 3.11!
+    echo [INFO] Verwijder services\python\venv en herstart voor automatische venv311 setup
+    set VENV_DIR=venv
+    goto :venv_ready
+)
 
-    :: Probeer eerst py -3.11, dan python
-    py -3.11 -m venv services\python\venv311 2>nul
-    if %errorlevel% neq 0 (
-        echo [INFO] py -3.11 niet gevonden, probeer python...
-        python -m venv services\python\venv311
-        if %errorlevel% neq 0 (
-            echo [WARN] Kon venv311 niet aanmaken
-            echo [INFO] Installeer Python 3.11+ van https://python.org
-            goto :gliner_done
-        )
-    )
-    set VENV_DIR=venv311
-    echo [OK] Virtual environment venv311 aangemaakt
+:: Geen venv gevonden, maak venv311 aan met Python 3.11
+echo [INFO] Python 3.11 virtual environment aanmaken...
 
-    echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
-    cmd /c "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && pip install --quiet --upgrade pip && pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && pip install --quiet gliner onnxruntime huggingface_hub"
+:: Probeer eerst py -3.11, dan python
+py -3.11 -m venv services\python\venv311 2>nul
+if %errorlevel% neq 0 (
+    echo [INFO] py -3.11 niet gevonden, probeer python...
+    python -m venv services\python\venv311
     if %errorlevel% neq 0 (
-        echo [WARN] Fout bij installeren dependencies
+        echo [WARN] Kon venv311 niet aanmaken
+        echo [INFO] Installeer Python 3.11+ van https://python.org
         goto :gliner_done
     )
-    echo [OK] Dependencies geinstalleerd
-) else (
-    echo [OK] Virtual environment gevonden: %VENV_DIR%
 )
+set VENV_DIR=venv311
+echo [OK] Virtual environment venv311 aangemaakt
+
+echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
+cmd /c "cd /d %~dp0services\python && call venv311\Scripts\activate.bat && pip install --quiet --upgrade pip && pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && pip install --quiet gliner onnxruntime huggingface_hub"
+if %errorlevel% neq 0 (
+    echo [WARN] Fout bij installeren dependencies
+    goto :gliner_done
+)
+echo [OK] Dependencies geinstalleerd
+
+:venv_ready
 
 :: Laad HF_TOKEN uit .env.local als die bestaat
 set HF_TOKEN_CMD=
