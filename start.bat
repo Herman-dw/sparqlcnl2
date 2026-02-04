@@ -203,7 +203,7 @@ set /a GLINER_MAX_RETRIES=12
 :gliner_wait_loop
 timeout /t 5 >nul
 set /a GLINER_RETRIES+=1
-powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -TimeoutSec 3 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:8001/health' -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue; if ($response.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
 if %errorlevel% equ 0 (
     echo [OK] GLiNER service succesvol gestart op http://localhost:8001
     goto :gliner_done
