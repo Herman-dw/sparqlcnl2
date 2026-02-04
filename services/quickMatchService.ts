@@ -12,8 +12,7 @@ import {
   AggregatedSkills,
   AnimationData
 } from '../types/quickMatch';
-import { MatchProfile, MatchResult } from '../types/matching';
-import { matchProfile } from './matchingService';
+import { MatchResult } from '../types/matching';
 
 // Backend URL
 const getBackendUrl = () => {
@@ -208,42 +207,37 @@ export async function executeQuickMatch(
     const matchStart = Date.now();
     onProgress('matching', 90);
 
-    // Build match profile from aggregated skills
-    const allSkills = aggregatedSkills?.combined || [];
-
-    if (allSkills.length === 0) {
-      // Fallback to direct skills if aggregation failed
-      const directSkills = extractedData?.directSkills || [];
-      if (directSkills.length === 0) {
-        throw new Error('Geen vaardigheden gevonden in CV');
-      }
-      allSkills.push(...directSkills);
-    }
-
-    const matchProfileData: MatchProfile = {
-      skills: allSkills,
-      knowledge: [],
-      tasks: []
-    };
-
-    const matchResponse = await matchProfile(matchProfileData, {
-      limit: 20,
-      minScore: 0.01,
-      includeGaps: true,
-      includeMatched: true
+    // Use the new CV match endpoint which handles profile conversion internally
+    const matchResponse = await fetch(`${backendUrl}/api/cv/${cvId}/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        limit: 20,
+        minScore: 0.01,
+        includeGaps: true
+      }),
+      signal
     });
 
-    if (!matchResponse.success) {
-      throw new Error(matchResponse.error || 'Matching mislukt');
+    if (!matchResponse.ok) {
+      const error = await matchResponse.json().catch(() => ({}));
+      throw new Error(error.message || error.error || 'Matching mislukt');
     }
 
-    matches = matchResponse.matches;
+    const matchResult = await matchResponse.json();
+    matches = matchResult.matches || [];
+
+    if (matches.length === 0) {
+      // If no matches, show a helpful message instead of throwing
+      console.warn('No matches found for CV', cvId);
+    }
+
     phaseTimings.matching = Date.now() - matchStart;
 
     // Update with top matches for animation
-    const topMatches = matches.slice(0, 5).map(m => ({
-      label: m.occupation.label,
-      score: Math.round(m.score * 100)
+    const topMatches = matches.slice(0, 5).map((m: any) => ({
+      label: m.occupation?.label || m.label || 'Onbekend',
+      score: Math.round((m.score || 0) * 100)
     }));
 
     onProgress('matching', 98, {
@@ -252,6 +246,25 @@ export async function executeQuickMatch(
 
     await delay(500);
     onProgress('complete', 100);
+
+    // Build aggregated skills from match result profile
+    const profileData = matchResult.profile || {};
+    aggregatedSkills = {
+      direct: [],
+      fromEducation: [],
+      fromOccupation: (profileData.occupationHistory || []).map((occ: any) => ({
+        label: occ.occupationLabel || occ.jobTitle,
+        source: 'occupation' as const,
+        sourceLabel: occ.occupationLabel
+      })),
+      combined: [],
+      totalCount: (profileData.capabilities || 0) + (profileData.knowledge || 0) + (profileData.tasks || 0),
+      bySource: {
+        direct: 0,
+        education: 0,
+        occupation: profileData.occupationHistory?.length || 0
+      }
+    };
 
     // =========================================
     // RETURN RESULTS
@@ -278,9 +291,9 @@ export async function executeQuickMatch(
         direct: [],
         fromEducation: [],
         fromOccupation: [],
-        combined: allSkills,
-        totalCount: allSkills.length,
-        bySource: { direct: allSkills.length, education: 0, occupation: 0 }
+        combined: [],
+        totalCount: 0,
+        bySource: { direct: 0, education: 0, occupation: 0 }
       },
       matches,
       matchCount: matches.length,
