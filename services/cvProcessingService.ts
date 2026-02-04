@@ -952,16 +952,16 @@ export class CVProcessingService {
         });
 
         console.log(`  ✓ CNL classification completed:`);
-        console.log(`    - Items classified: ${classifyResult.statistics.classified}/${classifyResult.statistics.total}`);
-        console.log(`    - Needs review: ${classifyResult.statistics.needsReview}`);
-        console.log(`    - Avg confidence: ${(classifyResult.statistics.averageConfidence * 100).toFixed(1)}%`);
+        console.log(`    - Items classified: ${classifyResult.summary?.classified || 0}/${classifyResult.summary?.total || 0}`);
+        console.log(`    - Needs review: ${classifyResult.summary?.needsReview || 0}`);
+        console.log(`    - Avg confidence: ${((classifyResult.summary?.averageConfidence || 0) * 100).toFixed(1)}%`);
 
         // If selectBestMatch is enabled, auto-confirm the best classification for each item
         if (options?.selectBestMatch !== false) {
           console.log(`  🔄 Auto-selecting best matches...`);
 
           // Experience classifications
-          for (const exp of classifyResult.experience) {
+          for (const exp of classifyResult.classifications?.experience || []) {
             if (exp.classification.found && !exp.classification.needsReview) {
               await this.db.execute(
                 `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
@@ -971,7 +971,7 @@ export class CVProcessingService {
           }
 
           // Education classifications
-          for (const edu of classifyResult.education) {
+          for (const edu of classifyResult.classifications?.education || []) {
             if (edu.classification.found && !edu.classification.needsReview) {
               await this.db.execute(
                 `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
@@ -981,7 +981,7 @@ export class CVProcessingService {
           }
 
           // Skill classifications
-          for (const skill of classifyResult.skills) {
+          for (const skill of classifyResult.classifications?.skills || []) {
             if (skill.classification.found && !skill.classification.needsReview) {
               await this.db.execute(
                 `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
