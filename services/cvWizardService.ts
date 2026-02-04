@@ -405,7 +405,7 @@ export class CVWizardService {
                                    axiosError.message?.includes('connect');
         if (isConnectionError) {
           throw new CVProcessingError(
-            'De PII-detectie service (GLiNER) is niet bereikbaar. Start de service met: docker-compose up gliner',
+            'De PII-detectie service (GLiNER) is niet bereikbaar. Start de service met: cd services/python && python gliner_service.py',
             'GLINER_OFFLINE',
             cvId
           );
