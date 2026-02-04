@@ -1391,11 +1391,16 @@ const Step2View: React.FC<{
         }
 
         .selected-preview {
-          background: #f3f4f6;
+          background: #fef3c7;
           padding: 8px 12px;
           border-radius: 6px;
           margin-bottom: 16px;
           font-size: 14px;
+          color: #92400e;
+        }
+
+        .selected-preview strong {
+          color: #78350f;
         }
 
         .form-group {
