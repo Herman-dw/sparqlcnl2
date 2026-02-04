@@ -12,12 +12,8 @@
 
 import mysql from 'mysql2/promise';
 import { GoogleGenAI } from '@google/genai';
-import {
-  ConceptType,
-  ConceptMatch,
-  CONCEPT_CONFIGS,
-  normalizeText
-} from './conceptResolver.ts';
+import type { ConceptType, ConceptMatch } from './conceptResolver.ts';
+import { CONCEPT_CONFIGS, normalizeText } from './conceptResolver.ts';
 import {
   generateEmbedding,
   cosineSimilarity,

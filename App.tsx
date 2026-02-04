@@ -31,6 +31,7 @@ import ProfileHistoryWizard from './components/ProfileHistoryWizard';
 import CVUploadModal from './components/CVUploadModal';
 import CVReviewScreen from './components/CVReviewScreen';
 import CVParsingWizard from './components/CVParsingWizard';
+import ServiceStatusBar from './components/ServiceStatusBar';
 import { useProfileStore } from './state/profileStore';
 import { ProfileItemWithSource, SessionProfile } from './types/profile';
 import { mergeProfileLists } from './state/profileUtils';
