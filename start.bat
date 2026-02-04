@@ -190,10 +190,10 @@ if exist ".env.local" (
     )
 )
 
-:: Start GLiNER service in apart minimized venster (zodat het blijft draaien)
+:: Start GLiNER service in apart venster (zodat het blijft draaien)
 echo [INFO] GLiNER service starten in achtergrond...
 echo [INFO] Eerste keer kan lang duren ^(model downloaden ~100MB^)
-start /MIN "GLiNER Service" cmd /c "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && %HF_TOKEN_CMD% python gliner_service.py"
+start "GLiNER Service" cmd /k "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && %HF_TOKEN_CMD% python gliner_service.py || (echo. && echo [ERROR] GLiNER crashed - zie foutmelding hierboven && pause)"
 
 :: Wacht op GLiNER service met retry loop (max 60 seconden)
 echo [INFO] Wachten op GLiNER service startup...
@@ -214,7 +214,7 @@ if %GLINER_RETRIES% lss %GLINER_MAX_RETRIES% goto :gliner_wait_loop
 :: Max retries bereikt
 echo [WARN] GLiNER service niet beschikbaar na 60 seconden
 echo [INFO] CV upload werkt niet zonder GLiNER
-echo [INFO] Start handmatig: cd services\python ^&^& venv\Scripts\activate ^&^& python gliner_service.py
+echo [INFO] Start handmatig: cd services\python ^&^& venv311\Scripts\activate ^&^& python gliner_service.py
 
 :gliner_done
 
