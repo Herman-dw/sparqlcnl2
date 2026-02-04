@@ -1263,6 +1263,7 @@ const Step2View: React.FC<{
           white-space: pre-wrap;
           cursor: text;
           user-select: text;
+          color: #1f2937;
         }
 
         .raw-text::selection {
@@ -1728,6 +1729,8 @@ const Step3View: React.FC<{ data: Step3AnonymizeResponse }> = ({ data }) => {
         font-family: ui-monospace, monospace;
         font-size: 12px;
         line-height: 1.5;
+        color: #1f2937;
+        background: #ffffff;
       }
 
       .line {

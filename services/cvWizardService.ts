@@ -809,10 +809,10 @@ export class CVWizardService {
       // Initialize classification service
       const classificationService = new CNLClassificationService(this.db);
 
-      // Run classification
+      // Run classification with semantic matching and LLM fallback enabled
       const result = await classificationService.classifyCV(cvId, {
-        useSemanticMatching: false, // Disable semantic for now, can be enabled later
-        useLLMFallback: false
+        useSemanticMatching: true,
+        useLLMFallback: true
       });
 
       const processingTimeMs = Date.now() - startTime;

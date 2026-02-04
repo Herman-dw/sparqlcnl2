@@ -147,13 +147,42 @@ if not exist "services\python\venv" (
         goto :gliner_done
     )
     echo [OK] Virtual environment aangemaakt
+)
 
+:: Check of dependencies zijn geinstalleerd (gliner module check)
+services\python\venv\Scripts\python.exe -c "import gliner" >nul 2>&1
+if %errorlevel% neq 0 (
     echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
-    cmd /c "cd /d %~dp0services\python && call venv\Scripts\activate.bat && pip install --quiet --upgrade pip && pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && pip install --quiet gliner onnxruntime huggingface_hub"
+
+    :: Upgrade pip first using python -m pip to avoid permission issues
+    echo [INFO] Pip upgraden...
+    services\python\venv\Scripts\python.exe -m pip install --quiet --upgrade pip
     if %errorlevel% neq 0 (
-        echo [WARN] Fout bij installeren dependencies
+        echo [WARN] Pip upgrade mislukt, doorgaan met huidige versie...
+    )
+
+    :: Install dependencies in separate steps for better error handling
+    echo [INFO] Basis dependencies installeren...
+    services\python\venv\Scripts\pip.exe install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson
+    if %errorlevel% neq 0 (
+        echo [WARN] Fout bij installeren basis dependencies
         goto :gliner_done
     )
+
+    echo [INFO] PyTorch installeren ^(kan enkele minuten duren^)...
+    services\python\venv\Scripts\pip.exe install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    if %errorlevel% neq 0 (
+        echo [WARN] Fout bij installeren PyTorch
+        goto :gliner_done
+    )
+
+    echo [INFO] GLiNER installeren...
+    services\python\venv\Scripts\pip.exe install --quiet gliner onnxruntime huggingface_hub
+    if %errorlevel% neq 0 (
+        echo [WARN] Fout bij installeren GLiNER
+        goto :gliner_done
+    )
+
     echo [OK] Dependencies geinstalleerd
 )
 
