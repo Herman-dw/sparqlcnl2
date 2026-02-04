@@ -138,29 +138,49 @@ if %errorlevel% neq 0 (
     goto :gliner_done
 )
 
-:: Check of venv bestaat, zo niet maak aan
-if not exist "services\python\venv" (
+:: Bepaal welke venv directory bestaat (venv of venv311)
+set VENV_DIR=
+if exist "services\python\venv\Scripts\activate.bat" (
+    set VENV_DIR=venv
+) else if exist "services\python\venv311\Scripts\activate.bat" (
+    set VENV_DIR=venv311
+)
+
+:: Als geen venv bestaat, maak er een aan
+if "%VENV_DIR%"=="" (
     echo [INFO] Python virtual environment aanmaken...
     python -m venv services\python\venv
     if %errorlevel% neq 0 (
         echo [WARN] Kon venv niet aanmaken
         goto :gliner_done
     )
+    set VENV_DIR=venv
     echo [OK] Virtual environment aangemaakt
 
     echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
-    cmd /c "cd /d %~dp0services\python && call venv\Scripts\activate.bat && pip install --quiet --upgrade pip && pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && pip install --quiet gliner onnxruntime huggingface_hub"
+    cmd /c "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && pip install --quiet --upgrade pip && pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && pip install --quiet gliner onnxruntime huggingface_hub"
     if %errorlevel% neq 0 (
         echo [WARN] Fout bij installeren dependencies
         goto :gliner_done
     )
     echo [OK] Dependencies geinstalleerd
+) else (
+    echo [OK] Virtual environment gevonden: %VENV_DIR%
 )
 
-:: Start GLiNER service in achtergrond (geen zichtbaar venster)
+:: Laad HF_TOKEN uit .env.local als die bestaat
+set HF_TOKEN_CMD=
+if exist ".env.local" (
+    for /f "tokens=1,2 delims==" %%a in ('findstr /R "^HF_TOKEN=" .env.local 2^>nul') do (
+        set HF_TOKEN_CMD=set HF_TOKEN=%%b ^&^& set HUGGINGFACE_HUB_TOKEN=%%b ^&^&
+        echo [OK] HF_TOKEN geladen uit .env.local
+    )
+)
+
+:: Start GLiNER service in apart minimized venster (zodat het blijft draaien)
 echo [INFO] GLiNER service starten in achtergrond...
 echo [INFO] Eerste keer kan lang duren ^(model downloaden ~100MB^)
-powershell -WindowStyle Hidden -Command "Start-Process -FilePath 'cmd' -ArgumentList '/c cd /d %~dp0services\python && call venv\Scripts\activate.bat && python gliner_service.py' -WindowStyle Hidden"
+start /MIN "GLiNER Service" cmd /c "cd /d %~dp0services\python && call %VENV_DIR%\Scripts\activate.bat && %HF_TOKEN_CMD% python gliner_service.py"
 
 :: Wacht op GLiNER service met retry loop (max 60 seconden)
 echo [INFO] Wachten op GLiNER service startup...
