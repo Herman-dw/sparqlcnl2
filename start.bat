@@ -172,7 +172,7 @@ set VENV_DIR=venv311
 echo [OK] Virtual environment venv311 aangemaakt
 
 echo [INFO] Dependencies installeren ^(dit kan enkele minuten duren bij eerste keer^)...
-cmd /c "cd /d %~dp0services\python && call venv311\Scripts\activate.bat && pip install --quiet --upgrade pip && pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && pip install --quiet gliner onnxruntime huggingface_hub"
+cmd /c "cd /d %~dp0services\python && call venv311\Scripts\activate.bat && python -m pip install --quiet --upgrade pip && python -m pip install --quiet fastapi uvicorn pydantic python-multipart aiofiles orjson && python -m pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && python -m pip install --quiet gliner onnxruntime huggingface_hub"
 if %errorlevel% neq 0 (
     echo [WARN] Fout bij installeren dependencies
     goto :gliner_done
