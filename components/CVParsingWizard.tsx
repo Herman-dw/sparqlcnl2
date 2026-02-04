@@ -2715,6 +2715,10 @@ const Step6View: React.FC<{
           border-top: 1px solid #e5e7eb;
         }
 
+        .alternatives {
+          color: #1f2937;
+        }
+
         .alternatives h5 {
           margin: 0 0 8px 0;
           font-size: 13px;
@@ -2727,11 +2731,18 @@ const Step6View: React.FC<{
           gap: 8px;
           padding: 6px 0;
           cursor: pointer;
+          color: #1f2937;
+        }
+
+        .alternative-option label {
+          color: #1f2937;
+          cursor: pointer;
         }
 
         .alt-label {
           flex: 1;
           font-size: 14px;
+          color: #1f2937;
         }
 
         .alt-confidence {
