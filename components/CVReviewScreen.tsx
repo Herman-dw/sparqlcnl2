@@ -8,9 +8,30 @@ import axios from 'axios';
 import { CVExtractionResponse, ExperienceExtraction } from '../types/cv';
 import { PrivacyConsentModal } from './PrivacyConsentModal';
 
+interface MatchResult {
+  uri: string;
+  prefLabel: string;
+  score: number;
+  matchedItems?: { type: string; label: string }[];
+}
+
+interface CVMatchResponse {
+  success: boolean;
+  cvId: number;
+  profile: {
+    occupationHistory: { occupationUri: string; occupationLabel: string; years?: number }[];
+    education: { educationUri: string; educationLabel: string }[];
+    capabilities: number;
+    knowledge: number;
+    tasks: number;
+  };
+  matches: MatchResult[];
+  matchCount: number;
+}
+
 interface CVReviewScreenProps {
   cvId: number;
-  onComplete: () => void;
+  onComplete: (matchResults?: CVMatchResponse) => void;
   onBack: () => void;
 }
 
@@ -22,6 +43,7 @@ export const CVReviewScreen: React.FC<CVReviewScreenProps> = ({
   onBack
 }) => {
   const [loading, setLoading] = useState(true);
+  const [matching, setMatching] = useState(false);
   const [extraction, setExtraction] = useState<CVExtractionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('experience');
@@ -59,6 +81,40 @@ export const CVReviewScreen: React.FC<CVReviewScreenProps> = ({
       console.error('Consent error:', err);
     }
   };
+
+  const handleGoToMatching = async () => {
+    try {
+      setMatching(true);
+      setError(null);
+
+      // Call the CV matching endpoint
+      const response = await axios.post<CVMatchResponse>(`/api/cv/${cvId}/match`, {
+        limit: 20,
+        minScore: 0.1,
+        includeGaps: false
+      });
+
+      console.log('Match results:', response.data);
+
+      // Pass results to parent and close
+      onComplete(response.data);
+
+    } catch (err) {
+      console.error('Matching error:', err);
+      setError('Matching mislukt. Probeer het opnieuw.');
+      setMatching(false);
+    }
+  };
+
+  if (matching) {
+    return (
+      <div className="review-screen loading">
+        <div className="spinner"></div>
+        <p>Profiel matchen met beroepen...</p>
+        <p className="subtext">Dit kan even duren...</p>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -251,8 +307,8 @@ export const CVReviewScreen: React.FC<CVReviewScreenProps> = ({
         <button className="button secondary" onClick={onBack}>
           ⬅️ Terug
         </button>
-        <button className="button primary" onClick={onComplete}>
-          ➡️ Ga naar matching
+        <button className="button primary" onClick={handleGoToMatching} disabled={matching}>
+          {matching ? '⏳ Matchen...' : '➡️ Ga naar matching'}
         </button>
       </div>
 

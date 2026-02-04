@@ -15,6 +15,7 @@ import CVProcessingService from '../services/cvProcessingService.ts';
 import CVWizardService from '../services/cvWizardService.ts';
 import PrivacyLogger from '../services/privacyLogger.ts';
 import { CNLClassificationService } from '../services/cnlClassificationService.ts';
+import { CVToProfileConverter } from '../services/cvToProfileConverter.ts';
 import type {
   CVUploadResponse,
   CVStatusResponse,
@@ -81,7 +82,7 @@ export function createCVRoutes(db: Pool): Router {
         } as ErrorResponse);
       }
 
-      console.log(`\n📤 CV Upload Request:`);
+      console.log(`\n[UPLOAD] CV Upload Request:`);
       console.log(`  File: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} KB)`);
       console.log(`  Type: ${req.file.mimetype}`);
       console.log(`  Session: ${sessionId}`);
@@ -104,7 +105,7 @@ export function createCVRoutes(db: Pool): Router {
       res.status(202).json(response);
 
     } catch (error) {
-      console.error('❌ CV upload error:', error);
+      console.error('[ERROR] CV upload error:', error);
 
       res.status(500).json({
         error: 'Upload failed',
@@ -139,7 +140,8 @@ export function createCVRoutes(db: Pool): Router {
           processing_started_at,
           processing_completed_at,
           processing_duration_ms,
-          error_message
+          error_message,
+          retry_count
         FROM user_cvs
         WHERE id = ? AND deleted_at IS NULL`,
         [cvId]
@@ -166,12 +168,29 @@ export function createCVRoutes(db: Pool): Router {
         progress = Math.min(Math.round((elapsed / 20000) * 100), 95);
       }
 
-      const response: CVStatusResponse = {
+      // Parse error code from error message if present
+      let errorCode: string | undefined;
+      if (cv.error_message) {
+        // Check for known error codes in the message
+        if (cv.error_message.includes('GLiNER') || cv.error_message.includes('GLINER')) {
+          errorCode = 'GLINER_SERVICE_UNAVAILABLE';
+        } else if (cv.error_message.includes('Max retries')) {
+          errorCode = 'MAX_RETRIES_EXCEEDED';
+        } else if (cv.error_message.includes('extract')) {
+          errorCode = 'TEXT_EXTRACTION_FAILED';
+        } else if (cv.error_message.includes('empty') || cv.error_message.includes('Empty')) {
+          errorCode = 'EMPTY_DOCUMENT';
+        }
+      }
+
+      const response: CVStatusResponse & { errorCode?: string; retryCount?: number } = {
         cvId: cv.id,
         status: cv.processing_status,
         progress,
         currentStep: cv.processing_status === 'processing' ? 'Analyzing CV...' : undefined,
-        error: cv.error_message
+        error: cv.error_message,
+        errorCode,
+        retryCount: cv.retry_count || 0
       };
 
       res.json(response);
@@ -419,6 +438,55 @@ export function createCVRoutes(db: Pool): Router {
   });
 
   // ========================================================================
+  // GET /api/cv/:cvId/gdpr-export
+  // GDPR data export (Right to Access)
+  // ========================================================================
+  router.get('/:cvId/gdpr-export', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      // Get request metadata for audit
+      const ipAddress = req.ip || req.socket.remoteAddress;
+      const userAgent = req.headers['user-agent'];
+
+      // Generate GDPR export (this also logs the export request)
+      const exportData = await privacyLogger.generateGDPRExport(
+        cvId,
+        ipAddress,
+        userAgent
+      );
+
+      res.json({
+        success: true,
+        cvId,
+        exportDate: new Date(),
+        data: exportData.cv,
+        auditTrail: exportData.auditTrail,
+        summary: exportData.summary,
+        notice: 'This export is provided in compliance with GDPR Article 15 (Right of Access).'
+      });
+
+    } catch (error) {
+      console.error('GDPR export error:', error);
+      res.status(500).json({
+        error: 'GDPR export failed',
+        code: 'GDPR_EXPORT_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
   // DELETE /api/cv/:cvId
   // Delete CV (GDPR compliance)
   // ========================================================================
@@ -435,6 +503,10 @@ export function createCVRoutes(db: Pool): Router {
         } as ErrorResponse);
       }
 
+      // Get request metadata for audit
+      const ipAddress = req.ip || req.socket.remoteAddress;
+      const userAgent = req.headers['user-agent'];
+
       // Soft delete (GDPR compliant)
       await db.execute(
         `UPDATE user_cvs SET
@@ -445,12 +517,13 @@ export function createCVRoutes(db: Pool): Router {
         [cvId]
       );
 
-      // Log deletion
-      await privacyLogger.logEvent({
+      // Log deletion with proper event type
+      await privacyLogger.logCVDeleted(
         cvId,
-        eventType: 'user_consent_declined', // Using as deletion event
-        consentText: 'User requested CV deletion (GDPR Right to Erasure)'
-      });
+        'User requested CV deletion (GDPR Right to Erasure)',
+        ipAddress,
+        userAgent
+      );
 
       res.json({
         success: true,
@@ -536,7 +609,7 @@ export function createCVRoutes(db: Pool): Router {
         } as ErrorResponse);
       }
 
-      console.log(`\n📤 CV Wizard Start Request:`);
+      console.log(`\n[UPLOAD] CV Wizard Start Request:`);
       console.log(`  File: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} KB)`);
       console.log(`  Type: ${req.file.mimetype}`);
       console.log(`  Session: ${sessionId}`);
@@ -556,7 +629,7 @@ export function createCVRoutes(db: Pool): Router {
       });
 
     } catch (error) {
-      console.error('❌ Wizard start error:', error);
+      console.error('[ERROR] Wizard start error:', error);
       res.status(500).json({
         error: 'Wizard start failed',
         code: 'WIZARD_START_FAILED',
@@ -595,7 +668,7 @@ export function createCVRoutes(db: Pool): Router {
         } as ErrorResponse);
       }
 
-      console.log(`✅ Confirming step for CV ${cvId}`);
+      console.log(`[OK] Confirming step for CV ${cvId}`);
 
       const result = await wizardService.confirmStepAndProceed(
         cvId,
@@ -640,7 +713,7 @@ export function createCVRoutes(db: Pool): Router {
         } as ErrorResponse);
       }
 
-      console.log(`⬅️ Going back to previous step for CV ${cvId}`);
+      console.log(`[BACK] Going back to previous step for CV ${cvId}`);
 
       const result = await wizardService.goToPreviousStep(cvId);
 
@@ -1256,6 +1329,68 @@ export function createCVRoutes(db: Pool): Router {
       res.status(500).json({
         error: 'Search failed',
         code: 'SEARCH_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
+  // POST /api/cv/:cvId/match
+  // Convert CV to profile and run occupation matching
+  // ========================================================================
+  router.post('/:cvId/match', async (req: Request, res: Response) => {
+    try {
+      const cvId = parseInt(req.params.cvId);
+
+      if (isNaN(cvId)) {
+        return res.status(400).json({
+          error: 'Invalid CV ID',
+          code: 'INVALID_CV_ID',
+          message: 'CV ID must be a number',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      // Options from request body
+      const { limit = 20, minScore = 0.1, includeGaps = false } = req.body;
+
+      console.log(`[CV Match] Starting profile matching for CV ${cvId}`);
+
+      // Initialize converter with backend URL for internal API calls
+      const backendUrl = `http://localhost:${process.env.PORT || 3001}`;
+      const converter = new CVToProfileConverter(db, backendUrl);
+
+      // Convert CV to profile and match against occupations
+      const result = await converter.matchProfileToOccupations(cvId, {
+        limit,
+        minScore,
+        includeGaps
+      });
+
+      console.log(`[CV Match] Found ${result.matchResults?.matches?.length || 0} occupation matches`);
+
+      res.json({
+        success: true,
+        cvId,
+        profile: {
+          occupationHistory: result.profile.occupationHistory,
+          education: result.profile.education,
+          capabilities: result.profile.capabilities.length,
+          knowledge: result.profile.knowledge.length,
+          tasks: result.profile.tasks.length,
+          meta: result.profile.meta
+        },
+        matches: result.matchResults?.matches || [],
+        matchCount: result.matchResults?.matches?.length || 0,
+        timestamp: result.timestamp
+      });
+
+    } catch (error) {
+      console.error('CV matching error:', error);
+      res.status(500).json({
+        error: 'Matching failed',
+        code: 'MATCHING_FAILED',
         message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date()
       } as ErrorResponse);

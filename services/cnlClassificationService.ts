@@ -11,7 +11,6 @@
  */
 
 import mysql from 'mysql2/promise';
-import { GoogleGenAI } from '@google/genai';
 import type { ConceptType, ConceptMatch } from './conceptResolver.ts';
 import { CONCEPT_CONFIGS, normalizeText } from './conceptResolver.ts';
 import {
@@ -19,6 +18,11 @@ import {
   cosineSimilarity,
   findMostSimilar
 } from './embeddingService.ts';
+import {
+  getGeminiSingleton,
+  isGeminiAvailable,
+  generateContentWithRetry
+} from './geminiSingleton.ts';
 
 type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;
@@ -148,6 +152,7 @@ export interface SkillClassification {
 const CLASSIFICATION_CONFIG = {
   exactMatchMinConfidence: 0.95,
   fuzzyMatchMinConfidence: 0.70,
+  fuzzyMatchWeakThreshold: 0.80,    // Below this, also try semantic match
   semanticMatchMinConfidence: 0.75,
   llmMatchMinConfidence: 0.80,
   reviewThreshold: 0.85,
@@ -167,23 +172,16 @@ export class CNLClassificationService {
   private db: Pool;
   private embeddingsCache: Map<string, { uri: string; label: string; embedding: number[] }[]> = new Map();
   private embeddingsCacheLoaded = false;
-  private geminiAI: GoogleGenAI | null = null;
+  private static instanceCount = 0;
 
   constructor(database: Pool, geminiApiKey?: string) {
     this.db = database;
+    CNLClassificationService.instanceCount++;
 
-    // Initialize Gemini AI if API key is provided
-    // Check multiple env var names for compatibility
-    const apiKey = geminiApiKey ||
-      process.env.GEMINI_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      process.env.VITE_GEMINI_API_KEY;
-
-    if (apiKey) {
-      this.geminiAI = new GoogleGenAI({ apiKey });
-      console.log('[CNL Classification] Gemini AI initialized for LLM fallback');
-    } else {
-      console.log('[CNL Classification] No Gemini API key - LLM fallback disabled');
+    // Initialize Gemini singleton (only logs on first real initialization)
+    const geminiSingleton = getGeminiSingleton();
+    if (!geminiSingleton.isAvailable()) {
+      geminiSingleton.initialize(geminiApiKey);
     }
   }
 
@@ -320,19 +318,30 @@ export class CNLClassificationService {
 
     // Strategy 2: Fuzzy match
     const fuzzyMatch = await this.tryFuzzyMatch(value, conceptType);
-    if (fuzzyMatch.found && fuzzyMatch.confidence >= CLASSIFICATION_CONFIG.fuzzyMatchMinConfidence) {
-      console.log(`    ✓ Fuzzy match: ${fuzzyMatch.match?.prefLabel} (${(fuzzyMatch.confidence * 100).toFixed(0)}%)`);
-      return fuzzyMatch;
-    }
+    const hasFuzzyMatch = fuzzyMatch.found && fuzzyMatch.confidence >= CLASSIFICATION_CONFIG.fuzzyMatchMinConfidence;
+    const isWeakFuzzyMatch = hasFuzzyMatch && fuzzyMatch.confidence < CLASSIFICATION_CONFIG.fuzzyMatchWeakThreshold;
 
     // Strategy 3: Semantic match (optional)
+    // NEW: Also try semantic matching if fuzzy match is weak (< 80%)
     let semanticMatch: ClassificationResult | null = null;
-    if (options?.useSemanticMatching) {
+    if (options?.useSemanticMatching && (!hasFuzzyMatch || isWeakFuzzyMatch)) {
       semanticMatch = await this.trySemanticMatch(value, context, conceptType);
       if (semanticMatch.found && semanticMatch.confidence >= CLASSIFICATION_CONFIG.semanticMatchMinConfidence) {
-        console.log(`    ✓ Semantic match: ${semanticMatch.match?.prefLabel} (${(semanticMatch.confidence * 100).toFixed(0)}%)`);
-        return semanticMatch;
+        // Compare with fuzzy match if both exist
+        if (isWeakFuzzyMatch && semanticMatch.confidence > fuzzyMatch.confidence) {
+          console.log(`    ✓ Semantic match (better than weak fuzzy): ${semanticMatch.match?.prefLabel} (${(semanticMatch.confidence * 100).toFixed(0)}%)`);
+          return semanticMatch;
+        } else if (!hasFuzzyMatch) {
+          console.log(`    ✓ Semantic match: ${semanticMatch.match?.prefLabel} (${(semanticMatch.confidence * 100).toFixed(0)}%)`);
+          return semanticMatch;
+        }
       }
+    }
+
+    // Return fuzzy match if it's above threshold (even if semantic wasn't better)
+    if (hasFuzzyMatch) {
+      console.log(`    ✓ Fuzzy match: ${fuzzyMatch.match?.prefLabel} (${(fuzzyMatch.confidence * 100).toFixed(0)}%)`);
+      return fuzzyMatch;
     }
 
     // Collect all alternatives for LLM consideration
@@ -348,7 +357,7 @@ export class CNLClassificationService {
       .slice(0, CLASSIFICATION_CONFIG.llm.maxCandidates);
 
     // Strategy 4: LLM Fallback (for complex/ambiguous cases)
-    if (options?.useLLMFallback && this.geminiAI && uniqueAlternatives.length > 0) {
+    if (options?.useLLMFallback && isGeminiAvailable() && uniqueAlternatives.length > 0) {
       const llmMatch = await this.tryLLMMatch(value, context, conceptType, uniqueAlternatives);
       if (llmMatch.found && llmMatch.confidence >= CLASSIFICATION_CONFIG.llmMatchMinConfidence) {
         console.log(`    ✓ LLM match: ${llmMatch.match?.prefLabel} (${(llmMatch.confidence * 100).toFixed(0)}%)`);
@@ -688,7 +697,7 @@ export class CNLClassificationService {
     conceptType: ConceptType,
     candidates: AlternativeMatch[]
   ): Promise<ClassificationResult> {
-    if (!this.geminiAI || candidates.length === 0) {
+    if (!isGeminiAvailable() || candidates.length === 0) {
       return { found: false, confidence: 0, method: 'llm', needsReview: true };
     }
 
@@ -730,8 +739,8 @@ SELECTIE: [nummer van je keuze, bijv. 1, 2, 3, etc. OF "GEEN_MATCH"]
 CONFIDENCE: [0.0 tot 1.0, waar 1.0 = perfecte match]
 REDEN: [korte reden in max 10 woorden]`;
 
-      // Use @google/genai API syntax
-      const result = await this.geminiAI.models.generateContent({
+      // Use singleton with automatic retry on 429 errors
+      const { text: response, retryCount } = await generateContentWithRetry({
         model: CLASSIFICATION_CONFIG.llm.model,
         contents: prompt,
         config: {
@@ -740,7 +749,9 @@ REDEN: [korte reden in max 10 woorden]`;
         }
       });
 
-      const response = result.text || '';
+      if (retryCount > 0) {
+        console.log(`    [LLM] Request succeeded after ${retryCount} retries`);
+      }
 
       console.log(`    [LLM] Raw response: ${response}`);
 

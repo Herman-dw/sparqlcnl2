@@ -206,6 +206,7 @@ const App: React.FC = () => {
   const [showCVWizard, setShowCVWizard] = useState(false);
   const [showCVReview, setShowCVReview] = useState(false);
   const [currentCvId, setCurrentCvId] = useState<number | null>(null);
+  const [cvMatchResults, setCvMatchResults] = useState<any>(null);
 
   // Quick Upload & Match state
   const [showQuickMatch, setShowQuickMatch] = useState(false);
@@ -1417,14 +1418,16 @@ const App: React.FC = () => {
         isOpen={showMatchModal}
         onClose={() => {
           setShowMatchModal(false);
-          // Reset RIASEC selectie als modal gesloten wordt
+          // Reset RIASEC selectie en CV match results als modal gesloten wordt
           setRiasecSelectedCapabilities([]);
+          setCvMatchResults(null);
         }}
         onMatchComplete={(results) => {
           console.log('Match complete:', results.length, 'beroepen gevonden');
         }}
         initialSkills={riasecSelectedCapabilities.map(cap => cap.label)}
         presetProfile={combinedProfile}
+        cvMatchData={cvMatchResults}
       />
       <ProfileHistoryWizard
         isOpen={showProfileWizard}
@@ -1484,9 +1487,13 @@ const App: React.FC = () => {
               setShowCVReview(false);
               setCurrentCvId(null);
             }}
-            onComplete={() => {
+            onComplete={(matchResults) => {
               setShowCVReview(false);
-              // Open match modal with CV data
+              // Store match results and open match modal
+              if (matchResults) {
+                console.log('[App] CV match results received:', matchResults.matchCount, 'matches');
+                setCvMatchResults(matchResults);
+              }
               setShowMatchModal(true);
             }}
           />
