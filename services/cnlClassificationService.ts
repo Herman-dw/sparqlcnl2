@@ -353,7 +353,6 @@ export class CNLClassificationService {
       await this.loadEmbeddingsCache();
     }
 
-    const conceptType = this.mapSectionToConceptType(extraction.section_type);
     const value = this.extractValueForClassification(extraction);
 
     // Skip classification for empty/whitespace-only values
@@ -370,12 +369,91 @@ export class CNLClassificationService {
 
     const context = this.extractContextForClassification(extraction);
     const structuredContext = this.extractStructuredContext(extraction);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // DUAL TAXONOMY voor skills: probeer zowel capability als knowledge
+    // ══════════════════════════════════════════════════════════════════════
+    if (extraction.section_type === 'skill') {
+      console.log(`  Classifying: "${value}" (skill → capability + knowledge)`);
+      if (context) console.log(`    Context: "${context.substring(0, 100)}"`);
+
+      // Probeer beide taxonomieën
+      const [capabilityResult, knowledgeResult] = await Promise.all([
+        this.classifyAgainstTaxonomy(value, 'capability', context, structuredContext, options),
+        this.classifyAgainstTaxonomy(value, 'knowledge', context, structuredContext, options)
+      ]);
+
+      // Bepaal welke taxonomie de beste match geeft
+      const capConfidence = capabilityResult.found ? capabilityResult.confidence : 0;
+      const knowConfidence = knowledgeResult.found ? knowledgeResult.confidence : 0;
+
+      // Als knowledge duidelijk beter scoort (minstens 10% hoger), gebruik knowledge
+      // Of als capability geen match heeft maar knowledge wel
+      if (knowledgeResult.found && (!capabilityResult.found || knowConfidence > capConfidence + 0.10)) {
+        console.log(`    ✓ Knowledge wins: ${knowledgeResult.match?.prefLabel} (${(knowConfidence * 100).toFixed(0)}%) vs capability (${(capConfidence * 100).toFixed(0)}%)`);
+        // Voeg capability alternatieven toe als backup
+        const mergedAlts = this.deduplicateAlternatives([
+          ...(knowledgeResult.alternatives || []),
+          ...(capabilityResult.alternatives || [])
+        ]).slice(0, CLASSIFICATION_CONFIG.maxAlternatives);
+        return { ...knowledgeResult, alternatives: mergedAlts };
+      }
+
+      if (capabilityResult.found) {
+        console.log(`    ✓ Capability wins: ${capabilityResult.match?.prefLabel} (${(capConfidence * 100).toFixed(0)}%) vs knowledge (${(knowConfidence * 100).toFixed(0)}%)`);
+        // Voeg knowledge alternatieven toe als backup
+        const mergedAlts = this.deduplicateAlternatives([
+          ...(capabilityResult.alternatives || []),
+          ...(knowledgeResult.alternatives || [])
+        ]).slice(0, CLASSIFICATION_CONFIG.maxAlternatives);
+        return { ...capabilityResult, alternatives: mergedAlts };
+      }
+
+      // Geen match in beide - combineer alternatieven
+      const allAlts = this.deduplicateAlternatives([
+        ...(capabilityResult.alternatives || []),
+        ...(knowledgeResult.alternatives || [])
+      ]).sort((a, b) => b.confidence - a.confidence)
+        .slice(0, CLASSIFICATION_CONFIG.maxAlternatives);
+
+      console.log(`    ⚠ Geen match in capability of knowledge, ${allAlts.length} alternatieven`);
+      return {
+        found: false,
+        confidence: allAlts.length > 0 ? allAlts[0].confidence : 0,
+        method: 'manual',
+        alternatives: allAlts,
+        needsReview: true
+      };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Standaard classificatie voor experience en education
+    // ══════════════════════════════════════════════════════════════════════
+    const conceptType = this.mapSectionToConceptType(extraction.section_type);
     const isGeneric = extraction.section_type === 'experience'
       && this.isGenericTitle(value);
 
     console.log(`  Classifying: "${value}" (${conceptType})${isGeneric ? ' [GENERIC]' : ''}`);
     if (context) console.log(`    Context: "${context.substring(0, 100)}"`);
 
+    return this.classifyAgainstTaxonomy(value, conceptType, context, structuredContext, options, isGeneric);
+  }
+
+  /**
+   * Classificeer een waarde tegen één specifieke taxonomie
+   * Dit is de kern van de classificatie waterval
+   */
+  private async classifyAgainstTaxonomy(
+    value: string,
+    conceptType: ConceptType,
+    context: string | undefined,
+    structuredContext: { organization?: string; description?: string; skills?: string[] } | undefined,
+    options?: {
+      useSemanticMatching?: boolean;
+      useLLMFallback?: boolean;
+    },
+    isGeneric: boolean = false
+  ): Promise<ClassificationResult> {
     // Verzamel kandidaten van alle strategieën voor eventuele LLM reranking
     let allAlternatives: AlternativeMatch[] = [];
 
