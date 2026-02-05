@@ -10,7 +10,7 @@ import { QuickExtractedData, AggregatedSkills } from '../../types/quickMatch';
 interface CVToProfilePromptProps {
   extractedData: QuickExtractedData | null;
   aggregatedSkills: AggregatedSkills | null;
-  onConfirm: () => void;
+  onConfirm: (extractedData: QuickExtractedData | null, aggregatedSkills: AggregatedSkills | null) => void;
   onSkip: () => void;
 }
 
@@ -111,7 +111,14 @@ const CVToProfilePrompt: React.FC<CVToProfilePromptProps> = ({
           Niet nu
         </button>
         <button
-          onClick={onConfirm}
+          onClick={() => {
+            console.log('[CVToProfilePrompt] Confirm clicked');
+            console.log('  - extractedData:', extractedData);
+            console.log('  - aggregatedSkills:', aggregatedSkills);
+            console.log('  - aggregatedSkills.combined:', aggregatedSkills?.combined);
+            console.log('  - aggregatedSkills.direct:', aggregatedSkills?.direct);
+            onConfirm(extractedData, aggregatedSkills);
+          }}
           className="flex-1 px-5 py-3 text-sm font-bold text-white
                    bg-gradient-to-r from-emerald-500 to-green-500 rounded-xl
                    hover:from-emerald-600 hover:to-green-600

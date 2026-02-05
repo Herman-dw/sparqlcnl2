@@ -206,17 +206,17 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
     onGoToWizard();
   }, [handleClose, onGoToWizard]);
 
-  // Handle adding CV data to profile
-  const handleAddToProfile = useCallback(() => {
-    console.log('[QuickUploadMatchModal] handleAddToProfile called');
-    console.log('  - pendingResult:', pendingResult);
-    console.log('  - pendingResult.skillSources:', pendingResult?.skillSources);
-    console.log('  - skillSources.combined:', pendingResult?.skillSources?.combined);
+  // Handle adding CV data to profile - now receives data directly from CVToProfilePrompt
+  const handleAddToProfile = useCallback((extractedData: any, aggregatedSkills: any) => {
+    console.log('[QuickUploadMatchModal] handleAddToProfile called with direct data');
+    console.log('  - extractedData:', extractedData);
+    console.log('  - aggregatedSkills:', aggregatedSkills);
+    console.log('  - aggregatedSkills.combined:', aggregatedSkills?.combined);
     console.log('  - onAddToProfile defined:', !!onAddToProfile);
 
-    if (pendingResult && onAddToProfile) {
-      console.log('[QuickUploadMatchModal] Calling onAddToProfile');
-      onAddToProfile(pendingResult.extraction, pendingResult.skillSources);
+    if (onAddToProfile && aggregatedSkills) {
+      console.log('[QuickUploadMatchModal] Calling onAddToProfile with data');
+      onAddToProfile(extractedData, aggregatedSkills);
     }
     if (pendingResult) {
       onComplete(pendingResult);
