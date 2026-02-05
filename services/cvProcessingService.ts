@@ -9,9 +9,19 @@
 
 import mysql from 'mysql2/promise';
 import axios from 'axios';
-import crypto from 'crypto';
-import pdfParse from 'pdf-parse';
-import mammoth from 'mammoth';
+
+import {
+  parseStructure as pipelineParseStructure,
+  storeExtractions as pipelineStoreExtractions,
+  storeCVText as pipelineStoreCVText,
+  updatePrivacyRisk as pipelineUpdatePrivacyRisk,
+  extractText as pipelineExtractText,
+  encrypt as pipelineEncrypt,
+  decrypt as pipelineDecrypt,
+  calculateDuration as pipelineCalculateDuration,
+  type ParsedStructure,
+  type PrivacyLevel
+} from './cvPipeline.ts';
 
 type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;
@@ -30,16 +40,13 @@ import { CVProcessingError } from '../types/cv.ts';
 
 import { PrivacyLogger } from './privacyLogger.ts';
 import {
-  generalizeEmployer,
   generalizeEmployerSequence,
-  inferSectorFromJobTitle,
   assessReIdentificationRisk
 } from './employerGeneralizer.ts';
-import { assessCVRisk, generatePrivacySummary } from './riskAssessment.ts';
+import { assessCVRisk } from './riskAssessment.ts';
 import { CNLClassificationService } from './cnlClassificationService.ts';
 
 const GLINER_SERVICE_URL = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
 
 // Error codes for status endpoint
 export const CV_ERROR_CODES = {
@@ -213,14 +220,14 @@ export class CVProcessingService {
       console.log(`[OK] STAP 5: Structure parsed (${parseDuration}ms)`);
       console.log(`  Experience: ${parsed.experience.length}, Education: ${parsed.education.length}, Skills: ${parsed.skills.length}`);
 
-      // STAP 6: Generalize employers
+      // STAP 6: Generalize employers (for logging)
       const employers = parsed.experience.map(e => e.organization).filter(Boolean) as string[];
       const jobTitles = parsed.experience.map(e => e.jobTitle);
 
       const generalizedEmployers = generalizeEmployerSequence(
         employers,
         jobTitles,
-        'medium' // Default privacy level
+        'medium'
       );
 
       console.log(`[OK] STAP 6: Employers generalized`);
@@ -249,10 +256,10 @@ export class CVProcessingService {
       console.log(`  Recommendation: ${riskAssessment.recommendation}`);
 
       // Update CV with risk assessment
-      await this.updatePrivacyRisk(cvId, riskAssessment);
+      await pipelineUpdatePrivacyRisk(this.db, cvId, riskAssessment);
 
-      // STAP 8: Store extractions
-      await this.storeExtractions(cvId, parsed, generalizedEmployers);
+      // STAP 8: Store extractions (uses shared pipeline with Gemini-parsed data)
+      await pipelineStoreExtractions(this.db, cvId, parsed);
 
       console.log(`[OK] STAP 8: Extractions stored in database`);
 
@@ -280,22 +287,11 @@ export class CVProcessingService {
   }
 
   /**
-   * Extract text from PDF or Word
+   * Extract text from PDF or Word - delegates to shared pipeline
    */
   private async extractText(buffer: Buffer, mimeType: string): Promise<string> {
     try {
-      if (mimeType === 'application/pdf') {
-        const pdfData = await pdfParse(buffer);
-        return pdfData.text;
-      } else if (
-        mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-        mimeType === 'application/msword'
-      ) {
-        const result = await mammoth.extractRawText({ buffer });
-        return result.value;
-      } else {
-        throw new Error(`Unsupported file type: ${mimeType}`);
-      }
+      return await pipelineExtractText(buffer, mimeType);
     } catch (error) {
       throw new CVProcessingError(
         `Failed to extract text: ${error instanceof Error ? error.message : String(error)}`,
@@ -349,262 +345,10 @@ export class CVProcessingService {
   }
 
   /**
-   * Parse CV structure from anonymized text
-   * Uses rule-based parsing (kan later uitgebreid met lokaal LLM)
+   * Parse CV structure - delegates to shared pipeline (Gemini LLM + regex fallback)
    */
-  private async parseStructure(anonymizedText: string): Promise<{
-    experience: Array<{
-      jobTitle: string;
-      organization?: string;
-      startDate?: string;
-      endDate?: string | null;
-      duration?: number;
-      description?: string;
-      skills: string[];
-      needsReview?: boolean;
-    }>;
-    education: Array<{
-      degree: string;
-      institution?: string;
-      year?: string;
-      fieldOfStudy?: string;
-      needsReview?: boolean;
-    }>;
-    skills: string[];
-  }> {
-    // Simpele regex-based parsing
-    // TODO: Upgrade naar lokaal LLM parsing voor betere kwaliteit
-
-    const result = {
-      experience: [] as any[],
-      education: [] as any[],
-      skills: [] as string[]
-    };
-
-    // Split in secties
-    const sections = this.identifySections(anonymizedText);
-
-    // Parse experience section
-    if (sections.experience) {
-      result.experience = this.parseExperienceSection(sections.experience);
-    }
-
-    // Parse education section
-    if (sections.education) {
-      result.education = this.parseEducationSection(sections.education);
-    }
-
-    // Parse skills (kan overal in CV staan)
-    result.skills = this.extractSkills(anonymizedText, sections.skills);
-
-    return result;
-  }
-
-  /**
-   * Identify CV sections
-   */
-  private identifySections(text: string): {
-    experience?: string;
-    education?: string;
-    skills?: string;
-  } {
-    const sections: any = {};
-
-    // Headers voor werkervaring
-    const experienceHeaders = /(werkervaring|work experience|ervaring|professional experience|employment)/i;
-    // Headers voor opleiding
-    const educationHeaders = /(opleiding|education|studie|studies|academic)/i;
-    // Headers voor vaardigheden
-    const skillHeaders = /(vaardigheden|skills|competenties|competencies)/i;
-
-    const lines = text.split('\n');
-
-    let currentSection: string | null = null;
-    let sectionContent: string[] = [];
-
-    for (const line of lines) {
-      // Check for section headers
-      if (experienceHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
-        currentSection = 'experience';
-        sectionContent = [];
-      } else if (educationHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
-        currentSection = 'education';
-        sectionContent = [];
-      } else if (skillHeaders.test(line)) {
-        if (currentSection && sectionContent.length > 0) {
-          sections[currentSection] = sectionContent.join('\n');
-        }
-        currentSection = 'skills';
-        sectionContent = [];
-      } else if (currentSection) {
-        sectionContent.push(line);
-      }
-    }
-
-    // Add last section
-    if (currentSection && sectionContent.length > 0) {
-      sections[currentSection] = sectionContent.join('\n');
-    }
-
-    return sections;
-  }
-
-  /**
-   * Parse experience section
-   */
-  private parseExperienceSection(text: string): any[] {
-    const experiences: Array<{
-      jobTitle: string;
-      organization?: string;
-      startDate?: string;
-      endDate?: string | null;
-      duration?: number;
-      description?: string;
-      skills: string[];
-      needsReview?: boolean;
-    }> = [];
-
-    // Pattern: Functietitel bij Bedrijf (jaar-jaar)
-    const pattern = /([A-Z][^\n]+?)\s+(?:bij|at)\s+([^\n(]+?)\s*\((\d{4})\s*[-–]\s*(\d{4}|heden|present)\)/gi;
-
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const [_, jobTitle, organization, startYear, endYear] = match;
-
-      const duration = endYear.match(/\d{4}/)
-        ? parseInt(endYear) - parseInt(startYear)
-        : new Date().getFullYear() - parseInt(startYear);
-
-      experiences.push({
-        jobTitle: jobTitle.trim(),
-        organization: organization.trim(),
-        startDate: startYear,
-        endDate: endYear === 'heden' || endYear === 'present' ? null : endYear,
-        duration,
-        description: '',
-        skills: []
-      });
-    }
-
-    if (experiences.length > 0) {
-      return experiences;
-    }
-
-    // Fallback: detect lines with year ranges when the main pattern fails
-    const fallbackPattern = /(.+?)\s+(\d{4})\s*[-–]\s*(\d{4}|heden|present)/gi;
-    let fallbackMatch;
-    while ((fallbackMatch = fallbackPattern.exec(text)) !== null) {
-      const [_, title, startYear, endYear] = fallbackMatch;
-      const duration = endYear.match(/\d{4}/)
-        ? parseInt(endYear) - parseInt(startYear)
-        : new Date().getFullYear() - parseInt(startYear);
-
-      experiences.push({
-        jobTitle: title.trim(),
-        startDate: startYear,
-        endDate: endYear === 'heden' || endYear === 'present' ? null : endYear,
-        duration,
-        description: '',
-        skills: [],
-        needsReview: true
-      });
-    }
-
-    return experiences;
-  }
-
-  /**
-   * Parse education section
-   */
-  private parseEducationSection(text: string): Array<{
-    degree: string;
-    institution?: string;
-    year?: string;
-    fieldOfStudy?: string;
-    needsReview?: boolean;
-  }> {
-    const education: Array<{
-      degree: string;
-      institution?: string;
-      year?: string;
-      fieldOfStudy?: string;
-      needsReview?: boolean;
-    }> = [];
-
-    // Pattern: Degree, Institution (jaar)
-    const pattern = /([^\n,]+?),\s*([^\n(]+?)\s*\((\d{4})\)/gi;
-
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const [_, degree, institution, year] = match;
-
-      education.push({
-        degree: degree.trim(),
-        institution: institution.trim(),
-        year: year,
-        fieldOfStudy: ''
-      });
-    }
-
-    if (education.length > 0) {
-      return education;
-    }
-
-    // Fallback: detect lines with single years for education history
-    const fallbackPattern = /(.+?)\s*\((\d{4})\)/gi;
-    let fallbackMatch;
-    while ((fallbackMatch = fallbackPattern.exec(text)) !== null) {
-      const [_, degree, year] = fallbackMatch;
-      education.push({
-        degree: degree.trim(),
-        year,
-        fieldOfStudy: '',
-        needsReview: true
-      });
-    }
-
-    return education;
-  }
-
-  /**
-   * Extract skills from text
-   */
-  private extractSkills(text: string, skillSection?: string): string[] {
-    // Common technical skills
-    const skillPatterns = [
-      /\b(Python|Java|JavaScript|TypeScript|C\#|C\+\+|Ruby|PHP|Go|Rust|Swift|Kotlin)\b/gi,
-      /\b(React|Vue|Angular|Node\.js|Express|Django|Flask|Spring|Laravel)\b/gi,
-      /\b(SQL|MySQL|PostgreSQL|MongoDB|Redis|Elasticsearch)\b/gi,
-      /\b(AWS|Azure|GCP|Docker|Kubernetes|Jenkins|GitLab|GitHub)\b/gi,
-      /\b(Agile|Scrum|Kanban|DevOps|CI\/CD|TDD|BDD)\b/gi
-    ];
-
-    const skills: Set<string> = new Set();
-
-    for (const pattern of skillPatterns) {
-      let match;
-      while ((match = pattern.exec(text)) !== null) {
-        skills.add(match[1]);
-      }
-    }
-
-    if (skillSection) {
-      const sectionSkills = skillSection
-        .split(/[,;\n•]+/)
-        .map(skill => skill.trim())
-        .filter(skill => skill.length > 1);
-      for (const skill of sectionSkills) {
-        skills.add(skill);
-      }
-    }
-
-    return Array.from(skills);
+  private async parseStructure(anonymizedText: string): Promise<ParsedStructure> {
+    return pipelineParseStructure(anonymizedText);
   }
 
   /**
@@ -665,97 +409,7 @@ export class CVProcessingService {
     anonymizedText: string,
     piiDetected: any
   ): Promise<void> {
-    // Encrypt original text
-    const encrypted = this.encrypt(originalText);
-
-    // Count PII
-    const piiTypes = Object.keys(piiDetected).filter(k => piiDetected[k].length > 0);
-    const piiCount = Object.values(piiDetected).reduce((sum: number, arr: any) => sum + arr.length, 0);
-
-    await this.db.execute(
-      `UPDATE user_cvs SET
-        original_text_encrypted = ?,
-        anonymized_text = ?,
-        pii_detected = ?,
-        pii_count = ?
-      WHERE id = ?`,
-      [
-        encrypted,
-        anonymizedText,
-        JSON.stringify(piiTypes),
-        piiCount,
-        cvId
-      ]
-    );
-  }
-
-  private async updatePrivacyRisk(cvId: number, riskAssessment: any): Promise<void> {
-    await this.db.execute(
-      `UPDATE user_cvs SET
-        privacy_risk_score = ?,
-        privacy_risk_level = ?,
-        allow_exact_data = ?
-      WHERE id = ?`,
-      [
-        riskAssessment.riskScore,
-        riskAssessment.overallRisk,
-        riskAssessment.allowExactDataSharing,
-        cvId
-      ]
-    );
-  }
-
-  private async storeExtractions(
-    cvId: number,
-    parsed: any,
-    generalizedEmployers: any[]
-  ): Promise<void> {
-    // Store experience
-    for (let i = 0; i < parsed.experience.length; i++) {
-      const exp = parsed.experience[i];
-      const genEmp = generalizedEmployers[i];
-
-      await this.db.execute(
-        `INSERT INTO cv_extractions (
-          cv_id, section_type, content,
-          original_employer, generalized_employer,
-          employer_sector, employer_is_identifying,
-          needs_review, confidence_score
-        ) VALUES (?, 'experience', ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          cvId,
-          JSON.stringify(exp),
-          genEmp?.original || null,
-          genEmp?.generalized || null,
-          genEmp?.sector || null,
-          genEmp?.isIdentifying || false,
-          exp.needsReview ?? false,
-          exp.needsReview ? 0.4 : 0.8
-        ]
-      );
-    }
-
-    // Store education
-    for (const edu of parsed.education) {
-      await this.db.execute(
-        `INSERT INTO cv_extractions (
-          cv_id, section_type, content,
-          needs_review, confidence_score
-        ) VALUES (?, 'education', ?, ?, ?)`,
-        [cvId, JSON.stringify(edu), edu.needsReview ?? false, edu.needsReview ? 0.4 : 0.8]
-      );
-    }
-
-    // Store skills
-    for (const skill of parsed.skills) {
-      await this.db.execute(
-        `INSERT INTO cv_extractions (
-          cv_id, section_type, content,
-          needs_review, confidence_score
-        ) VALUES (?, 'skill', ?, ?, ?)`,
-        [cvId, JSON.stringify({ skill_name: skill }), false, 0.7]
-      );
-    }
+    await pipelineStoreCVText(this.db, cvId, originalText, anonymizedText, piiDetected);
   }
 
   /**
@@ -847,35 +501,6 @@ export class CVProcessingService {
   }
 
   /**
-   * Encryption helpers
-   */
-  private encrypt(text: string): Buffer {
-    const iv = crypto.randomBytes(16);
-    const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-
-    // Prepend IV for decryption
-    return Buffer.from(iv.toString('hex') + ':' + encrypted, 'utf8');
-  }
-
-  private decrypt(buffer: Buffer): string {
-    const text = buffer.toString('utf8');
-    const [ivHex, encrypted] = text.split(':');
-
-    const iv = Buffer.from(ivHex, 'hex');
-    const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-
-    return decrypted;
-  }
-
-  /**
    * Quick Process - Automatic processing for "Snelle Upload & Match"
    * Uses medium privacy settings and auto-selects best classifications
    * Note: Progress tracking is done via elapsed time in quick-status endpoint
@@ -956,41 +581,50 @@ export class CVProcessingService {
         console.log(`    - Needs review: ${classifyResult.summary?.needsReview || 0}`);
         console.log(`    - Avg confidence: ${((classifyResult.summary?.averageConfidence || 0) * 100).toFixed(1)}%`);
 
-        // If selectBestMatch is enabled, auto-confirm the best classification for each item
+        // Auto-select best matches for all items (including needsReview)
         if (options?.selectBestMatch !== false) {
           console.log(`  🔄 Auto-selecting best matches...`);
+          let confirmed = 0;
+          let autoSelected = 0;
 
-          // Experience classifications
-          for (const exp of classifyResult.classifications?.experience || []) {
-            if (exp.classification.found && !exp.classification.needsReview) {
+          const allClassifications = [
+            ...(classifyResult.classifications?.experience || []),
+            ...(classifyResult.classifications?.education || []),
+            ...(classifyResult.classifications?.skills || [])
+          ];
+
+          for (const item of allClassifications) {
+            const cls = item.classification;
+
+            if (cls.found && cls.match) {
+              // Confident match - auto-confirm
               await this.db.execute(
                 `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
-                [exp.extractionId]
+                [item.extractionId]
               );
+              confirmed++;
+            } else if (cls.needsReview && cls.alternatives && cls.alternatives.length > 0) {
+              // No confident match, but alternatives exist - select the best one
+              const bestAlt = cls.alternatives[0]; // Already sorted by confidence
+              await this.db.execute(
+                `UPDATE cv_extractions SET
+                  matched_cnl_uri = ?,
+                  matched_cnl_label = ?,
+                  confidence_score = ?,
+                  classification_method = 'auto_selected',
+                  classification_confirmed = TRUE,
+                  classified_at = NOW(),
+                  needs_review = FALSE,
+                  updated_at = NOW()
+                WHERE id = ?`,
+                [bestAlt.uri, bestAlt.prefLabel, bestAlt.confidence, item.extractionId]
+              );
+              autoSelected++;
+              console.log(`    Auto-selected: "${bestAlt.prefLabel}" (${(bestAlt.confidence * 100).toFixed(0)}%) for extraction ${item.extractionId}`);
             }
           }
 
-          // Education classifications
-          for (const edu of classifyResult.classifications?.education || []) {
-            if (edu.classification.found && !edu.classification.needsReview) {
-              await this.db.execute(
-                `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
-                [edu.extractionId]
-              );
-            }
-          }
-
-          // Skill classifications
-          for (const skill of classifyResult.classifications?.skills || []) {
-            if (skill.classification.found && !skill.classification.needsReview) {
-              await this.db.execute(
-                `UPDATE cv_extractions SET classification_confirmed = TRUE WHERE id = ?`,
-                [skill.extractionId]
-              );
-            }
-          }
-
-          console.log(`  ✓ Best matches auto-confirmed`);
+          console.log(`  ✓ Confirmed: ${confirmed}, Auto-selected from alternatives: ${autoSelected}`);
         }
       }
 

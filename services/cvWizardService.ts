@@ -12,10 +12,15 @@
 
 import mysql from 'mysql2/promise';
 import axios from 'axios';
-import crypto from 'crypto';
-import pdfParse from 'pdf-parse';
-import mammoth from 'mammoth';
-import { GoogleGenAI } from '@google/genai';
+
+import {
+  extractText as pipelineExtractText,
+  parseStructure as pipelineParseStructure,
+  storeExtractions as pipelineStoreExtractions,
+  encrypt as pipelineEncrypt,
+  calculateDuration as pipelineCalculateDuration,
+  type ParsedStructure
+} from './cvPipeline.ts';
 
 type Pool = mysql.Pool;
 type RowDataPacket = mysql.RowDataPacket;
@@ -29,9 +34,6 @@ import type {
   Step5FinalizeResponse,
   Step6ClassifyResponse,
   PIIDetection,
-  ParsedExperience,
-  ParsedEducation,
-  ParsedSkill,
   GeneralizedEmployerInfo,
   PrivacyLevel,
   WizardStepName,
@@ -42,15 +44,12 @@ import { CVProcessingError } from '../types/cv.ts';
 
 import { PrivacyLogger } from './privacyLogger.ts';
 import {
-  generalizeEmployer,
-  generalizeEmployerSequence,
-  assessReIdentificationRisk
+  generalizeEmployerSequence
 } from './employerGeneralizer.ts';
 import { assessCVRisk } from './riskAssessment.ts';
 import { CNLClassificationService } from './cnlClassificationService.ts';
 
 const GLINER_SERVICE_URL = process.env.GLINER_SERVICE_URL || 'http://localhost:8001';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
 
 interface StepInfo {
   stepNumber: 1 | 2 | 3 | 4 | 5 | 6;
@@ -299,25 +298,20 @@ export class CVWizardService {
     await this.updateStepStatus(cvId, 1, 'processing');
 
     try {
-      // Extract text
-      let extractedText: string;
+      // Extract text using shared pipeline
       let sourceFormat: 'pdf' | 'docx' | 'doc';
 
       if (mimeType === 'application/pdf') {
-        const pdfData = await pdfParse(fileBuffer);
-        extractedText = pdfData.text;
         sourceFormat = 'pdf';
       } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        const result = await mammoth.extractRawText({ buffer: fileBuffer });
-        extractedText = result.value;
         sourceFormat = 'docx';
       } else if (mimeType === 'application/msword') {
-        const result = await mammoth.extractRawText({ buffer: fileBuffer });
-        extractedText = result.value;
         sourceFormat = 'doc';
       } else {
         throw new CVProcessingError(`Unsupported file type: ${mimeType}`, 'UNSUPPORTED_FORMAT', cvId);
       }
+
+      const extractedText = await pipelineExtractText(fileBuffer, mimeType);
 
       if (!extractedText || extractedText.trim().length === 0) {
         throw new CVProcessingError('No text could be extracted from document', 'EMPTY_DOCUMENT', cvId);
@@ -642,8 +636,8 @@ export class CVWizardService {
         throw new CVProcessingError('No anonymized text available for parsing', 'NO_TEXT', cvId);
       }
 
-      // Parse structure
-      const parsed = await this.parseStructure(anonymizedText);
+      // Parse structure using shared pipeline (Gemini LLM + regex fallback)
+      const parsed = await pipelineParseStructure(anonymizedText);
 
       const processingTimeMs = Date.now() - startTime;
 
@@ -882,7 +876,7 @@ export class CVWizardService {
       return;
     }
 
-    await this.storeExtractions(cvId, cache.parsedData, privacyLevel);
+    await pipelineStoreExtractions(this.db, cvId, cache.parsedData, privacyLevel);
     console.log(`✅ Stored extractions for CV ${cvId} before classification`);
   }
 
@@ -1006,7 +1000,7 @@ export class CVWizardService {
 
     // Store encrypted original and anonymized text
     if (cache?.rawText && cache?.anonymizedText) {
-      const encrypted = this.encrypt(cache.rawText);
+      const encrypted = pipelineEncrypt(cache.rawText);
       const piiDetections = cache.piiDetections || [];
       const piiTypes = [...new Set(piiDetections.map(d => d.type))];
 
@@ -1029,9 +1023,9 @@ export class CVWizardService {
       );
     }
 
-    // Store extractions
+    // Store extractions using shared pipeline
     if (cache?.parsedData) {
-      await this.storeExtractions(cvId, cache.parsedData, privacyLevel);
+      await pipelineStoreExtractions(this.db, cvId, cache.parsedData, privacyLevel);
     }
 
     // Assess and store privacy risk
@@ -1060,83 +1054,6 @@ export class CVWizardService {
     this.stepDataCache.delete(cvId);
 
     console.log(`✅ Wizard completed for CV ${cvId} with privacy level: ${privacyLevel}`);
-  }
-
-  private async storeExtractions(cvId: number, parsed: any, privacyLevel: PrivacyLevel): Promise<void> {
-    const employers = parsed.experience.map((e: any) => e.organization).filter(Boolean);
-    const jobTitles = parsed.experience.map((e: any) => e.jobTitle);
-    const generalizedEmployers = generalizeEmployerSequence(employers, jobTitles, privacyLevel);
-
-    // Store experience
-    for (let i = 0; i < parsed.experience.length; i++) {
-      const exp = parsed.experience[i];
-      const genEmp = generalizedEmployers[i];
-
-      await this.db.execute(
-        `INSERT INTO cv_extractions (
-          cv_id, section_type, content,
-          original_employer, generalized_employer,
-          employer_sector, employer_is_identifying,
-          needs_review, confidence_score
-        ) VALUES (?, 'experience', ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          cvId,
-          JSON.stringify({
-            job_title: exp.jobTitle,
-            organization: exp.organization,
-            start_date: exp.startDate,
-            end_date: exp.endDate,
-            duration_years: exp.duration,
-            description: exp.description,
-            extracted_skills: exp.skills
-          }),
-          genEmp?.original || null,
-          genEmp?.generalized || null,
-          genEmp?.sector || null,
-          genEmp?.isIdentifying || false,
-          exp.needsReview ?? false,
-          exp.confidence ?? 0.8
-        ]
-      );
-    }
-
-    // Store education
-    for (const edu of parsed.education) {
-      await this.db.execute(
-        `INSERT INTO cv_extractions (
-          cv_id, section_type, content,
-          needs_review, confidence_score
-        ) VALUES (?, 'education', ?, ?, ?)`,
-        [
-          cvId,
-          JSON.stringify({
-            degree: edu.degree,
-            institution: edu.institution,
-            field_of_study: edu.fieldOfStudy,
-            start_year: edu.startYear,
-            end_year: edu.year
-          }),
-          edu.needsReview ?? false,
-          edu.confidence ?? 0.8
-        ]
-      );
-    }
-
-    // Store skills
-    for (const skill of parsed.skills) {
-      await this.db.execute(
-        `INSERT INTO cv_extractions (
-          cv_id, section_type, content,
-          needs_review, confidence_score
-        ) VALUES (?, 'skill', ?, ?, ?)`,
-        [
-          cvId,
-          JSON.stringify({ skill_name: skill.skillName }),
-          false,
-          skill.confidence ?? 0.7
-        ]
-      );
-    }
   }
 
   private mapEntityType(label: string): PIIDetection['type'] {
@@ -1265,224 +1182,6 @@ export class CVWizardService {
       .replace(/&lt;\/mark&gt;/g, '</mark>');
   }
 
-  /**
-   * Parse CV structure using Gemini LLM
-   * The text is already anonymized, so it's safe to send to the API
-   */
-  private async parseStructure(anonymizedText: string): Promise<{
-    experience: ParsedExperience[];
-    education: ParsedEducation[];
-    skills: ParsedSkill[];
-  }> {
-    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      console.warn('⚠️ No Gemini API key found, falling back to regex parsing');
-      return this.parseStructureWithRegex(anonymizedText);
-    }
-
-    try {
-      const genAI = new GoogleGenAI({ apiKey });
-
-      const prompt = `Analyseer het volgende geanonimiseerde CV en extraheer de structuur.
-Let op: persoonlijke gegevens zijn al vervangen door placeholders zoals [Naam], [Werkgever], [Adres] etc.
-
-CV TEKST:
-${anonymizedText}
-
-Geef je antwoord ALLEEN als valid JSON in exact dit formaat (geen markdown, geen uitleg):
-{
-  "experience": [
-    {
-      "jobTitle": "functietitel",
-      "organization": "organisatie naam of [Werkgever] placeholder",
-      "startDate": "YYYY",
-      "endDate": "YYYY of null als huidig",
-      "description": "korte beschrijving van taken/verantwoordelijkheden",
-      "skills": ["skill1", "skill2"]
-    }
-  ],
-  "education": [
-    {
-      "degree": "diploma/opleiding naam",
-      "institution": "instelling naam of [Onderwijsinstelling] placeholder",
-      "year": "YYYY",
-      "fieldOfStudy": "studierichting indien bekend"
-    }
-  ],
-  "skills": [
-    {
-      "skillName": "vaardigheid naam",
-      "category": "technical|soft|language|other"
-    }
-  ]
-}
-
-Belangrijke instructies:
-- Behoud de [placeholder] teksten zoals ze zijn - vervang ze NIET
-- Geef alleen JSON terug, geen andere tekst
-- Als iets niet duidelijk is, laat het veld leeg of gebruik null
-- Sorteer ervaring van nieuwste naar oudste
-- Wees grondig: extraheer ALLE genoemde ervaringen, opleidingen en vaardigheden`;
-
-      const result = await genAI.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: prompt
-      });
-      const response = result.text;
-
-      // Extract JSON from response (handle potential markdown code blocks)
-      let jsonStr = response;
-      const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (jsonMatch) {
-        jsonStr = jsonMatch[1];
-      }
-
-      // Clean up the JSON string
-      jsonStr = jsonStr.trim();
-      if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
-        const parsed = JSON.parse(jsonStr);
-
-        // Transform to our format with IDs and confidence scores
-        const experience: ParsedExperience[] = (parsed.experience || []).map((exp: any, i: number) => ({
-          id: `exp-${i + 1}`,
-          jobTitle: exp.jobTitle || '',
-          organization: exp.organization,
-          startDate: exp.startDate,
-          endDate: exp.endDate,
-          duration: this.calculateDuration(exp.startDate, exp.endDate),
-          description: exp.description || '',
-          skills: exp.skills || [],
-          needsReview: false,
-          confidence: 0.9
-        }));
-
-        const education: ParsedEducation[] = (parsed.education || []).map((edu: any, i: number) => ({
-          id: `edu-${i + 1}`,
-          degree: edu.degree || '',
-          institution: edu.institution,
-          year: edu.year,
-          fieldOfStudy: edu.fieldOfStudy || '',
-          needsReview: false,
-          confidence: 0.9
-        }));
-
-        const skills: ParsedSkill[] = (parsed.skills || []).map((skill: any, i: number) => ({
-          id: `skill-${i + 1}`,
-          skillName: typeof skill === 'string' ? skill : skill.skillName,
-          category: typeof skill === 'string' ? 'other' : skill.category,
-          confidence: 0.85
-        }));
-
-        console.log(`✅ Gemini parsed CV: ${experience.length} experiences, ${education.length} education, ${skills.length} skills`);
-
-        return { experience, education, skills };
-      }
-
-      throw new Error('Invalid JSON response from Gemini');
-    } catch (error) {
-      console.error('❌ Gemini parsing failed, falling back to regex:', error);
-      return this.parseStructureWithRegex(anonymizedText);
-    }
-  }
-
-  private calculateDuration(startDate: string | null, endDate: string | null): number {
-    if (!startDate) return 0;
-    const start = parseInt(startDate);
-    const end = endDate ? parseInt(endDate) : new Date().getFullYear();
-    return isNaN(start) || isNaN(end) ? 0 : end - start;
-  }
-
-  /**
-   * Fallback regex-based parsing when Gemini is not available
-   */
-  private parseStructureWithRegex(anonymizedText: string): {
-    experience: ParsedExperience[];
-    education: ParsedEducation[];
-    skills: ParsedSkill[];
-  } {
-    const result = {
-      experience: [] as ParsedExperience[],
-      education: [] as ParsedEducation[],
-      skills: [] as ParsedSkill[]
-    };
-
-    // Simple regex-based section detection
-    const lines = anonymizedText.split('\n');
-    let currentSection: 'experience' | 'education' | 'skills' | null = null;
-    let sectionLines: string[] = [];
-
-    const experienceHeaders = /(werkervaring|work experience|ervaring|professional experience|employment)/i;
-    const educationHeaders = /(opleiding|education|studie|studies|academic)/i;
-    const skillHeaders = /(vaardigheden|skills|competenties|competencies)/i;
-
-    for (const line of lines) {
-      if (experienceHeaders.test(line)) {
-        currentSection = 'experience';
-        sectionLines = [];
-      } else if (educationHeaders.test(line)) {
-        currentSection = 'education';
-        sectionLines = [];
-      } else if (skillHeaders.test(line)) {
-        currentSection = 'skills';
-        sectionLines = [];
-      } else if (currentSection && line.trim()) {
-        sectionLines.push(line);
-
-        // Try to extract items as we go
-        if (currentSection === 'experience') {
-          const expMatch = line.match(/(.+?)\s+(\d{4})\s*[-–]\s*(\d{4}|heden|present)/i);
-          if (expMatch) {
-            result.experience.push({
-              id: `exp-${result.experience.length + 1}`,
-              jobTitle: expMatch[1].trim(),
-              startDate: expMatch[2],
-              endDate: expMatch[3].toLowerCase() === 'heden' ? null : expMatch[3],
-              duration: this.calculateDuration(expMatch[2], expMatch[3]),
-              description: '',
-              skills: [],
-              needsReview: true,
-              confidence: 0.5
-            });
-          }
-        } else if (currentSection === 'education') {
-          const eduMatch = line.match(/(.+?)\s*\((\d{4})\)/);
-          if (eduMatch) {
-            result.education.push({
-              id: `edu-${result.education.length + 1}`,
-              degree: eduMatch[1].trim(),
-              year: eduMatch[2],
-              fieldOfStudy: '',
-              needsReview: true,
-              confidence: 0.5
-            });
-          }
-        } else if (currentSection === 'skills') {
-          const skillItems = line.split(/[,;•]/).filter(s => s.trim().length > 1);
-          for (const skill of skillItems) {
-            result.skills.push({
-              id: `skill-${result.skills.length + 1}`,
-              skillName: skill.trim(),
-              confidence: 0.6
-            });
-          }
-        }
-      }
-    }
-
-    return result;
-  }
-
-  private encrypt(text: string): Buffer {
-    const iv = crypto.randomBytes(16);
-    const key = crypto.scryptSync(ENCRYPTION_KEY, 'salt', 32);
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-
-    return Buffer.from(iv.toString('hex') + ':' + encrypted, 'utf8');
-  }
 }
 
 export default CVWizardService;
