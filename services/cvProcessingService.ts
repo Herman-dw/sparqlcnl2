@@ -586,6 +586,8 @@ export class CVProcessingService {
           console.log(`  🔄 Auto-selecting best matches...`);
           let confirmed = 0;
           let autoSelected = 0;
+          let skippedLowConfidence = 0;
+          const AUTO_SELECT_MIN_CONFIDENCE = 0.60; // Minimaal 60% voor auto-select
 
           const allClassifications = [
             ...(classifyResult.classifications?.experience || []),
@@ -604,27 +606,32 @@ export class CVProcessingService {
               );
               confirmed++;
             } else if (cls.needsReview && cls.alternatives && cls.alternatives.length > 0) {
-              // No confident match, but alternatives exist - select the best one
+              // No confident match, but alternatives exist - select best IF above threshold
               const bestAlt = cls.alternatives[0]; // Already sorted by confidence
-              await this.db.execute(
-                `UPDATE cv_extractions SET
-                  matched_cnl_uri = ?,
-                  matched_cnl_label = ?,
-                  confidence_score = ?,
-                  classification_method = 'auto_selected',
-                  classification_confirmed = TRUE,
-                  classified_at = NOW(),
-                  needs_review = FALSE,
-                  updated_at = NOW()
-                WHERE id = ?`,
-                [bestAlt.uri, bestAlt.prefLabel, bestAlt.confidence, item.extractionId]
-              );
-              autoSelected++;
-              console.log(`    Auto-selected: "${bestAlt.prefLabel}" (${(bestAlt.confidence * 100).toFixed(0)}%) for extraction ${item.extractionId}`);
+
+              if (bestAlt.confidence >= AUTO_SELECT_MIN_CONFIDENCE) {
+                await this.db.execute(
+                  `UPDATE cv_extractions SET
+                    matched_cnl_uri = ?,
+                    matched_cnl_label = ?,
+                    confidence_score = ?,
+                    classification_method = 'auto_selected',
+                    classification_confirmed = TRUE,
+                    classified_at = NOW(),
+                    needs_review = FALSE,
+                    updated_at = NOW()
+                  WHERE id = ?`,
+                  [bestAlt.uri, bestAlt.prefLabel, bestAlt.confidence, item.extractionId]
+                );
+                autoSelected++;
+                console.log(`    Auto-selected: "${bestAlt.prefLabel}" (${(bestAlt.confidence * 100).toFixed(0)}%) for extraction ${item.extractionId}`);
+              } else {
+                skippedLowConfidence++;
+              }
             }
           }
 
-          console.log(`  ✓ Confirmed: ${confirmed}, Auto-selected from alternatives: ${autoSelected}`);
+          console.log(`  ✓ Confirmed: ${confirmed}, Auto-selected: ${autoSelected}, Skipped (low confidence): ${skippedLowConfidence}`);
         }
       }
 
