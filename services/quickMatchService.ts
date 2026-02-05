@@ -253,24 +253,27 @@ export async function executeQuickMatch(
     await delay(500);
     onProgress('complete', 100);
 
-    // Build aggregated skills from match result profile
-    const profileData = matchResult.profile || {};
-    aggregatedSkills = {
-      direct: [],
-      fromEducation: [],
-      fromOccupation: (profileData.occupationHistory || []).map((occ: any) => ({
-        label: occ.occupationLabel || occ.jobTitle,
-        source: 'occupation' as const,
-        sourceLabel: occ.occupationLabel
-      })),
-      combined: [],
-      totalCount: (profileData.capabilities || 0) + (profileData.knowledge || 0) + (profileData.tasks || 0),
-      bySource: {
-        direct: 0,
-        education: 0,
-        occupation: profileData.occupationHistory?.length || 0
-      }
-    };
+    // Only build aggregatedSkills fallback if not already populated from classification phase
+    if (!aggregatedSkills || aggregatedSkills.totalCount === 0) {
+      // Build aggregated skills from match result profile as fallback
+      const profileData = matchResult.profile || {};
+      aggregatedSkills = {
+        direct: [],
+        fromEducation: [],
+        fromOccupation: (profileData.occupationHistory || []).map((occ: any) => ({
+          label: occ.occupationLabel || occ.jobTitle,
+          source: 'occupation' as const,
+          sourceLabel: occ.occupationLabel
+        })),
+        combined: [],
+        totalCount: (profileData.capabilities || 0) + (profileData.knowledge || 0) + (profileData.tasks || 0),
+        bySource: {
+          direct: 0,
+          education: 0,
+          occupation: profileData.occupationHistory?.length || 0
+        }
+      };
+    }
 
     // =========================================
     // RETURN RESULTS

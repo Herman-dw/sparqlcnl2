@@ -1471,11 +1471,16 @@ const App: React.FC = () => {
           setShowCVWizard(true);
         }}
         onAddToProfile={(extractedData, aggregatedSkills) => {
+          console.log('[App] onAddToProfile called with:');
+          console.log('  - extractedData:', extractedData);
+          console.log('  - aggregatedSkills:', aggregatedSkills);
+
           // Convert CV data to profile items
           const skillsToAdd: ProfileItemWithSource[] = [];
 
           // Add skills from aggregatedSkills
-          if (aggregatedSkills?.combined) {
+          if (aggregatedSkills?.combined && aggregatedSkills.combined.length > 0) {
+            console.log('[App] Adding', aggregatedSkills.combined.length, 'skills from combined array');
             aggregatedSkills.combined.forEach((skillLabel: string) => {
               // Find the skill with its URI if available
               const directSkill = aggregatedSkills.direct?.find((s: any) => s.label === skillLabel);

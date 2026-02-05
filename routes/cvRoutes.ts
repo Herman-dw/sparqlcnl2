@@ -1239,7 +1239,7 @@ export function createCVRoutes(db: Pool): Router {
 
         const workExperiences: any[] = [];
         const education: any[] = [];
-        const directSkills: string[] = [];
+        const directSkills: { label: string; uri?: string; originalLabel?: string }[] = [];
 
         for (const row of extRows) {
           const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content;
@@ -1251,10 +1251,10 @@ export function createCVRoutes(db: Pool): Router {
               organization: content.organization,
               extractedSkills: content.extracted_skills || content.extractedSkills || []
             });
-            // Add extracted skills from work experience
+            // Add extracted skills from work experience (no CNL classification for these)
             (content.extracted_skills || content.extractedSkills || []).forEach((skill: string) => {
-              if (!directSkills.includes(skill)) {
-                directSkills.push(skill);
+              if (!directSkills.some(s => s.label === skill)) {
+                directSkills.push({ label: skill });
               }
             });
           } else if (row.section_type === 'education') {
@@ -1266,8 +1266,16 @@ export function createCVRoutes(db: Pool): Router {
             });
           } else if (row.section_type === 'skill') {
             const skillName = content.skill_name || content.skillName;
-            if (skillName && !directSkills.includes(skillName)) {
-              directSkills.push(skillName);
+            const cnlLabel = row.matched_cnl_label || skillName;
+            const cnlUri = row.matched_cnl_uri;
+
+            // Use CNL label if classified, otherwise original skill name
+            if (cnlLabel && !directSkills.some(s => s.label === cnlLabel)) {
+              directSkills.push({
+                label: cnlLabel,
+                uri: cnlUri,
+                originalLabel: skillName
+              });
             }
           }
         }
@@ -1275,22 +1283,24 @@ export function createCVRoutes(db: Pool): Router {
         extractedData = {
           workExperiences,
           education,
-          directSkills,
+          directSkills: directSkills.map(s => s.label), // Keep string[] for backwards compatibility
           classifiedExperiences: [],
           classifiedEducation: [],
           totalItems: extRows.length,
           processingTimeMs: 1000
         };
 
-        // Build aggregated skills
+        // Build aggregated skills with CNL URIs
         aggregatedSkills = {
           direct: directSkills.map(skill => ({
-            label: skill,
-            source: 'cv-direct' as const
+            label: skill.label,
+            uri: skill.uri,
+            source: 'cv-direct' as const,
+            sourceLabel: skill.originalLabel !== skill.label ? skill.originalLabel : undefined
           })),
           fromEducation: [],
           fromOccupation: [],
-          combined: directSkills,
+          combined: directSkills.map(s => s.label),
           totalCount: directSkills.length,
           bySource: {
             direct: directSkills.length,
