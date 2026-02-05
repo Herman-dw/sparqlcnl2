@@ -355,6 +355,19 @@ export class CNLClassificationService {
 
     const conceptType = this.mapSectionToConceptType(extraction.section_type);
     const value = this.extractValueForClassification(extraction);
+
+    // Skip classification for empty/whitespace-only values
+    if (!value || value.trim().length === 0) {
+      console.log(`    ⚠ Empty value for ${extraction.section_type}, skipping classification`);
+      return {
+        found: false,
+        confidence: 0,
+        method: 'manual',
+        alternatives: [],
+        needsReview: true
+      };
+    }
+
     const context = this.extractContextForClassification(extraction);
     const structuredContext = this.extractStructuredContext(extraction);
     const isGeneric = extraction.section_type === 'experience'
@@ -1087,11 +1100,21 @@ REDEN: [korte reden in max 10 woorden]`;
    * Combined similarity: 40% Levenshtein + 60% token overlap
    * Dit filtert valse positieven uit waar Levenshtein hoog scoort maar
    * er geen enkele woordovereenkomst is.
+   *
+   * Extra regel: als token overlap 0 is (geen enkel woord komt overeen),
+   * cap de score op 0.50 zodat het nooit de fuzzy drempel (87%) haalt.
    */
   private calculateCombinedSimilarity(a: string, b: string): number {
     const levenshtein = this.calculateSimilarity(a, b);
     const tokenOverlap = this.calculateTokenOverlap(a, b);
-    return 0.4 * levenshtein + 0.6 * tokenOverlap;
+    const combined = 0.4 * levenshtein + 0.6 * tokenOverlap;
+
+    // Als er geen enkele woordovereenkomst is, beperk de score
+    if (tokenOverlap === 0) {
+      return Math.min(combined, 0.50);
+    }
+
+    return combined;
   }
 
   /**

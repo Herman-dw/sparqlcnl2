@@ -34,6 +34,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-dropzone": "^14.2.3",
+    "word-extractor": "^1.0.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
