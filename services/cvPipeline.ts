@@ -12,6 +12,7 @@ import mysql from 'mysql2/promise';
 import crypto from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import WordExtractor from 'word-extractor';
 import { GoogleGenAI } from '@google/genai';
 
 import {
@@ -19,6 +20,10 @@ import {
   assessReIdentificationRisk
 } from './employerGeneralizer.ts';
 import { assessCVRisk } from './riskAssessment.ts';
+import {
+  getGeminiSingleton,
+  generateContentWithRetry as geminiRetry
+} from './geminiSingleton.ts';
 
 type Pool = mysql.Pool;
 
@@ -74,12 +79,29 @@ export async function extractText(fileBuffer: Buffer, mimeType: string): Promise
   if (mimeType === 'application/pdf') {
     const pdfData = await pdfParse(fileBuffer);
     return pdfData.text;
-  } else if (
-    mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-    mimeType === 'application/msword'
-  ) {
+  } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    // .docx (Office Open XML) - use mammoth
     const result = await mammoth.extractRawText({ buffer: fileBuffer });
     return result.value;
+  } else if (mimeType === 'application/msword') {
+    // .doc (old binary format) - try mammoth first, fall back to word-extractor
+    try {
+      const result = await mammoth.extractRawText({ buffer: fileBuffer });
+      if (result.value && result.value.trim().length > 0) {
+        return result.value;
+      }
+    } catch {
+      // mammoth can't handle old binary .doc format - this is expected
+    }
+    // Fall back to word-extractor for old binary .doc files
+    console.log('  [extractText] Using word-extractor for binary .doc format');
+    const extractor = new WordExtractor();
+    const doc = await extractor.extract(fileBuffer);
+    const text = doc.getBody();
+    if (!text || text.trim().length === 0) {
+      throw new Error('Could not extract text from .doc file');
+    }
+    return text;
   } else {
     throw new Error(`Unsupported file type: ${mimeType}`);
   }
@@ -110,7 +132,11 @@ async function parseStructureWithGemini(
   anonymizedText: string,
   apiKey: string
 ): Promise<ParsedStructure | null> {
-  const genAI = new GoogleGenAI({ apiKey });
+  // Initialize singleton if needed
+  const singleton = getGeminiSingleton();
+  if (!singleton.isAvailable()) {
+    singleton.initialize(apiKey);
+  }
 
   const prompt = `Analyseer het volgende geanonimiseerde CV en extraheer de structuur.
 Let op: persoonlijke gegevens zijn al vervangen door placeholders zoals [Naam], [Werkgever], [Adres] etc.
@@ -151,13 +177,19 @@ Belangrijke instructies:
 - Geef alleen JSON terug, geen andere tekst
 - Als iets niet duidelijk is, laat het veld leeg of gebruik null
 - Sorteer ervaring van nieuwste naar oudste
-- Wees grondig: extraheer ALLE genoemde ervaringen, opleidingen en vaardigheden`;
+- Wees grondig: extraheer ALLE genoemde ervaringen, opleidingen en vaardigheden
+- Elke ervaring MOET een niet-lege jobTitle hebben. Als de titel onduidelijk is, gebruik de beschrijving om een passende titel te bepalen`;
 
-  const result = await genAI.models.generateContent({
+  // Use singleton with automatic retry on 429 errors
+  const { text: response, retryCount } = await geminiRetry({
     model: 'gemini-2.0-flash',
-    contents: prompt
+    contents: prompt,
+    config: { temperature: 0.1, maxOutputTokens: 4000 }
   });
-  const response = result.text;
+
+  if (retryCount > 0) {
+    console.log(`  [Gemini] CV parsing succeeded after ${retryCount} retries`);
+  }
 
   let jsonStr = response;
   const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -169,9 +201,13 @@ Belangrijke instructies:
   if (jsonStr.startsWith('{') && jsonStr.endsWith('}')) {
     const parsed = JSON.parse(jsonStr);
 
-    const experience: ParsedExperience[] = (parsed.experience || []).map((exp: any, i: number) => ({
+    // Filter out entries with empty jobTitles (Gemini sometimes returns empty titles)
+    const rawExperience = (parsed.experience || []).filter((exp: any) =>
+      exp.jobTitle && exp.jobTitle.trim().length > 0
+    );
+    const experience: ParsedExperience[] = rawExperience.map((exp: any, i: number) => ({
       id: `exp-${i + 1}`,
-      jobTitle: exp.jobTitle || '',
+      jobTitle: exp.jobTitle.trim(),
       organization: exp.organization,
       startDate: exp.startDate,
       endDate: exp.endDate,
@@ -182,9 +218,18 @@ Belangrijke instructies:
       confidence: 0.9
     }));
 
-    const education: ParsedEducation[] = (parsed.education || []).map((edu: any, i: number) => ({
+    if (rawExperience.length < (parsed.experience || []).length) {
+      const skipped = (parsed.experience || []).length - rawExperience.length;
+      console.log(`  [Gemini] Filtered out ${skipped} experience entries with empty jobTitle`);
+    }
+
+    // Filter out entries with empty degrees
+    const rawEducation = (parsed.education || []).filter((edu: any) =>
+      edu.degree && edu.degree.trim().length > 0
+    );
+    const education: ParsedEducation[] = rawEducation.map((edu: any, i: number) => ({
       id: `edu-${i + 1}`,
-      degree: edu.degree || '',
+      degree: edu.degree.trim(),
       institution: edu.institution,
       year: edu.year,
       fieldOfStudy: edu.fieldOfStudy || '',
