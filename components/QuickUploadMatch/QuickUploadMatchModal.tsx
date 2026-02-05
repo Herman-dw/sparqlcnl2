@@ -208,7 +208,14 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
 
   // Handle adding CV data to profile
   const handleAddToProfile = useCallback(() => {
+    console.log('[QuickUploadMatchModal] handleAddToProfile called');
+    console.log('  - pendingResult:', pendingResult);
+    console.log('  - pendingResult.skillSources:', pendingResult?.skillSources);
+    console.log('  - skillSources.combined:', pendingResult?.skillSources?.combined);
+    console.log('  - onAddToProfile defined:', !!onAddToProfile);
+
     if (pendingResult && onAddToProfile) {
+      console.log('[QuickUploadMatchModal] Calling onAddToProfile');
       onAddToProfile(pendingResult.extraction, pendingResult.skillSources);
     }
     if (pendingResult) {
