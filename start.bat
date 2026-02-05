@@ -3,10 +3,10 @@ title CompetentNL SPARQL Agent - Startup
 color 0B
 
 echo.
-echo ╔═══════════════════════════════════════════════════════════════╗
-echo ║          CompetentNL SPARQL Agent - Quick Start               ║
-echo ║           v4.2.0 - with Auto-start GLiNER Service             ║
-echo ╚═══════════════════════════════════════════════════════════════╝
+echo +---------------------------------------------------------------+
+echo :          CompetentNL SPARQL Agent - Quick Start                :
+echo :           v4.2.0 - with Auto-start GLiNER Service              :
+echo +---------------------------------------------------------------+
 echo.
 
 :: Configuratie
@@ -267,7 +267,14 @@ echo.
 echo [STAP 6] Dependencies controleren...
 
 if exist "node_modules" (
-    echo [OK] node_modules gevonden
+    :: Check of package-lock.json nieuwer is dan node_modules (nieuwe dependencies)
+    powershell -Command "if ((Get-Item 'package-lock.json').LastWriteTime -gt (Get-Item 'node_modules').LastWriteTime) { exit 1 } else { exit 0 }" >nul 2>&1
+    if %errorlevel% equ 1 (
+        echo [INFO] Nieuwe dependencies gevonden, npm install uitvoeren...
+        call npm install
+    ) else (
+        echo [OK] node_modules up-to-date
+    )
 ) else (
     echo [INFO] npm install uitvoeren...
     call npm install
@@ -279,15 +286,15 @@ if exist "node_modules" (
 echo.
 echo [STAP 7] Applicatie starten...
 echo.
-echo ╔════════════════════════════════════════════════════════════╗
-echo ║  Backend:  http://localhost:%BACKEND_PORT%                            ║
-echo ║  Frontend: http://localhost:%FRONTEND_PORT% of http://localhost:5173  ║
-echo ║  GLiNER:   http://localhost:8001 ^(PII detectie^)           ║
-echo ║  CV API:   http://localhost:%BACKEND_PORT%/api/cv                     ║
-echo ╠════════════════════════════════════════════════════════════╣
-echo ║  Test CV upload: open test-cv-upload.html in browser       ║
-echo ║  Sluit BEIDE vensters om alle services te stoppen          ║
-echo ╚════════════════════════════════════════════════════════════╝
+echo +------------------------------------------------------------+
+echo :  Backend:  http://localhost:%BACKEND_PORT%                            :
+echo :  Frontend: http://localhost:%FRONTEND_PORT% of http://localhost:5173  :
+echo :  GLiNER:   http://localhost:8001 ^(PII detectie^)           :
+echo :  CV API:   http://localhost:%BACKEND_PORT%/api/cv                     :
+echo +------------------------------------------------------------+
+echo :  Test CV upload: open test-cv-upload.html in browser       :
+echo :  Sluit BEIDE vensters om alle services te stoppen          :
+echo +------------------------------------------------------------+
 echo.
 
 :: Start de applicatie
