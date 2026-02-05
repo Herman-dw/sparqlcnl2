@@ -3,11 +3,19 @@
  * ==========================
  * Classificeert CV items (functies, opleidingen, skills) naar CompetentNL taxonomie.
  *
- * Multi-strategy classification:
- * 1. Exact Match - directe database lookup
- * 2. Fuzzy Match - Levenshtein distance voor typo's
- * 3. Semantic Match - vector embeddings voor synoniemen
- * 4. LLM Fallback - voor complexe/ambigue gevallen
+ * Multi-strategy classification waterval:
+ * 1. Exact Match - directe database lookup (overgeslagen bij generieke titels)
+ * 2. Fuzzy Match - Levenshtein + token overlap scoring, drempel 87% (overgeslagen bij generieke titels)
+ * 3. Semantic Match - vector embeddings met verrijkte context (org + beschrijving + skills)
+ * 4. LLM Reranker - Gemini selecteert beste match uit kandidaten met gestructureerde context
+ * 5. Handmatige review - alternatieven voor gebruiker
+ *
+ * Verbeteringen t.o.v. origineel:
+ * - Generieke titels ("ondernemer", "eigenaar") worden herkend en direct naar semantic+LLM gestuurd
+ * - Context bevat nu organisatienaam, beschrijving EN vaardigheden (was alleen beschrijving)
+ * - Fuzzy scoring combineert Levenshtein (40%) + token overlap (60%) om valse positieven te voorkomen
+ * - LLM reranker wordt altijd aangeroepen bij onzekere matches (niet alleen als fallback)
+ * - Drempels verhoogd naar 87% voor automatische acceptatie
  */
 
 import mysql from 'mysql2/promise';
@@ -151,11 +159,11 @@ export interface SkillClassification {
 
 const CLASSIFICATION_CONFIG = {
   exactMatchMinConfidence: 0.95,
-  fuzzyMatchMinConfidence: 0.70,
-  fuzzyMatchWeakThreshold: 0.80,    // Below this, also try semantic match
+  fuzzyMatchMinConfidence: 0.87,     // Was 0.70 - verhoogd om valse positieven te voorkomen
   semanticMatchMinConfidence: 0.75,
   llmMatchMinConfidence: 0.80,
-  reviewThreshold: 0.85,
+  directAcceptThreshold: 0.87,       // Fuzzy/semantic boven deze drempel → direct accepteren
+  reviewThreshold: 0.87,             // Was 0.85 - gelijk aan accept drempel
   maxAlternatives: 5,
   llm: {
     model: 'gemini-2.0-flash',
@@ -163,6 +171,38 @@ const CLASSIFICATION_CONFIG = {
     maxCandidates: 10
   }
 };
+
+// ============================================================================
+// GENERIC TITLE DETECTION (Voorstel 2)
+// ============================================================================
+
+/**
+ * Generieke functietitels die zonder context niets zeggen over het beroep.
+ * Bij deze titels slaan we exact en fuzzy matching over en gaan direct naar
+ * semantic + LLM matching die de organisatienaam en beschrijving meenemen.
+ */
+const GENERIC_TITLES = new Set([
+  // Nederlands
+  'zelfstandig ondernemer', 'zelfstandige', 'zzper', 'zzp-er', 'zzp',
+  'freelancer', 'freelance', 'free lance',
+  'eigenaar', 'mede-eigenaar', 'ondernemer', 'startende ondernemer',
+  'directeur', 'directeur-eigenaar', 'directeur/eigenaar', 'algemeen directeur',
+  'manager', 'general manager', 'operationeel manager',
+  'medewerker', 'medewerkster', 'algemeen medewerker',
+  'stagiair', 'stagiaire', 'werkstudent', 'leerling',
+  'vrijwilliger', 'vrijwilligster',
+  'uitzendkracht', 'oproepkracht', 'invalkracht', 'tijdelijke kracht',
+  'consultant', 'adviseur', 'specialist', 'expert',
+  'assistent', 'assistente',
+  'hoofd', 'teamleider', 'teamlead', 'leidinggevende', 'coordinator',
+  'werknemer', 'bediende', 'vakman', 'vakvrouw',
+  'oprichter', 'medeoprichter', 'founder', 'co-founder',
+  // Engels
+  'owner', 'self-employed', 'contractor', 'independent',
+  'intern', 'trainee', 'volunteer',
+  'employee', 'worker', 'staff member',
+  'director', 'manager', 'head', 'lead', 'supervisor'
+]);
 
 // ============================================================================
 // SERVICE CLASS
@@ -286,6 +326,16 @@ export class CNLClassificationService {
 
   /**
    * Classificeer een enkel item
+   *
+   * Nieuwe waterval (alle 5 voorstellen gecombineerd):
+   * 1. Exact match (overslaan bij generieke titels)
+   * 2. Fuzzy match met combined scoring (overslaan bij generieke titels)
+   *    → Direct accepteren als ≥ 87%
+   * 3. Semantic match met verrijkte context (altijd proberen)
+   *    → Direct accepteren als ≥ 87%
+   * 4. LLM reranker met gestructureerde context + alle kandidaten
+   *    → Accepteren als ≥ 80%
+   * 5. Handmatige review met alternatieven
    */
   async classifyItem(
     extraction: {
@@ -306,69 +356,88 @@ export class CNLClassificationService {
     const conceptType = this.mapSectionToConceptType(extraction.section_type);
     const value = this.extractValueForClassification(extraction);
     const context = this.extractContextForClassification(extraction);
+    const structuredContext = this.extractStructuredContext(extraction);
+    const isGeneric = extraction.section_type === 'experience'
+      && this.isGenericTitle(value);
 
-    console.log(`  Classifying: "${value}" (${conceptType})`);
+    console.log(`  Classifying: "${value}" (${conceptType})${isGeneric ? ' [GENERIC]' : ''}`);
+    if (context) console.log(`    Context: "${context.substring(0, 100)}"`);
 
-    // Strategy 1: Exact match
-    const exactMatch = await this.tryExactMatch(value, conceptType);
-    if (exactMatch.found && exactMatch.confidence >= CLASSIFICATION_CONFIG.exactMatchMinConfidence) {
-      console.log(`    ✓ Exact match: ${exactMatch.match?.prefLabel} (${(exactMatch.confidence * 100).toFixed(0)}%)`);
-      return exactMatch;
-    }
+    // Verzamel kandidaten van alle strategieën voor eventuele LLM reranking
+    let allAlternatives: AlternativeMatch[] = [];
 
-    // Strategy 2: Fuzzy match
-    const fuzzyMatch = await this.tryFuzzyMatch(value, conceptType);
-    const hasFuzzyMatch = fuzzyMatch.found && fuzzyMatch.confidence >= CLASSIFICATION_CONFIG.fuzzyMatchMinConfidence;
-    const isWeakFuzzyMatch = hasFuzzyMatch && fuzzyMatch.confidence < CLASSIFICATION_CONFIG.fuzzyMatchWeakThreshold;
-
-    // Strategy 3: Semantic match (optional)
-    // NEW: Also try semantic matching if fuzzy match is weak (< 80%)
-    let semanticMatch: ClassificationResult | null = null;
-    if (options?.useSemanticMatching && (!hasFuzzyMatch || isWeakFuzzyMatch)) {
-      semanticMatch = await this.trySemanticMatch(value, context, conceptType);
-      if (semanticMatch.found && semanticMatch.confidence >= CLASSIFICATION_CONFIG.semanticMatchMinConfidence) {
-        // Compare with fuzzy match if both exist
-        if (isWeakFuzzyMatch && semanticMatch.confidence > fuzzyMatch.confidence) {
-          console.log(`    ✓ Semantic match (better than weak fuzzy): ${semanticMatch.match?.prefLabel} (${(semanticMatch.confidence * 100).toFixed(0)}%)`);
-          return semanticMatch;
-        } else if (!hasFuzzyMatch) {
-          console.log(`    ✓ Semantic match: ${semanticMatch.match?.prefLabel} (${(semanticMatch.confidence * 100).toFixed(0)}%)`);
-          return semanticMatch;
-        }
+    // ── Stap 1: Exact match (overslaan bij generieke titels) ──────────────
+    let exactResult: ClassificationResult | null = null;
+    if (!isGeneric) {
+      exactResult = await this.tryExactMatch(value, conceptType);
+      if (exactResult.found && exactResult.confidence >= CLASSIFICATION_CONFIG.exactMatchMinConfidence) {
+        console.log(`    ✓ Exact: ${exactResult.match?.prefLabel} (${(exactResult.confidence * 100).toFixed(0)}%)`);
+        return exactResult;
       }
+      allAlternatives.push(...(exactResult.alternatives || []));
     }
 
-    // Return fuzzy match if it's above threshold (even if semantic wasn't better)
-    if (hasFuzzyMatch) {
-      console.log(`    ✓ Fuzzy match: ${fuzzyMatch.match?.prefLabel} (${(fuzzyMatch.confidence * 100).toFixed(0)}%)`);
-      return fuzzyMatch;
+    // ── Stap 2: Fuzzy match met token-overlap (overslaan bij generiek) ───
+    let fuzzyResult: ClassificationResult | null = null;
+    if (!isGeneric) {
+      fuzzyResult = await this.tryFuzzyMatch(value, conceptType);
+      if (fuzzyResult.found && fuzzyResult.confidence >= CLASSIFICATION_CONFIG.fuzzyMatchMinConfidence) {
+        console.log(`    ✓ Fuzzy: ${fuzzyResult.match?.prefLabel} (${(fuzzyResult.confidence * 100).toFixed(0)}%)`);
+        return fuzzyResult;  // ≥87% met combined scoring → betrouwbaar
+      }
+      // Voeg fuzzy beste match toe als kandidaat voor LLM reranker
+      if (fuzzyResult.found) {
+        allAlternatives.push({
+          uri: fuzzyResult.match!.uri,
+          prefLabel: fuzzyResult.match!.prefLabel,
+          matchedLabel: fuzzyResult.match!.matchedLabel,
+          confidence: fuzzyResult.confidence,
+          matchType: 'fuzzy'
+        });
+      }
+      allAlternatives.push(...(fuzzyResult.alternatives || []));
     }
 
-    // Collect all alternatives for LLM consideration
-    const allAlternatives = [
-      ...(exactMatch.alternatives || []),
-      ...(fuzzyMatch.alternatives || []),
-      ...(semanticMatch?.alternatives || [])
-    ];
+    // ── Stap 3: Semantic match (altijd proberen als enabled) ─────────────
+    let semanticResult: ClassificationResult | null = null;
+    if (options?.useSemanticMatching) {
+      semanticResult = await this.trySemanticMatch(value, context, conceptType);
+      if (semanticResult.found && semanticResult.confidence >= CLASSIFICATION_CONFIG.directAcceptThreshold) {
+        console.log(`    ✓ Semantic: ${semanticResult.match?.prefLabel} (${(semanticResult.confidence * 100).toFixed(0)}%)`);
+        return semanticResult;  // ≥87% semantic → betrouwbaar
+      }
+      // Voeg semantic beste match toe als kandidaat voor LLM reranker
+      if (semanticResult.found) {
+        allAlternatives.push({
+          uri: semanticResult.match!.uri,
+          prefLabel: semanticResult.match!.prefLabel,
+          matchedLabel: semanticResult.match!.matchedLabel,
+          confidence: semanticResult.confidence,
+          matchType: 'semantic'
+        });
+      }
+      allAlternatives.push(...(semanticResult.alternatives || []));
+    }
 
-    // Deduplicate alternatives by URI
+    // ── Stap 4: LLM reranker met volledige gestructureerde context ──────
     const uniqueAlternatives = this.deduplicateAlternatives(allAlternatives)
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, CLASSIFICATION_CONFIG.llm.maxCandidates);
 
-    // Strategy 4: LLM Fallback (for complex/ambiguous cases)
     if (options?.useLLMFallback && isGeminiAvailable() && uniqueAlternatives.length > 0) {
-      const llmMatch = await this.tryLLMMatch(value, context, conceptType, uniqueAlternatives);
-      if (llmMatch.found && llmMatch.confidence >= CLASSIFICATION_CONFIG.llmMatchMinConfidence) {
-        console.log(`    ✓ LLM match: ${llmMatch.match?.prefLabel} (${(llmMatch.confidence * 100).toFixed(0)}%)`);
-        return llmMatch;
+      const llmResult = await this.tryLLMMatch(
+        value, context, conceptType, uniqueAlternatives, structuredContext
+      );
+      if (llmResult.found && llmResult.confidence >= CLASSIFICATION_CONFIG.llmMatchMinConfidence) {
+        console.log(`    ✓ LLM rerank: ${llmResult.match?.prefLabel} (${(llmResult.confidence * 100).toFixed(0)}%)`);
+        return llmResult;
       }
     }
 
-    // Strategy 5: Return best alternative or mark for manual review
+    // ── Stap 5: Handmatige review ───────────────────────────────────────
     const topAlternatives = uniqueAlternatives.slice(0, CLASSIFICATION_CONFIG.maxAlternatives);
 
-    console.log(`    ⚠ No confident match, ${topAlternatives.length} alternatives`);
+    console.log(`    ⚠ Geen match, ${topAlternatives.length} alternatieven`);
 
     return {
       found: false,
@@ -536,7 +605,7 @@ export class CNLClassificationService {
   }
 
   /**
-   * Strategy 2: Fuzzy match met Levenshtein distance
+   * Strategy 2: Fuzzy match met Levenshtein + token overlap (combined scoring)
    */
   private async tryFuzzyMatch(
     value: string,
@@ -564,10 +633,10 @@ export class CNLClassificationService {
       return { found: false, confidence: 0, method: 'fuzzy', needsReview: true };
     }
 
-    // Calculate similarity scores
+    // Calculate combined similarity scores (Levenshtein + token overlap)
     const scored: ScoredConceptRow[] = rows.map(row => ({
       ...row,
-      similarity: this.calculateSimilarity(normalized, row.label_normalized)
+      similarity: this.calculateCombinedSimilarity(normalized, row.label_normalized)
     })).sort((a, b) => b.similarity - a.similarity);
 
     const bestMatch = scored[0];
@@ -683,26 +752,25 @@ export class CNLClassificationService {
   }
 
   /**
-   * Strategy 4: LLM Fallback - Voor complexe/ambigue gevallen
+   * Strategy 4: LLM Reranker - Selecteert beste match met volledige context
    *
    * Gebruikt Gemini AI om het beste CNL concept te selecteren uit de kandidaten.
-   * Dit is nuttig wanneer:
-   * - Meerdere concepten lijken te matchen
-   * - De tekst in het CV niet exact overeenkomt met CNL labels
-   * - Context nodig is om de juiste keuze te maken
+   * Krijgt nu gestructureerde context (organisatie, beschrijving, vaardigheden)
+   * zodat generieke titels correct geclassificeerd kunnen worden.
    */
   private async tryLLMMatch(
     value: string,
     context: string | undefined,
     conceptType: ConceptType,
-    candidates: AlternativeMatch[]
+    candidates: AlternativeMatch[],
+    structuredContext?: { organization?: string; description?: string; skills?: string[] }
   ): Promise<ClassificationResult> {
     if (!isGeminiAvailable() || candidates.length === 0) {
       return { found: false, confidence: 0, method: 'llm', needsReview: true };
     }
 
     try {
-      console.log(`    [LLM] Attempting LLM match for: "${value}" with ${candidates.length} candidates`);
+      console.log(`    [LLM] Attempting LLM rerank for: "${value}" with ${candidates.length} candidates`);
 
       // Build the prompt
       const conceptTypeLabels: Record<ConceptType, string> = {
@@ -718,20 +786,36 @@ export class CNLClassificationService {
         .map((c, i) => `${i + 1}. "${c.prefLabel}" (URI: ${c.uri})`)
         .join('\n');
 
+      // Bouw gestructureerde context blokken op
+      const contextLines: string[] = [];
+      if (structuredContext?.organization) {
+        contextLines.push(`ORGANISATIE: "${structuredContext.organization}"`);
+      }
+      if (structuredContext?.description) {
+        contextLines.push(`BESCHRIJVING: "${structuredContext.description}"`);
+      }
+      if (structuredContext?.skills?.length) {
+        contextLines.push(`VAARDIGHEDEN: "${structuredContext.skills.join(', ')}"`);
+      }
+      // Fallback naar platte context string als er geen structured context is
+      if (contextLines.length === 0 && context) {
+        contextLines.push(`CONTEXT: "${context}"`);
+      }
+
       const prompt = `Je bent een expert in het matchen van CV-inhoud naar de CompetentNL taxonomie (beroepen, opleidingen, vaardigheden).
 
-TAAK: Selecteer het beste ${conceptTypeLabels[conceptType]} concept uit de kandidatenlijst voor de gegeven CV-tekst.
+TAAK: Selecteer het beste ${conceptTypeLabels[conceptType]} concept uit de kandidatenlijst voor de gegeven CV-gegevens.
 
-CV TEKST: "${value}"
-${context ? `CONTEXT: "${context}"` : ''}
+FUNCTIETITEL: "${value}"
+${contextLines.join('\n')}
 
 KANDIDATEN:
 ${candidateList}
 
 INSTRUCTIES:
-1. Analyseer de CV-tekst en de context
-2. Vergelijk met elk kandidaat-concept
-3. Selecteer het concept dat het beste past
+1. Gebruik ALLE beschikbare informatie (titel, organisatie, beschrijving, vaardigheden)
+2. Bij generieke titels zoals "ondernemer", "medewerker" of "eigenaar", bepaal het werkelijke beroep op basis van de organisatie en beschrijving
+3. Selecteer het concept dat het beste past bij het WERKELIJKE beroep, niet bij de letterlijke titel
 4. Als geen enkel concept goed past, antwoord met "GEEN_MATCH"
 
 ANTWOORD FORMAT (ALLEEN dit, geen uitleg):
@@ -871,17 +955,46 @@ REDEN: [korte reden in max 10 woorden]`;
   }
 
   /**
-   * Extract context voor betere classificatie
+   * Check of een titel generiek is (zonder context nietszeggend)
+   */
+  private isGenericTitle(value: string): boolean {
+    return GENERIC_TITLES.has(normalizeText(value));
+  }
+
+  /**
+   * Extract gestructureerde context voor LLM prompt
+   */
+  private extractStructuredContext(extraction: {
+    section_type: string;
+    content: any;
+  }): { organization?: string; description?: string; skills?: string[] } {
+    if (extraction.section_type === 'experience') {
+      return {
+        organization: extraction.content.organization,
+        description: extraction.content.description,
+        skills: extraction.content.extracted_skills || extraction.content.skills
+      };
+    }
+    if (extraction.section_type === 'education') {
+      return {
+        organization: extraction.content.institution,
+        description: extraction.content.field_of_study || extraction.content.fieldOfStudy
+      };
+    }
+    return {};
+  }
+
+  /**
+   * Extract context als samengestelde string (voor semantic matching)
+   * Bevat nu organisatie + beschrijving + vaardigheden (was alleen beschrijving)
    */
   private extractContextForClassification(extraction: { section_type: string; content: any }): string | undefined {
-    switch (extraction.section_type) {
-      case 'experience':
-        return extraction.content.description;
-      case 'education':
-        return extraction.content.field_of_study || extraction.content.fieldOfStudy;
-      default:
-        return undefined;
-    }
+    const ctx = this.extractStructuredContext(extraction);
+    const parts: string[] = [];
+    if (ctx.organization) parts.push(ctx.organization);
+    if (ctx.description) parts.push(ctx.description);
+    if (ctx.skills?.length) parts.push(ctx.skills.join(', '));
+    return parts.length > 0 ? parts.join(' - ') : undefined;
   }
 
   /**
@@ -934,6 +1047,51 @@ REDEN: [korte reden in max 10 woorden]`;
       result.needsReview,
       extractionId
     ]);
+  }
+
+  /**
+   * Token-overlap scoring (Voorstel 4)
+   * Voorkomt valse positieven waar strings karakter-overlap hebben maar
+   * geen betekenisvolle woordovereenkomst (bijv. "ondernemer" → "Hovenier").
+   * Gebruikt substring matching zodat "software" matcht in "softwareontwikkelaar".
+   */
+  private calculateTokenOverlap(a: string, b: string): number {
+    const tokenize = (text: string) =>
+      text.toLowerCase().split(/[\s\-\/]+/).filter(t => t.length > 2);
+
+    const tokensA = tokenize(a);
+    const tokensB = tokenize(b);
+
+    if (tokensA.length === 0 && tokensB.length === 0) return 1.0;
+    if (tokensA.length === 0 || tokensB.length === 0) return 0;
+
+    // Check of tokens uit A voorkomen in B (als substring of omgekeerd)
+    let matchesA = 0;
+    for (const tA of tokensA) {
+      if (tokensB.some(tB => tA.includes(tB) || tB.includes(tA))) matchesA++;
+    }
+
+    let matchesB = 0;
+    for (const tB of tokensB) {
+      if (tokensA.some(tA => tB.includes(tA) || tA.includes(tB))) matchesB++;
+    }
+
+    // Symmetrische score
+    const scoreA = tokensA.length > 0 ? matchesA / tokensA.length : 0;
+    const scoreB = tokensB.length > 0 ? matchesB / tokensB.length : 0;
+
+    return (scoreA + scoreB) / 2;
+  }
+
+  /**
+   * Combined similarity: 40% Levenshtein + 60% token overlap
+   * Dit filtert valse positieven uit waar Levenshtein hoog scoort maar
+   * er geen enkele woordovereenkomst is.
+   */
+  private calculateCombinedSimilarity(a: string, b: string): number {
+    const levenshtein = this.calculateSimilarity(a, b);
+    const tokenOverlap = this.calculateTokenOverlap(a, b);
+    return 0.4 * levenshtein + 0.6 * tokenOverlap;
   }
 
   /**
