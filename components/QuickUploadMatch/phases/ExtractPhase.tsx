@@ -9,6 +9,7 @@ import { PhaseComponentProps } from '../../../types/quickMatch';
 
 interface ExtractPhaseProps extends PhaseComponentProps {
   wordCount?: number;
+  extractedWords?: string[]; // Real words from CV
 }
 
 const ExtractPhase: React.FC<ExtractPhaseProps> = ({
@@ -21,12 +22,18 @@ const ExtractPhase: React.FC<ExtractPhaseProps> = ({
   const [documentOpen, setDocumentOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Sample words for animation
+  // Use real words from CV if available, otherwise fallback to sample
+  const realWords = data?.extractedWords || [];
   const sampleWords = [
     'Ervaring', 'Skills', 'Opleiding', 'Kennis', 'Projecten',
     'Resultaten', 'Leiderschap', 'Analyse', 'Communicatie', 'Teamwork',
     'Innovatie', 'Strategie', 'Development', 'Management', 'Design'
   ];
+
+  // Prefer real words, limit to 15 for animation
+  const displayWords = realWords.length > 0
+    ? realWords.slice(0, 15)
+    : sampleWords;
 
   useEffect(() => {
     if (isActive) {
@@ -34,7 +41,7 @@ const ExtractPhase: React.FC<ExtractPhaseProps> = ({
       setTimeout(() => setDocumentOpen(true), 300);
 
       // Create particles
-      const newParticles = sampleWords.map((word, idx) => ({
+      const newParticles = displayWords.map((word, idx) => ({
         id: idx,
         x: (Math.random() - 0.5) * 200,
         y: (Math.random() - 0.5) * 150 + 50,
@@ -51,7 +58,7 @@ const ExtractPhase: React.FC<ExtractPhaseProps> = ({
         setDocumentOpen(false);
       };
     }
-  }, [isActive]);
+  }, [isActive, displayWords.length]);
 
   return (
     <div

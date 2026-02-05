@@ -1470,6 +1470,51 @@ const App: React.FC = () => {
           setShowQuickMatch(false);
           setShowCVWizard(true);
         }}
+        onAddToProfile={(extractedData, aggregatedSkills) => {
+          // Convert CV data to profile items
+          const skillsToAdd: ProfileItemWithSource[] = [];
+
+          // Add skills from aggregatedSkills
+          if (aggregatedSkills?.combined) {
+            aggregatedSkills.combined.forEach((skillLabel: string) => {
+              // Find the skill with its URI if available
+              const directSkill = aggregatedSkills.direct?.find((s: any) => s.label === skillLabel);
+              const eduSkill = aggregatedSkills.fromEducation?.find((s: any) => s.label === skillLabel);
+              const occSkill = aggregatedSkills.fromOccupation?.find((s: any) => s.label === skillLabel);
+
+              const skill = directSkill || eduSkill || occSkill;
+              if (skill) {
+                skillsToAdd.push({
+                  uri: skill.uri || `cv-skill-${skillLabel}`,
+                  label: skillLabel,
+                  type: 'skill',
+                  sources: [{
+                    id: 'cv-import',
+                    label: skill.sourceLabel || 'CV Upload',
+                    type: 'import' as const
+                  }]
+                });
+              } else {
+                skillsToAdd.push({
+                  uri: `cv-skill-${skillLabel}`,
+                  label: skillLabel,
+                  type: 'skill',
+                  sources: [{
+                    id: 'cv-import',
+                    label: 'CV Upload',
+                    type: 'import' as const
+                  }]
+                });
+              }
+            });
+          }
+
+          // Merge with current profile
+          if (skillsToAdd.length > 0) {
+            mergeProfile({ skills: skillsToAdd });
+            console.log('[App] Added', skillsToAdd.length, 'skills from CV to profile');
+          }
+        }}
         onComplete={(result) => {
           setShowQuickMatch(false);
           // Store match results and open match modal with results

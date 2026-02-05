@@ -3,12 +3,13 @@
  * Animatie voor CNL classificatie en skills afleiding
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { GitBranch, ArrowRight, Sparkles, CheckCircle, Database } from 'lucide-react';
-import { PhaseComponentProps, AggregatedSkills } from '../../../types/quickMatch';
+import { PhaseComponentProps, AggregatedSkills, QuickExtractedData } from '../../../types/quickMatch';
 
 interface ClassifyPhaseProps extends PhaseComponentProps {
   aggregatedSkills?: AggregatedSkills;
+  extractedData?: QuickExtractedData;
 }
 
 interface ClassificationItem {
@@ -23,12 +24,14 @@ const ClassifyPhase: React.FC<ClassifyPhaseProps> = ({
   isActive,
   isComplete,
   data,
-  progress
+  progress,
+  aggregatedSkills,
+  extractedData
 }) => {
   const [classifiedItems, setClassifiedItems] = useState<number[]>([]);
   const [showSkillsCount, setShowSkillsCount] = useState(false);
 
-  // Demo classification items
+  // Demo classification items (fallback)
   const demoItems: ClassificationItem[] = [
     {
       id: '1',
@@ -53,7 +56,52 @@ const ClassifyPhase: React.FC<ClassifyPhaseProps> = ({
     }
   ];
 
-  const items = demoItems;
+  // Build real classification items from extractedData if available
+  const realItems = useMemo((): ClassificationItem[] => {
+    if (!extractedData) return [];
+
+    const items: ClassificationItem[] = [];
+
+    // Add classified experiences (occupations)
+    if (extractedData.classifiedExperiences) {
+      extractedData.classifiedExperiences.slice(0, 3).forEach((exp, idx) => {
+        if (exp.cnlClassification) {
+          items.push({
+            id: `exp-${idx}`,
+            original: exp.jobTitle,
+            cnlLabel: exp.cnlClassification.prefLabel,
+            derivedSkills: exp.relatedSkills?.slice(0, 3).map(s => s.label) || [],
+            type: 'occupation'
+          });
+        }
+      });
+    }
+
+    // Add classified education
+    if (extractedData.classifiedEducation) {
+      extractedData.classifiedEducation.slice(0, 2).forEach((edu, idx) => {
+        if (edu.cnlClassification) {
+          items.push({
+            id: `edu-${idx}`,
+            original: edu.degree,
+            cnlLabel: edu.cnlClassification.prefLabel,
+            derivedSkills: edu.relatedSkills?.slice(0, 3).map(s => s.label) || [],
+            type: 'education'
+          });
+        }
+      });
+    }
+
+    return items;
+  }, [extractedData]);
+
+  // Use real items if available, otherwise demo
+  const items = realItems.length > 0 ? realItems : demoItems;
+
+  // Calculate total derived skills from aggregatedSkills if available
+  const totalDerivedSkillsFromAggregated = aggregatedSkills
+    ? (aggregatedSkills.bySource?.education || 0) + (aggregatedSkills.bySource?.occupation || 0)
+    : null;
 
   useEffect(() => {
     if (isActive) {
@@ -76,7 +124,10 @@ const ClassifyPhase: React.FC<ClassifyPhaseProps> = ({
     }
   }, [isActive, items.length]);
 
-  const totalDerivedSkills = items.reduce((sum, item) => sum + item.derivedSkills.length, 0);
+  // Use real count if available, otherwise calculate from items
+  const totalDerivedSkills = totalDerivedSkillsFromAggregated !== null
+    ? totalDerivedSkillsFromAggregated
+    : items.reduce((sum, item) => sum + item.derivedSkills.length, 0);
 
   return (
     <div className={`transition-opacity duration-500 ${isActive ? 'opacity-100' : isComplete ? 'opacity-50' : 'opacity-30'}`}>

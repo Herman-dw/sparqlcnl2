@@ -82,11 +82,28 @@ const QuickUploadAnimation: React.FC<QuickUploadAnimationProps> = ({
           />
         );
       case 'extracting':
+        // Build extracted words from real data if available
+        const extractedWords: string[] = [];
+        if (extractedData) {
+          // Add job titles
+          extractedData.workExperiences.forEach(w => {
+            if (w.jobTitle) extractedWords.push(w.jobTitle);
+          });
+          // Add degrees
+          extractedData.education.forEach(e => {
+            if (e.degree) extractedWords.push(e.degree);
+          });
+          // Add direct skills
+          extractedData.directSkills.forEach(s => {
+            if (s) extractedWords.push(s);
+          });
+        }
         return (
           <ExtractPhase
             {...phaseProps}
             data={{
-              wordCount: animationData.wordCount || 1500
+              wordCount: animationData.wordCount || 1500,
+              extractedWords: extractedWords.length > 0 ? extractedWords : undefined
             }}
           />
         );
@@ -108,6 +125,7 @@ const QuickUploadAnimation: React.FC<QuickUploadAnimationProps> = ({
           <ClassifyPhase
             {...phaseProps}
             aggregatedSkills={aggregatedSkills || undefined}
+            extractedData={extractedData || undefined}
           />
         );
       case 'matching':

@@ -15,21 +15,28 @@ import {
 } from '../../types/quickMatch';
 import QuickUploadConsent from './QuickUploadConsent';
 import QuickUploadAnimation from './QuickUploadAnimation';
+import CVToProfilePrompt from './CVToProfilePrompt';
 import { executeQuickMatch } from '../../services/quickMatchService';
 
-type ModalView = 'consent' | 'upload' | 'processing' | 'error';
+type ModalView = 'consent' | 'upload' | 'processing' | 'askProfile' | 'error';
 
-const QuickUploadMatchModal: React.FC<QuickUploadMatchModalProps> = ({
+interface ExtendedQuickUploadMatchModalProps extends QuickUploadMatchModalProps {
+  onAddToProfile?: (extractedData: any, aggregatedSkills: any) => void;
+}
+
+const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
   isOpen,
   sessionId,
   onComplete,
   onClose,
-  onGoToWizard
+  onGoToWizard,
+  onAddToProfile
 }) => {
   // State
   const [view, setView] = useState<ModalView>('consent');
   const [state, setState] = useState<QuickMatchState>(createInitialState());
   const [isDragging, setIsDragging] = useState(false);
+  const [pendingResult, setPendingResult] = useState<QuickMatchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -115,12 +122,19 @@ const QuickUploadMatchModal: React.FC<QuickUploadMatchModalProps> = ({
         abortControllerRef.current.signal
       );
 
-      // Success - pass results to parent
+      // Success - show completion animation
       setState(prev => ({ ...prev, phase: 'complete', progress: 100 }));
 
-      // Short delay to show completion animation
+      // Store result for later
+      setPendingResult(result);
+
+      // Short delay to show completion animation, then ask about profile
       setTimeout(() => {
-        onComplete(result);
+        if (onAddToProfile && (result.extraction || result.skillSources)) {
+          setView('askProfile');
+        } else {
+          onComplete(result);
+        }
       }, 1000);
 
     } catch (error) {
@@ -191,6 +205,23 @@ const QuickUploadMatchModal: React.FC<QuickUploadMatchModalProps> = ({
     handleClose();
     onGoToWizard();
   }, [handleClose, onGoToWizard]);
+
+  // Handle adding CV data to profile
+  const handleAddToProfile = useCallback(() => {
+    if (pendingResult && onAddToProfile) {
+      onAddToProfile(pendingResult.extraction, pendingResult.skillSources);
+    }
+    if (pendingResult) {
+      onComplete(pendingResult);
+    }
+  }, [pendingResult, onAddToProfile, onComplete]);
+
+  // Handle skipping profile addition
+  const handleSkipProfile = useCallback(() => {
+    if (pendingResult) {
+      onComplete(pendingResult);
+    }
+  }, [pendingResult, onComplete]);
 
   if (!isOpen) return null;
 
@@ -307,6 +338,16 @@ const QuickUploadMatchModal: React.FC<QuickUploadMatchModalProps> = ({
               anonymizationData={state.anonymizationData}
               extractedData={state.extractedData}
               aggregatedSkills={state.aggregatedSkills}
+            />
+          )}
+
+          {/* Ask Profile View */}
+          {view === 'askProfile' && (
+            <CVToProfilePrompt
+              extractedData={state.extractedData}
+              aggregatedSkills={state.aggregatedSkills}
+              onConfirm={handleAddToProfile}
+              onSkip={handleSkipProfile}
             />
           )}
 
