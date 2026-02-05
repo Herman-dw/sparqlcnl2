@@ -12,7 +12,6 @@ import mysql from 'mysql2/promise';
 import crypto from 'crypto';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
-import WordExtractor from 'word-extractor';
 import { GoogleGenAI } from '@google/genai';
 
 import {
@@ -95,6 +94,7 @@ export async function extractText(fileBuffer: Buffer, mimeType: string): Promise
     }
     // Fall back to word-extractor for old binary .doc files
     console.log('  [extractText] Using word-extractor for binary .doc format');
+    const WordExtractor = (await import('word-extractor')).default;
     const extractor = new WordExtractor();
     const doc = await extractor.extract(fileBuffer);
     const text = doc.getBody();
