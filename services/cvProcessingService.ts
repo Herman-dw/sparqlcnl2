@@ -595,6 +595,8 @@ export class CVProcessingService {
             ...(classifyResult.classifications?.skills || [])
           ];
 
+          let skippedLLMRejected = 0;
+
           for (const item of allClassifications) {
             const cls = item.classification;
 
@@ -606,6 +608,12 @@ export class CVProcessingService {
               );
               confirmed++;
             } else if (cls.needsReview && cls.alternatives && cls.alternatives.length > 0) {
+              // Skip auto-select if LLM explicitly rejected all candidates with GEEN_MATCH
+              if (cls.llmReviewed) {
+                skippedLLMRejected++;
+                continue;
+              }
+
               // No confident match, but alternatives exist - select best IF above threshold
               const bestAlt = cls.alternatives[0]; // Already sorted by confidence
 
@@ -631,7 +639,7 @@ export class CVProcessingService {
             }
           }
 
-          console.log(`  ✓ Confirmed: ${confirmed}, Auto-selected: ${autoSelected}, Skipped (low confidence): ${skippedLowConfidence}`);
+          console.log(`  ✓ Confirmed: ${confirmed}, Auto-selected: ${autoSelected}, Skipped (low confidence): ${skippedLowConfidence}, Skipped (LLM rejected): ${skippedLLMRejected}`);
         }
       }
 

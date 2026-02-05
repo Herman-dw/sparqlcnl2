@@ -70,6 +70,7 @@ export interface ClassificationResult {
   };
   alternatives?: AlternativeMatch[];
   needsReview: boolean;
+  llmReviewed?: boolean;  // True when LLM explicitly rejected all candidates with GEEN_MATCH
 }
 
 export interface AlternativeMatch {
@@ -515,6 +516,7 @@ export class CNLClassificationService {
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, CLASSIFICATION_CONFIG.llm.maxCandidates);
 
+    let llmReviewed = false;
     if (options?.useLLMFallback && isGeminiAvailable() && uniqueAlternatives.length > 0) {
       const llmResult = await this.tryLLMMatch(
         value, context, conceptType, uniqueAlternatives, structuredContext
@@ -523,6 +525,8 @@ export class CNLClassificationService {
         console.log(`    ✓ LLM rerank: ${llmResult.match?.prefLabel} (${(llmResult.confidence * 100).toFixed(0)}%)`);
         return llmResult;
       }
+      // Track if LLM explicitly rejected with GEEN_MATCH
+      llmReviewed = llmResult.llmReviewed || false;
     }
 
     // ── Stap 5: Handmatige review ───────────────────────────────────────
@@ -535,7 +539,8 @@ export class CNLClassificationService {
       confidence: topAlternatives.length > 0 ? topAlternatives[0].confidence : 0,
       method: 'manual',
       alternatives: topAlternatives,
-      needsReview: true
+      needsReview: true,
+      llmReviewed  // Pass through the LLM rejection flag
     };
   }
 
@@ -942,7 +947,8 @@ REDEN: [korte reden in max 10 woorden]`;
           confidence: 0,
           method: 'llm',
           alternatives: candidates.slice(0, CLASSIFICATION_CONFIG.maxAlternatives),
-          needsReview: true
+          needsReview: true,
+          llmReviewed: true  // LLM explicitly said GEEN_MATCH
         };
       }
 
@@ -1118,6 +1124,12 @@ REDEN: [korte reden in max 10 woorden]`;
     extractionId: number,
     result: ClassificationResult
   ): Promise<void> {
+    // Include llmReviewed flag in the JSON for auto-select to check
+    const alternativesData = {
+      alternatives: result.alternatives || [],
+      llmReviewed: result.llmReviewed || false
+    };
+
     await this.db.execute(`
       UPDATE cv_extractions SET
         matched_cnl_uri = ?,
@@ -1134,7 +1146,7 @@ REDEN: [korte reden in max 10 woorden]`;
       result.match?.prefLabel || null,
       result.confidence,
       result.method,
-      JSON.stringify(result.alternatives || []),
+      JSON.stringify(alternativesData),
       result.needsReview,
       extractionId
     ]);
