@@ -25,6 +25,7 @@ import SkillSearchInput from './SkillSearchInput';
 import { SessionProfile, ProfileSource } from '../types/profile';
 import { normalizeLabel } from '../state/profileUtils';
 import { QuickExtractedData, AggregatedSkills } from '../types/quickMatch';
+import CVDataReviewModal, { CVReviewResult } from './CVDataReviewModal';
 
 type SourceMap = Record<string, { label: string; sources: ProfileSource[] }>;
 
@@ -359,6 +360,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   const [executionTime, setExecutionTime] = useState<number>(0);
   const [profileSourceMap, setProfileSourceMap] = useState<SourceMap>({});
   const [cvAddedToProfile, setCvAddedToProfile] = useState(false);
+  const [showCVReviewModal, setShowCVReviewModal] = useState(false);
 
   const manualSource: ProfileSource = useMemo(
     () => ({ id: 'manual', label: 'Handmatig toegevoegd', type: 'manual' }),
@@ -390,6 +392,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
     if (isOpen) {
       setError(null);
       setCvAddedToProfile(false);
+      setShowCVReviewModal(false);
 
       // If CV match data is provided, show results directly (even if empty)
       if (cvMatchData && cvMatchData.matches) {
@@ -517,13 +520,50 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
     handleMatch();
   };
 
-  // Handle adding CV data to profile
+  // Handle opening the CV review modal
   const handleAddCVToProfile = useCallback(() => {
-    if (cvMatchData?.extraction && cvMatchData?.skillSources && onAddToProfile) {
-      console.log('[MatchModal] Adding CV data to profile');
-      onAddToProfile(cvMatchData.extraction, cvMatchData.skillSources);
-      setCvAddedToProfile(true);
+    if (cvMatchData?.extraction && cvMatchData?.skillSources) {
+      console.log('[MatchModal] Opening CV review modal');
+      setShowCVReviewModal(true);
     }
+  }, [cvMatchData]);
+
+  // Handle CV review completion
+  const handleCVReviewConfirm = useCallback((result: CVReviewResult) => {
+    console.log('[MatchModal] CV review confirmed:', result);
+    setShowCVReviewModal(false);
+
+    // Store feedback for model improvement
+    if (result.feedback && result.feedback.length > 0) {
+      const backendUrl = localStorage.getItem('local_backend_url') || 'http://localhost:3001';
+      fetch(`${backendUrl}/api/cv/classification-feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedback: result.feedback })
+      }).catch(err => {
+        console.warn('[MatchModal] Failed to store classification feedback:', err);
+      });
+    }
+
+    // Build aggregatedSkills-like structure from the review result
+    if (onAddToProfile && cvMatchData?.extraction) {
+      const skillsBySource = {
+        direct: result.selectedSkills.filter(s => s.source === 'CV' || s.source === 'direct'),
+        fromEducation: result.selectedSkills.filter(s => s.source.includes('Opleiding') || s.source === 'education'),
+        fromOccupation: result.selectedSkills.filter(s => s.source.includes('Beroep') || s.source === 'occupation'),
+        combined: result.selectedSkills.map(s => s.label),
+        totalCount: result.selectedSkills.length,
+        bySource: {
+          direct: result.selectedSkills.filter(s => s.source === 'CV' || s.source === 'direct').length,
+          education: result.selectedSkills.filter(s => s.source.includes('Opleiding') || s.source === 'education').length,
+          occupation: result.selectedSkills.filter(s => s.source.includes('Beroep') || s.source === 'occupation').length
+        }
+      };
+
+      onAddToProfile(cvMatchData.extraction, skillsBySource as AggregatedSkills);
+    }
+
+    setCvAddedToProfile(true);
   }, [cvMatchData, onAddToProfile]);
 
   // Check if CV data is available to add to profile
@@ -913,6 +953,17 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
           </div>
         )}
       </div>
+
+      {/* CV Data Review Modal */}
+      {cvMatchData?.extraction && cvMatchData?.skillSources && (
+        <CVDataReviewModal
+          isOpen={showCVReviewModal}
+          onClose={() => setShowCVReviewModal(false)}
+          extractedData={cvMatchData.extraction}
+          skillSources={cvMatchData.skillSources}
+          onConfirm={handleCVReviewConfirm}
+        />
+      )}
     </div>
   );
 };

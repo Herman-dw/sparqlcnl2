@@ -1384,6 +1384,82 @@ export function createCVRoutes(db: Pool): Router {
   });
 
   // ========================================================================
+  // POST /api/cv/classification-feedback
+  // Store user feedback on classification correctness for model improvement
+  // ========================================================================
+  router.post('/classification-feedback', async (req: Request, res: Response) => {
+    try {
+      const { feedback } = req.body;
+
+      if (!feedback || !Array.isArray(feedback)) {
+        return res.status(400).json({
+          error: 'Invalid feedback data',
+          code: 'INVALID_FEEDBACK',
+          message: 'Feedback must be an array',
+          timestamp: new Date()
+        } as ErrorResponse);
+      }
+
+      // Store feedback in database for later analysis
+      const feedbackId = Date.now();
+      const feedbackPath = `${__dirname}/../data/classification_feedback`;
+
+      // Ensure directory exists
+      const fs = require('fs');
+      if (!fs.existsSync(feedbackPath)) {
+        fs.mkdirSync(feedbackPath, { recursive: true });
+      }
+
+      // Write feedback to file (JSON lines format for easy analysis)
+      const feedbackFile = `${feedbackPath}/feedback_${feedbackId}.json`;
+      fs.writeFileSync(feedbackFile, JSON.stringify({
+        id: feedbackId,
+        timestamp: new Date().toISOString(),
+        feedback: feedback,
+        summary: {
+          total: feedback.length,
+          correct: feedback.filter((f: any) => f.isCorrect === true).length,
+          incorrect: feedback.filter((f: any) => f.isCorrect === false).length,
+          unrated: feedback.filter((f: any) => f.isCorrect === null).length,
+          removed: feedback.filter((f: any) => f.removed).length,
+          byType: {
+            skill: feedback.filter((f: any) => f.itemType === 'skill').length,
+            work: feedback.filter((f: any) => f.itemType === 'work').length,
+            education: feedback.filter((f: any) => f.itemType === 'education').length
+          }
+        }
+      }, null, 2));
+
+      console.log(`[Classification Feedback] Stored ${feedback.length} feedback items to ${feedbackFile}`);
+
+      // Also log summary to console for monitoring
+      const incorrect = feedback.filter((f: any) => f.isCorrect === false);
+      if (incorrect.length > 0) {
+        console.log('[Classification Feedback] Incorrect classifications reported:');
+        incorrect.forEach((f: any) => {
+          console.log(`  - ${f.itemType}: "${f.originalLabel}" -> "${f.classifiedLabel}" (user correction: "${f.userCorrectedLabel || 'none'}")`);
+        });
+      }
+
+      res.json({
+        success: true,
+        feedbackId,
+        stored: feedback.length,
+        message: 'Bedankt voor je feedback! Dit helpt ons het model te verbeteren.'
+      });
+
+    } catch (error) {
+      console.error('Classification feedback error:', error);
+      res.status(500).json({
+        error: 'Feedback storage failed',
+        code: 'FEEDBACK_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date()
+      } as ErrorResponse);
+    }
+  });
+
+  // ========================================================================
   // POST /api/cv/:cvId/match
   // Convert CV to profile and run occupation matching
   // ========================================================================
