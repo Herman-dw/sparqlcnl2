@@ -4,11 +4,11 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  X, Target, Plus, Trash2, Loader2, 
+import {
+  X, Target, Plus, Trash2, Loader2,
   ChevronDown, ChevronUp, AlertCircle, CheckCircle,
   Briefcase, GraduationCap, Sparkles, ArrowRight,
-  Download, RefreshCcw
+  Download, RefreshCcw, UserCircle
 } from 'lucide-react';
 import { 
   MatchProfile, 
@@ -24,6 +24,7 @@ import {
 import SkillSearchInput from './SkillSearchInput';
 import { SessionProfile, ProfileSource } from '../types/profile';
 import { normalizeLabel } from '../state/profileUtils';
+import { QuickExtractedData, AggregatedSkills } from '../types/quickMatch';
 
 type SourceMap = Record<string, { label: string; sources: ProfileSource[] }>;
 
@@ -79,12 +80,16 @@ const buildSourceMap = (profile?: SessionProfile, fallbackSkills: string[] = [])
 
 interface CVMatchData {
   matches: MatchResult[];
-  profile: {
+  matchCount?: number;
+  profile?: {
     occupationHistory?: { occupationLabel: string }[];
     capabilities?: number;
     knowledge?: number;
     tasks?: number;
   };
+  // CV extraction data for "add to profile" feature
+  extraction?: QuickExtractedData;
+  skillSources?: AggregatedSkills;
 }
 
 interface MatchModalProps {
@@ -94,6 +99,7 @@ interface MatchModalProps {
   initialSkills?: string[];  // Pre-selected skills (e.g., from RIASEC flow)
   presetProfile?: SessionProfile;
   cvMatchData?: CVMatchData;  // Pre-computed match results from CV
+  onAddToProfile?: (extractedData: QuickExtractedData, skillSources: AggregatedSkills) => void;
 }
 
 // ============================================================
@@ -338,7 +344,7 @@ const MatchResultCard: React.FC<MatchResultCardProps> = ({ result, rank, expande
 // MAIN MODAL COMPONENT
 // ============================================================
 
-const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplete, initialSkills, presetProfile, cvMatchData }) => {
+const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplete, initialSkills, presetProfile, cvMatchData, onAddToProfile }) => {
   // State
   const [view, setView] = useState<MatchModalView>('builder');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
@@ -352,6 +358,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   const [expandedResult, setExpandedResult] = useState<number | null>(0);
   const [executionTime, setExecutionTime] = useState<number>(0);
   const [profileSourceMap, setProfileSourceMap] = useState<SourceMap>({});
+  const [cvAddedToProfile, setCvAddedToProfile] = useState(false);
 
   const manualSource: ProfileSource = useMemo(
     () => ({ id: 'manual', label: 'Handmatig toegevoegd', type: 'manual' }),
@@ -382,6 +389,7 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   useEffect(() => {
     if (isOpen) {
       setError(null);
+      setCvAddedToProfile(false);
 
       // If CV match data is provided, show results directly (even if empty)
       if (cvMatchData && cvMatchData.matches) {
@@ -508,6 +516,21 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
   const handleRetry = () => {
     handleMatch();
   };
+
+  // Handle adding CV data to profile
+  const handleAddCVToProfile = useCallback(() => {
+    if (cvMatchData?.extraction && cvMatchData?.skillSources && onAddToProfile) {
+      console.log('[MatchModal] Adding CV data to profile');
+      onAddToProfile(cvMatchData.extraction, cvMatchData.skillSources);
+      setCvAddedToProfile(true);
+    }
+  }, [cvMatchData, onAddToProfile]);
+
+  // Check if CV data is available to add to profile
+  const hasCVDataToAdd = !!(cvMatchData?.extraction && cvMatchData?.skillSources && onAddToProfile);
+  const cvSkillCount = cvMatchData?.skillSources?.totalCount || cvMatchData?.skillSources?.combined?.length || 0;
+  const cvJobCount = cvMatchData?.extraction?.workExperiences?.length || 0;
+  const cvEduCount = cvMatchData?.extraction?.education?.length || 0;
 
   if (!isOpen) return null;
 
@@ -699,38 +722,104 @@ const MatchModal: React.FC<MatchModalProps> = ({ isOpen, onClose, onMatchComplet
                 </button>
               </div>
 
-              {/* Profile summary */}
-              <div className="text-sm text-slate-500 space-y-2">
-                <div className="flex flex-wrap gap-3">
-                  <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 text-xs font-semibold">
-                    Vaardigheden: {selectedSkills.length}
-                  </span>
-                  <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 text-xs font-semibold">
-                    Kennisgebieden: {selectedKnowledge.length}
-                  </span>
-                  <span className="px-2 py-1 bg-teal-50 text-teal-700 rounded-full border border-teal-100 text-xs font-semibold">
-                    Taken: {selectedTasks.length}
-                  </span>
-                  <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full border border-amber-100 text-xs font-semibold">
-                    Werkomstandigheden: {selectedWorkConditions.length}
-                  </span>
-                </div>
-                {Object.keys(selectedProfileSources).length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {Object.values(selectedProfileSources).map((item) => (
-                      <span
-                        key={item.label}
-                        className="text-[11px] bg-slate-100 text-slate-700 px-2 py-1 rounded border border-slate-200"
-                      >
-                        {item.label}
-                        <span className="ml-1 text-[10px] text-slate-500">
-                          {item.sources.map((s) => s.label).join(', ')}
-                        </span>
-                      </span>
-                    ))}
+              {/* Profile summary - only show if we're not coming from CV upload */}
+              {!hasCVDataToAdd && (
+                <div className="text-sm text-slate-500 space-y-2">
+                  <div className="flex flex-wrap gap-3">
+                    <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 text-xs font-semibold">
+                      Vaardigheden: {selectedSkills.length}
+                    </span>
+                    <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100 text-xs font-semibold">
+                      Kennisgebieden: {selectedKnowledge.length}
+                    </span>
+                    <span className="px-2 py-1 bg-teal-50 text-teal-700 rounded-full border border-teal-100 text-xs font-semibold">
+                      Taken: {selectedTasks.length}
+                    </span>
+                    <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full border border-amber-100 text-xs font-semibold">
+                      Werkomstandigheden: {selectedWorkConditions.length}
+                    </span>
                   </div>
-                )}
-              </div>
+                  {Object.keys(selectedProfileSources).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.values(selectedProfileSources).map((item) => (
+                        <span
+                          key={item.label}
+                          className="text-[11px] bg-slate-100 text-slate-700 px-2 py-1 rounded border border-slate-200"
+                        >
+                          {item.label}
+                          <span className="ml-1 text-[10px] text-slate-500">
+                            {item.sources.map((s) => s.label).join(', ')}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* CV to Profile Card - shown after CV upload */}
+              {hasCVDataToAdd && (
+                <div className={`border rounded-xl p-4 transition-all ${
+                  cvAddedToProfile
+                    ? 'bg-emerald-50 border-emerald-200'
+                    : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'
+                }`}>
+                  {cvAddedToProfile ? (
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                        <CheckCircle className="w-5 h-5 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-emerald-700">CV gegevens toegevoegd!</p>
+                        <p className="text-sm text-emerald-600">
+                          {cvSkillCount} vaardigheden zijn aan je profiel toegevoegd.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                        <UserCircle className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-slate-800 mb-1">
+                          CV gegevens toevoegen aan profiel?
+                        </h4>
+                        <p className="text-sm text-slate-600 mb-3">
+                          Voeg de geëxtraheerde gegevens toe aan je profiel voor betere matches in de toekomst.
+                        </p>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          {cvJobCount > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                              <Briefcase className="w-3 h-3" />
+                              {cvJobCount} beroep{cvJobCount !== 1 ? 'en' : ''}
+                            </span>
+                          )}
+                          {cvEduCount > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
+                              <GraduationCap className="w-3 h-3" />
+                              {cvEduCount} opleiding{cvEduCount !== 1 ? 'en' : ''}
+                            </span>
+                          )}
+                          {cvSkillCount > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">
+                              <Sparkles className="w-3 h-3" />
+                              {cvSkillCount} vaardighe{cvSkillCount !== 1 ? 'den' : 'id'}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={handleAddCVToProfile}
+                          className="px-4 py-2 text-sm font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg hover:from-blue-600 hover:to-indigo-600 transition-all shadow hover:shadow-lg flex items-center gap-2"
+                        >
+                          Toevoegen aan profiel
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Results list */}
               <div className="space-y-3">

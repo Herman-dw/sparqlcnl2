@@ -1428,50 +1428,8 @@ const App: React.FC = () => {
         initialSkills={riasecSelectedCapabilities.map(cap => cap.label)}
         presetProfile={combinedProfile}
         cvMatchData={cvMatchResults}
-      />
-      <ProfileHistoryWizard
-        isOpen={showProfileWizard}
-        onClose={() => setShowProfileWizard(false)}
-        onProfileReady={() => setShowMatchModal(true)}
-      />
-
-      {/* CV Upload Modal (Quick Mode) */}
-      <CVUploadModal
-        isOpen={showCVUpload}
-        sessionId={sessionId}
-        backendUrl={localBackendUrl}
-        onClose={() => setShowCVUpload(false)}
-        onComplete={(cvId) => {
-          setCurrentCvId(cvId);
-          setShowCVUpload(false);
-          setShowCVReview(true);
-        }}
-      />
-
-      {/* CV Parsing Wizard (Step-by-step Mode) */}
-      <CVParsingWizard
-        isOpen={showCVWizard}
-        sessionId={sessionId}
-        backendUrl={localBackendUrl}
-        onClose={() => setShowCVWizard(false)}
-        onComplete={(cvId) => {
-          setCurrentCvId(cvId);
-          setShowCVWizard(false);
-          setShowCVReview(true);
-        }}
-      />
-
-      {/* Quick Upload & Match Modal */}
-      <QuickUploadMatchModal
-        isOpen={showQuickMatch}
-        sessionId={sessionId}
-        onClose={() => setShowQuickMatch(false)}
-        onGoToWizard={() => {
-          setShowQuickMatch(false);
-          setShowCVWizard(true);
-        }}
         onAddToProfile={(extractedData, aggregatedSkills) => {
-          console.log('[App] onAddToProfile called with:');
+          console.log('[App] onAddToProfile from MatchModal called');
           console.log('  - extractedData:', extractedData);
           console.log('  - aggregatedSkills:', aggregatedSkills);
 
@@ -1520,11 +1478,55 @@ const App: React.FC = () => {
             console.log('[App] Added', skillsToAdd.length, 'skills from CV to profile');
           }
         }}
+      />
+      <ProfileHistoryWizard
+        isOpen={showProfileWizard}
+        onClose={() => setShowProfileWizard(false)}
+        onProfileReady={() => setShowMatchModal(true)}
+      />
+
+      {/* CV Upload Modal (Quick Mode) */}
+      <CVUploadModal
+        isOpen={showCVUpload}
+        sessionId={sessionId}
+        backendUrl={localBackendUrl}
+        onClose={() => setShowCVUpload(false)}
+        onComplete={(cvId) => {
+          setCurrentCvId(cvId);
+          setShowCVUpload(false);
+          setShowCVReview(true);
+        }}
+      />
+
+      {/* CV Parsing Wizard (Step-by-step Mode) */}
+      <CVParsingWizard
+        isOpen={showCVWizard}
+        sessionId={sessionId}
+        backendUrl={localBackendUrl}
+        onClose={() => setShowCVWizard(false)}
+        onComplete={(cvId) => {
+          setCurrentCvId(cvId);
+          setShowCVWizard(false);
+          setShowCVReview(true);
+        }}
+      />
+
+      {/* Quick Upload & Match Modal */}
+      <QuickUploadMatchModal
+        isOpen={showQuickMatch}
+        sessionId={sessionId}
+        onClose={() => setShowQuickMatch(false)}
+        onGoToWizard={() => {
+          setShowQuickMatch(false);
+          setShowCVWizard(true);
+        }}
         onComplete={(result) => {
           setShowQuickMatch(false);
           // Store match results and open match modal with results
           if (result && result.matches) {
             console.log('[App] Quick match results received:', result.matchCount, 'matches');
+            console.log('[App] Result extraction:', result.extraction);
+            console.log('[App] Result skillSources:', result.skillSources);
             setCvMatchResults({
               matches: result.matches,
               matchCount: result.matchCount || result.matches.length,
@@ -1532,7 +1534,10 @@ const App: React.FC = () => {
                 capabilities: result.skillSources.combined?.length || 0,
                 knowledge: 0,
                 tasks: 0
-              } : undefined
+              } : undefined,
+              // Pass extraction data for "add to profile" feature
+              extraction: result.extraction,
+              skillSources: result.skillSources
             });
           }
           setShowMatchModal(true);

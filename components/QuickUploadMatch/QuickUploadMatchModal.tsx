@@ -19,17 +19,12 @@ import { executeQuickMatch } from '../../services/quickMatchService';
 
 type ModalView = 'consent' | 'upload' | 'processing' | 'error';
 
-interface ExtendedQuickUploadMatchModalProps extends QuickUploadMatchModalProps {
-  onAddToProfile?: (extractedData: any, aggregatedSkills: any) => void;
-}
-
-const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
+const QuickUploadMatchModal: React.FC<QuickUploadMatchModalProps> = ({
   isOpen,
   sessionId,
   onComplete,
   onClose,
-  onGoToWizard,
-  onAddToProfile
+  onGoToWizard
 }) => {
   // State
   const [view, setView] = useState<ModalView>('consent');
