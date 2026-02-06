@@ -8,7 +8,8 @@ import {
   Send, Database, Download, Filter, Info, Trash2, Loader2,
   Settings, Save, Wifi, WifiOff, RefreshCcw, ShieldAlert, Server,
   HelpCircle, CheckCircle, ThumbsUp, ThumbsDown, Target, ListChecks,
-  Mic, MicOff, InfoIcon, RefreshCw, AlertCircle, Moon, Sun, Upload, FileText
+  Mic, MicOff, InfoIcon, RefreshCw, AlertCircle, Moon, Sun, Upload, FileText,
+  Sparkles
 } from 'lucide-react';
 import { Message, ResourceType } from './types';
 import { GRAPH_OPTIONS } from './constants';  // EXAMPLES verwijderd - nu dynamisch
@@ -33,6 +34,7 @@ import CVReviewScreen from './components/CVReviewScreen';
 import CVParsingWizard from './components/CVParsingWizard';
 import ServiceStatusBar from './components/ServiceStatusBar';
 import { QuickUploadMatchModal } from './components/QuickUploadMatch';
+import ProfilePanel from './components/ProfilePanel';
 import { Zap } from 'lucide-react';
 import { useProfileStore } from './state/profileStore';
 import { ProfileItemWithSource, SessionProfile } from './types/profile';
@@ -211,7 +213,7 @@ const App: React.FC = () => {
   // Quick Upload & Match state
   const [showQuickMatch, setShowQuickMatch] = useState(false);
 
-  const { profile, mergeProfile } = useProfileStore();
+  const { profile, mergeProfile, clearProfile } = useProfileStore();
 
   // =====================================================
   // DYNAMISCHE VOORBEELDVRAGEN
@@ -989,6 +991,22 @@ const App: React.FC = () => {
             <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed">
               Selecteer vaardigheden en ontdek welke beroepen bij je passen. Actief profiel: {totalProfileItems} items.
             </p>
+          </div>
+
+          {/* Profiel Weergave */}
+          <div className="space-y-3">
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Sparkles className="w-3 h-3" /> Mijn Profiel
+            </h3>
+            <ProfilePanel
+              profile={combinedProfile}
+              onRemoveItem={(category, uri) => {
+                // Remove item from profile
+                const updatedCategory = profile[category].filter(item => item.uri !== uri);
+                mergeProfile({ [category]: updatedCategory });
+              }}
+              onClearProfile={clearProfile}
+            />
           </div>
 
           <div className="space-y-4">
