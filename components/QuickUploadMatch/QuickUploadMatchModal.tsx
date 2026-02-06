@@ -15,10 +15,9 @@ import {
 } from '../../types/quickMatch';
 import QuickUploadConsent from './QuickUploadConsent';
 import QuickUploadAnimation from './QuickUploadAnimation';
-import CVToProfilePrompt from './CVToProfilePrompt';
 import { executeQuickMatch } from '../../services/quickMatchService';
 
-type ModalView = 'consent' | 'upload' | 'processing' | 'askProfile' | 'error';
+type ModalView = 'consent' | 'upload' | 'processing' | 'error';
 
 interface ExtendedQuickUploadMatchModalProps extends QuickUploadMatchModalProps {
   onAddToProfile?: (extractedData: any, aggregatedSkills: any) => void;
@@ -36,17 +35,95 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
   const [view, setView] = useState<ModalView>('consent');
   const [state, setState] = useState<QuickMatchState>(createInitialState());
   const [isDragging, setIsDragging] = useState(false);
-  const [pendingResult, setPendingResult] = useState<QuickMatchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Visual animation state - separate from actual processing state
+  const [visualPhase, setVisualPhase] = useState<QuickMatchPhase>('consent');
+  const [visualProgress, setVisualProgress] = useState(0);
+  const visualAnimationRef = useRef<NodeJS.Timeout | null>(null);
+  const processingCompleteRef = useRef(false);
+
+  // Visual animation timing config (in ms) - longer early phases, shorter later phases
+  const VISUAL_PHASE_DURATIONS: Record<string, number> = {
+    uploading: 3000,     // 3s - feel substantial
+    anonymizing: 4000,   // 4s - important step, show it
+    extracting: 5000,    // 5s - core analysis
+    categorizing: 2500,  // 2.5s - quick sort
+    classifying: 3000,   // 3s - matching to taxonomy
+    matching: 2000       // 2s - finding jobs
+  };
+
+  // Start visual animation when processing begins
+  const startVisualAnimation = useCallback(() => {
+    processingCompleteRef.current = false;
+    const phases: QuickMatchPhase[] = ['uploading', 'anonymizing', 'extracting', 'categorizing', 'classifying', 'matching'];
+    let currentPhaseIdx = 0;
+    let phaseProgress = 0;
+    const tickInterval = 50; // Update every 50ms
+
+    const animate = () => {
+      if (processingCompleteRef.current) {
+        // Processing finished - jump to complete
+        setVisualPhase('complete');
+        setVisualProgress(100);
+        return;
+      }
+
+      const currentPhase = phases[currentPhaseIdx];
+      const phaseDuration = VISUAL_PHASE_DURATIONS[currentPhase] || 3000;
+      const progressPerTick = (100 / (phaseDuration / tickInterval));
+
+      phaseProgress += progressPerTick;
+
+      if (phaseProgress >= 100) {
+        // Move to next phase
+        currentPhaseIdx++;
+        phaseProgress = 0;
+
+        if (currentPhaseIdx >= phases.length) {
+          // All visual phases done, but processing might still be running
+          // Just show last phase at 100% until processing completes
+          setVisualPhase('matching');
+          setVisualProgress(100);
+          return;
+        }
+
+        setVisualPhase(phases[currentPhaseIdx]);
+      }
+
+      // Calculate overall progress
+      const phaseWeight = 100 / phases.length;
+      const overallProgress = (currentPhaseIdx * phaseWeight) + (phaseProgress * phaseWeight / 100);
+      setVisualProgress(Math.min(overallProgress, 99)); // Never hit 100 until complete
+
+      visualAnimationRef.current = setTimeout(animate, tickInterval);
+    };
+
+    setVisualPhase('uploading');
+    setVisualProgress(0);
+    animate();
+  }, []);
+
+  // Stop visual animation
+  const stopVisualAnimation = useCallback(() => {
+    if (visualAnimationRef.current) {
+      clearTimeout(visualAnimationRef.current);
+      visualAnimationRef.current = null;
+    }
+  }, []);
 
   // Reset state when modal opens
   React.useEffect(() => {
     if (isOpen) {
       setView('consent');
       setState(createInitialState());
+      setVisualPhase('consent');
+      setVisualProgress(0);
+      processingCompleteRef.current = false;
     }
-  }, [isOpen]);
+    return () => stopVisualAnimation();
+  }, [isOpen, stopVisualAnimation]);
 
   // Handle consent given
   const handleConsent = useCallback(() => {
@@ -97,6 +174,9 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
       }
     }));
 
+    // Start visual animation (independent timing)
+    startVisualAnimation();
+
     // Create abort controller
     abortControllerRef.current = new AbortController();
 
@@ -105,7 +185,7 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
         file,
         sessionId,
         state.consentTimestamp || new Date().toISOString(),
-        // Progress callback
+        // Progress callback - still track actual data for the animation to display
         (phase: QuickMatchPhase, progress: number, data?: any) => {
           setState(prev => ({
             ...prev,
@@ -122,22 +202,25 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
         abortControllerRef.current.signal
       );
 
-      // Success - show completion animation
+      // Processing complete - immediately stop visual animation
+      processingCompleteRef.current = true;
+      stopVisualAnimation();
+      setVisualPhase('complete');
+      setVisualProgress(100);
+
+      // Success - update actual state
       setState(prev => ({ ...prev, phase: 'complete', progress: 100 }));
 
-      // Store result for later
-      setPendingResult(result);
-
-      // Short delay to show completion animation, then ask about profile
+      // Short delay to show completion animation, then go to match results
       setTimeout(() => {
-        if (onAddToProfile && (result.extraction || result.skillSources)) {
-          setView('askProfile');
-        } else {
-          onComplete(result);
-        }
+        onComplete(result);
       }, 1000);
 
     } catch (error) {
+      // Stop visual animation on error
+      processingCompleteRef.current = true;
+      stopVisualAnimation();
+
       if (error instanceof Error && error.name === 'AbortError') {
         // User cancelled
         return;
@@ -150,7 +233,7 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
       }));
       setView('error');
     }
-  }, [sessionId, state.consentTimestamp, onComplete]);
+  }, [sessionId, state.consentTimestamp, onComplete, startVisualAnimation, stopVisualAnimation]);
 
   // Handle file input change
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,30 +288,6 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
     handleClose();
     onGoToWizard();
   }, [handleClose, onGoToWizard]);
-
-  // Handle adding CV data to profile - now receives data directly from CVToProfilePrompt
-  const handleAddToProfile = useCallback((extractedData: any, aggregatedSkills: any) => {
-    console.log('[QuickUploadMatchModal] handleAddToProfile called with direct data');
-    console.log('  - extractedData:', extractedData);
-    console.log('  - aggregatedSkills:', aggregatedSkills);
-    console.log('  - aggregatedSkills.combined:', aggregatedSkills?.combined);
-    console.log('  - onAddToProfile defined:', !!onAddToProfile);
-
-    if (onAddToProfile && aggregatedSkills) {
-      console.log('[QuickUploadMatchModal] Calling onAddToProfile with data');
-      onAddToProfile(extractedData, aggregatedSkills);
-    }
-    if (pendingResult) {
-      onComplete(pendingResult);
-    }
-  }, [pendingResult, onAddToProfile, onComplete]);
-
-  // Handle skipping profile addition
-  const handleSkipProfile = useCallback(() => {
-    if (pendingResult) {
-      onComplete(pendingResult);
-    }
-  }, [pendingResult, onComplete]);
 
   if (!isOpen) return null;
 
@@ -339,22 +398,12 @@ const QuickUploadMatchModal: React.FC<ExtendedQuickUploadMatchModalProps> = ({
           {/* Processing View */}
           {view === 'processing' && (
             <QuickUploadAnimation
-              phase={state.phase}
-              progress={state.progress}
+              phase={visualPhase}
+              progress={visualProgress}
               animationData={state.animationData}
               anonymizationData={state.anonymizationData}
               extractedData={state.extractedData}
               aggregatedSkills={state.aggregatedSkills}
-            />
-          )}
-
-          {/* Ask Profile View */}
-          {view === 'askProfile' && (
-            <CVToProfilePrompt
-              extractedData={state.extractedData}
-              aggregatedSkills={state.aggregatedSkills}
-              onConfirm={handleAddToProfile}
-              onSkip={handleSkipProfile}
             />
           )}
 
